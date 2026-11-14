@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    The ball from the canvas (drawBall in src/render.ts), flat: a circle of the deeper green, the lighter
+    green over it shifted up and to the right so the deeper green shows as a sliver at the lower left, and
+    the seam in white. The seam is the curve traced in render.ts, about twice as thick so it holds up at
+    16 px, and it stops just short of the outline so the ball stays round on a light tab bar.
+    The colors are the page's ball-shade, ball and white variables from src/site.css. An icon cannot read
+    the page's CSS, so they are written out here, and e2e/favicon.spec.ts fails if they drift apart.
+    favicon.png is this file drawn at 64 px: after changing it, run scripts/favicon-png.mjs.
+  -->
+  <defs>
+    <clipPath id="ball"><circle cx="32" cy="32" r="31" /></clipPath>
+    <clipPath id="inside"><circle cx="32" cy="32" r="29" /></clipPath>
+  </defs>
+  <g clip-path="url(#ball)">
+    <circle cx="32" cy="32" r="31" fill="#b4c738" />
+    <circle cx="35.7" cy="28.3" r="31" fill="#d5e645" />
+    <path
+      clip-path="url(#inside)"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="6"
+      d="M-0.9 32.9
+         Q14.6 26.4 21.8 22.1
+         Q28.9 17.7 34.8 15.6
+         Q40.7 13.4 46.1 14.5
+         Q51.5 15.6 54.8 19.9
+         Q58 24.3 59.1 29.7
+         Q60.2 35.1 59.1 40.7
+         Q58 46.3 54.8 50.6
+         Q51.5 54.9 46.4 57.9
+         Q41.3 60.8 35.1 64.9"
+    />
+  </g>
+</svg>
