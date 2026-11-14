@@ -4,13 +4,13 @@ import { readPalette } from "./palette";
 import { params } from "./params";
 import { Court, STEP, type Ball } from "./physics";
 import { Renderer, type BallSprite } from "./render";
+import { leavesTrail } from "./trail";
 import { mountTuner } from "./tune";
 import { layoutName, type NameLayout } from "./wordmark";
 import { WORDMARKS } from "./wordmark.data";
 
 const REFILL_DELAY_MS = 1200; // longer than a tapped ball takes to go straight up and come back down
 const RISE_MS = 260; // how long a fresh ball takes to rise out of the stem
-const TRAIL_MIN_SPEED = 1; // m/s; slower balls leave no trail
 const MAX_BALLS = 60; // past this, the oldest loose ball makes way for each new one
 
 /** An "i": the spot where its dot sits. Its stem never runs out of balls. Meters, y up. */
@@ -285,9 +285,7 @@ function main(): void {
     const alpha = pending / STEP;
     const sprites = court.balls.map((b) => sprite(b, alpha));
     court.balls.forEach((b, i) => {
-      if (!b.pinned && !b.held && Math.hypot(b.vx, b.vy) > TRAIL_MIN_SPEED) {
-        renderer.trail(b.id, sprites[i].x, sprites[i].y, now);
-      }
+      if (leavesTrail(b)) renderer.trail(sprites[i], now);
     });
     renderer.draw(now, sprites, risingSprites());
     requestAnimationFrame(frame);

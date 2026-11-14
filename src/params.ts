@@ -31,6 +31,14 @@ export const params = {
   // keeps a contrast of 4.5 against the brightest thing behind it (the blurred name), which is why 0.65.
   creditsBlur: 10, // px
   creditsDim: 0.65, // 0 leaves the toy as it is, 1 hides it
+
+  // The trail of a ball in flight: a band of white chips that breaks up behind it. Sizes are in ball widths.
+  trailWidth: 0.9, // how wide the band is
+  trailPiece: 0.45, // how big the chips it is made of are, on average
+  trailShrink: 1.5, // how fast chips shrink as they age; higher shrinks them sooner
+  trailScatter: 0.8, // how far chips drift off the band over their life
+  trailLifetime: 0.4, // s; after this long every chip is gone
+  trailOpacity: 0.75, // how solid the white is; 1 would merge with the white letters where a ball crosses the name
 };
 
 export type Params = typeof params;
