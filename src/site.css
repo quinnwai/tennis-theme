@@ -124,8 +124,9 @@ a {
 }
 
 /*
- * The corner buttons. Clear sits at top left, where balls only pass through. Credits sits at
- * bottom left and, like the contact button opposite it, is a solid object in the toy.
+ * The corner buttons. Clear sits at top left, where balls only pass through. Credits sits at the bottom
+ * right, just left of the contact button and level with it, and like that button it is a solid object in
+ * the toy. The close button that replaces it while the credits are open takes exactly the same spot.
  */
 .chip.clear {
   position: fixed;
@@ -133,10 +134,14 @@ a {
   left: 18px;
 }
 
+.chip.credits,
+.chip.close {
+  right: 66px; /* the 18px margin, the 40px contact button, and 8px between them, as between the contact links */
+  bottom: 18px;
+}
+
 .chip.credits {
   position: fixed;
-  left: 18px;
-  bottom: 18px;
 }
 
 .contact a.chip {
@@ -207,6 +212,16 @@ a {
   line-height: 1.7;
 }
 
+.credits-text h2 {
+  margin: 0 0 1rem;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.credits-text p {
+  margin: 0 0 0.75rem;
+}
+
 .credits-text ul {
   margin: 0;
   padding: 0;
@@ -227,9 +242,7 @@ a {
   color: var(--ball);
 }
 
-/* The close button sits exactly where the credits button does, so the "i" turns into an "x" in place. */
+/* The close button sits exactly where the credits button does (see the corner buttons), so the "i" turns into an "x" in place. */
 .chip.close {
   position: absolute;
-  left: 18px;
-  bottom: 18px;
 }

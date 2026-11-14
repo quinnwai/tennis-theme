@@ -309,6 +309,47 @@ async function rowStats(page: Page, row: { x: number; y: number; width: number }
   return { range, sharpness: range === 0 ? 0 : step / range };
 }
 
+test("the credits button sits right beside the contact button, to its left and level with it, and the bottom left corner is free", async ({ page }) => {
+  const creditsBox = (await creditsButton(page).boundingBox())!;
+  const contactBox = (await page.getByRole("navigation", { name: "Contact" }).getByRole("button", { name: "Contact" }).boundingBox())!;
+  expect(creditsBox.x + creditsBox.width).toBeLessThanOrEqual(contactBox.x); // to its left
+  expect(contactBox.x - (creditsBox.x + creditsBox.width)).toBeLessThan(20); // right beside it, not across the page
+  expect(Math.abs(creditsBox.y + creditsBox.height / 2 - (contactBox.y + contactBox.height / 2))).toBeLessThan(1); // level with it
+  // Nothing but the toy itself is in the bottom left corner any more.
+  expect(await page.evaluate(() => document.elementFromPoint(38, innerHeight - 38)?.id)).toBe("court");
+});
+
+test("the credits button is a solid object: a ball dropped on it bounces off instead of falling through", async ({ page }) => {
+  const box = (await creditsButton(page).boundingBox())!;
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const above = { x: centre.x, y: centre.y - 160 };
+  // Carry the right-hand dot to a spot straight above the button and let it drop from there.
+  const d = await dot(page, 1);
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(above.x, d.y, { steps: 8 });
+  await page.mouse.move(above.x, above.y, { steps: 8 });
+  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - above.x, (await ball(page, d.id)).y - above.y)).toBeLessThan(6);
+  await page.waitForTimeout(120); // let it stop before letting go, so it drops straight down
+  const closest = await page.evaluate(
+    ({ id, at }) => {
+      const sandbox = (window as any).__sandbox;
+      // Let go and watch the whole fall in this one step: no frame can slip in between and move the ball unseen.
+      document.getElementById("court")!.dispatchEvent(new PointerEvent("pointerup"));
+      let closest = Infinity;
+      for (let i = 0; i < 180; i++) {
+        sandbox.advance(1 / 120);
+        const b = sandbox.balls().find((ball: Ball) => ball.id === id) as Ball;
+        closest = Math.min(closest, Math.hypot(b.x - at.x, b.y - at.y));
+      }
+      return closest;
+    },
+    { id: d.id, at: centre },
+  );
+  // A ball that had fallen through would have passed through the button's middle. A solid button keeps it a ball's radius and a button's radius apart.
+  expect(closest).toBeGreaterThan(box.width / 2 + d.r - 4);
+});
+
 test("the credits button shows the credit text over the toy, blurred behind it, without leaving the page", async ({ page }) => {
   const address = page.url();
   const row = await stemRow(page);
@@ -367,7 +408,7 @@ test("Escape closes the credits", async ({ page }) => {
 test("on a window too small for the credit text, its first line is still on screen", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 200 }); // about what 400% zoom leaves of a laptop screen
   await openCredits(page);
-  const first = (await credits(page).getByRole("listitem").first().boundingBox())!;
+  const first = (await credits(page).getByRole("heading").boundingBox())!;
   expect(first.y).toBeGreaterThanOrEqual(0);
 });
 
@@ -378,10 +419,10 @@ test("a click outside the credit text closes the credits, and does not hit the b
   expect(text.x + text.width).toBeLessThan(second.x - second.r); // this dot is clear of the text
 
   // A click on the text itself leaves the credits open...
-  await credits(page).getByText("the colors").click();
+  await credits(page).getByText("color palette").click();
   await expect(credits(page)).toBeVisible();
   // ...and so does a press on the text that lets go beside it, as when selecting a name to copy...
-  const line = (await credits(page).getByText("the letters").boundingBox())!;
+  const line = (await credits(page).getByText("typeface").boundingBox())!;
   await page.mouse.move(line.x + 10, line.y + line.height / 2);
   await page.mouse.down();
   await page.mouse.move(text.x + text.width + 60, line.y + line.height / 2, { steps: 4 });
@@ -410,12 +451,19 @@ test("the close button closes the credits, from the keyboard or with the mouse",
 
 test("the credit text says word for word what CITATIONS.md says", async ({ page }) => {
   const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
-  const items = markdown.split("\n").filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
+  const lines = markdown.split("\n");
+  const heading = lines.find((line) => line.startsWith("# "))?.slice(2);
+  const intro = lines.find((line) => line.trim() !== "" && !/^(#|-|<!--)/.test(line)); // the first line that is not the heading, a bullet or a note
+  const items = lines.filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
   const link = /\[([^\]]+)\]\(([^)]+)\)/g;
   const links = items.flatMap((item) => [...item.matchAll(link)].map(([, text, href]) => ({ text, href })));
+  expect(heading).toBeTruthy();
+  expect(intro).toBeTruthy();
   expect(items.length).toBeGreaterThan(0);
 
   await openCredits(page);
+  await expect(credits(page).getByRole("heading")).toHaveText(heading!);
+  await expect(credits(page).locator("p")).toHaveText(intro!);
   await expect(credits(page).getByRole("listitem")).toHaveText(items.map((item) => item.replace(link, "$1")));
   await expect(credits(page).getByRole("link")).toHaveCount(links.length);
   for (const { text, href } of links) {
@@ -426,10 +474,6 @@ test("the credit text says word for word what CITATIONS.md says", async ({ page 
 test("with ?tune, the blur and the dimming have sliders that work while the credits are open", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
-  // Put a ball in the air first, so there is something moving behind the credits when they open.
-  const d = await dot(page, 0);
-  await page.mouse.click(d.x, d.y + d.r * 0.8);
-  await advance(page, 0.1);
   await openCredits(page);
 
   const alpha = () =>
@@ -456,21 +500,21 @@ test("with ?tune, the blur and the dimming have sliders that work while the cred
   await dim.fill("0.9");
   await expect.poll(alpha).toBeCloseTo(0.9, 2);
 
-  // Tuning the credits' look leaves the toy behind them alone. Rebuilding the court would stop the ball in the
-  // air dead, so every ball must be exactly as it was a moment ago (all in one go, with no frame in between).
-  const moved = await page.evaluate(() => {
+  // Tuning the credits' look must leave the toy behind them alone. Rebuilding the court would stop every ball in
+  // the air dead, and a rebuild makes the name's layout afresh, so a new layout is how to tell. (Checked in one
+  // step, so that no ball can move in between.)
+  const untouched = await page.evaluate(() => {
     const sandbox = (window as any).__sandbox;
     const slider = [...document.querySelectorAll<HTMLInputElement>("input[type=range]")].find((input) =>
       input.parentElement!.textContent!.includes("credits blur"),
     )!;
-    const balls = () => JSON.stringify(sandbox.balls());
-    const was = balls();
+    const layout = sandbox.layout();
+    const balls = JSON.stringify(sandbox.balls());
     slider.value = String(Number(slider.value) === 25 ? 24 : 25);
     slider.dispatchEvent(new Event("input"));
-    return { was, now: balls(), flying: sandbox.balls().some((b: Ball) => !b.pinned && Math.hypot(b.vx, b.vy) > 100) };
+    return { sameLayout: sandbox.layout() === layout, sameBalls: JSON.stringify(sandbox.balls()) === balls };
   });
-  expect(moved.flying).toBe(true);
-  expect(moved.now).toBe(moved.was);
+  expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
 });
 
 test("a dot always comes back, and the clear button sweeps the court", async ({ page }) => {
