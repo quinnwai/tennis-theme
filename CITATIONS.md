@@ -1,6 +1,4 @@
-# Credits
-
-<!-- Word for word what the credits button on the page shows (the heading, the first line and the list). Change them in both places; a browser test checks that they match. -->
+<!-- Word for word what the credits button on the page shows (the first line and the list). Change them in both places; a browser test checks that they match. -->
 
 inspo…
 
