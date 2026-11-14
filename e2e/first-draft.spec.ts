@@ -408,7 +408,7 @@ test("Escape closes the credits", async ({ page }) => {
 test("on a window too small for the credit text, its first line is still on screen", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 200 }); // about what 400% zoom leaves of a laptop screen
   await openCredits(page);
-  const first = (await credits(page).getByRole("heading").boundingBox())!;
+  const first = (await credits(page).locator("p").boundingBox())!;
   expect(first.y).toBeGreaterThanOrEqual(0);
 });
 
@@ -449,20 +449,23 @@ test("the close button closes the credits, from the keyboard or with the mouse",
   await expect(page.locator("#court")).toBeVisible();
 });
 
+test('the credit text starts with "inspo…" and has no title of its own', async ({ page }) => {
+  await openCredits(page);
+  await expect(credits(page).getByRole("heading")).toHaveCount(0);
+  await expect(credits(page).locator(".credits-text > *").first()).toHaveText("inspo…");
+});
+
 test("the credit text says word for word what CITATIONS.md says", async ({ page }) => {
   const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
   const lines = markdown.split("\n");
-  const heading = lines.find((line) => line.startsWith("# "))?.slice(2);
-  const intro = lines.find((line) => line.trim() !== "" && !/^(#|-|<!--)/.test(line)); // the first line that is not the heading, a bullet or a note
+  const intro = lines.find((line) => line.trim() !== "" && !/^(-|<!--)/.test(line)); // the first line that is not a bullet or a note
   const items = lines.filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
   const link = /\[([^\]]+)\]\(([^)]+)\)/g;
   const links = items.flatMap((item) => [...item.matchAll(link)].map(([, text, href]) => ({ text, href })));
-  expect(heading).toBeTruthy();
   expect(intro).toBeTruthy();
   expect(items.length).toBeGreaterThan(0);
 
   await openCredits(page);
-  await expect(credits(page).getByRole("heading")).toHaveText(heading!);
   await expect(credits(page).locator("p")).toHaveText(intro!);
   await expect(credits(page).getByRole("listitem")).toHaveText(items.map((item) => item.replace(link, "$1")));
   await expect(credits(page).getByRole("link")).toHaveCount(links.length);
