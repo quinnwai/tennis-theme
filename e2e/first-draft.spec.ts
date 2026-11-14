@@ -1,6 +1,7 @@
 // The checks that say the first draft is done, run in a real browser against the dev server or,
 // with BASE_URL set, against a deployed copy.
 
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 /** One ball as the page's test hook reports it. Screen units: px and px/s, y down. */
@@ -253,14 +254,223 @@ test("the contact control opens, and its links go to the right places", async ({
   await expect(linkedin).toHaveAttribute("target", "_blank");
 });
 
-test("the credits page loads from the homepage and leads back", async ({ page }) => {
-  await page.getByRole("link", { name: "Credits" }).click();
-  await expect(page).toHaveURL(/\/credits\/$/);
-  await expect(page.getByRole("heading", { name: "credits" })).toBeVisible();
-  await expect(page.getByText("Monument Valley")).toBeVisible();
-  await page.getByRole("link", { name: /back/ }).click();
+// ---- The credits: text over the blurred toy, on the homepage itself ----
+
+const creditsButton = (page: Page) => page.getByRole("button", { name: "Credits", exact: true });
+const credits = (page: Page) => page.getByRole("dialog", { name: "Credits" });
+const openCredits = async (page: Page) => {
+  await creditsButton(page).click();
+  await expect(credits(page)).toBeVisible();
+};
+
+/** A row of pixels straight across the stem of the name's last "i": two crisp white-on-navy edges while the toy is sharp. */
+const stemRow = (page: Page) =>
+  page.evaluate(() => {
+    const letters = (window as any).__sandbox.layout().letters as { loops: { x: number; y: number }[][] }[];
+    const stem = letters[letters.length - 1].loops[0];
+    const xs = stem.map((p) => p.x);
+    const ys = stem.map((p) => p.y);
+    const left = Math.min(...xs);
+    return {
+      x: Math.floor(left - 20),
+      y: Math.round((Math.min(...ys) + Math.max(...ys)) / 2),
+      width: Math.ceil(Math.max(...xs) - left + 40),
+    };
+  });
+
+/** The pixels of one rectangle of a screenshot, as red, green, blue and alpha in turn. */
+async function pixelsOf(page: Page, rect: { x: number; y: number; width: number; height: number }) {
+  // The screenshot is of the whole page, since a clipped one would blur only what is inside the clip, and in
+  // CSS pixels, so that the coordinates used here mean the same thing at any screen density.
+  const png = await page.screenshot({ scale: "css" });
+  const pixels = await page.evaluate(
+    async ([base64, r]) => {
+      const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+      const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      return ctx.getImageData(r.x, r.y, r.width, r.height).data;
+    },
+    [png.toString("base64"), rect] as const,
+  );
+  return Array.from(pixels);
+}
+
+/**
+ * What a row of pixels shows. `range` is the difference between its darkest and brightest pixel, so it says
+ * whether there is still a picture in the row. `sharpness` is the biggest jump between two neighbouring
+ * pixels as a share of that range: a crisp edge takes nearly all of the range in a pixel or two, a blurred
+ * edge spreads it over many pixels, so each step is small.
+ */
+async function rowStats(page: Page, row: { x: number; y: number; width: number }) {
+  const pixels = await pixelsOf(page, { ...row, height: 1 });
+  const green = Array.from({ length: row.width }, (_, i) => pixels[i * 4 + 1]);
+  const range = Math.max(...green) - Math.min(...green);
+  const step = Math.max(...green.slice(1).map((v, i) => Math.abs(v - green[i])));
+  return { range, sharpness: range === 0 ? 0 : step / range };
+}
+
+test("the credits button shows the credit text over the toy, blurred behind it, without leaving the page", async ({ page }) => {
+  const address = page.url();
+  const row = await stemRow(page);
+  await expect(credits(page)).toBeHidden();
+  expect((await rowStats(page, row)).sharpness).toBeGreaterThan(0.5); // the toy is sharp before, so the row really crosses an edge
+
+  await openCredits(page);
+  await expect(credits(page)).toContainText("Monument Valley");
+  expect(page.url()).toBe(address);
+
+  // The toy is still there behind the text, and blurred: the CSS says so, and so do the pixels.
   await expect(page.locator("#court")).toBeVisible();
-  await expect(page).not.toHaveURL(/credits/);
+  expect(await balls(page)).toHaveLength(2);
+  const filter = await credits(page).evaluate((el) => getComputedStyle(el).backdropFilter);
+  expect(Number(/^blur\(([\d.]+)px\)$/.exec(filter)?.[1])).toBeGreaterThan(0);
+  const text = (await credits(page).locator(".credits-text").boundingBox())!;
+  expect(text.x + text.width).toBeLessThan(row.x); // the row is measured clear of the text itself
+  await expect.poll(async () => (await rowStats(page, row)).sharpness).toBeLessThan(0.2);
+  expect((await rowStats(page, row)).range).toBeGreaterThan(8); // blurred, not hidden: the edge is still there, just soft
+});
+
+test("the credit text stays readable over the brightest part of the blurred name", async ({ page }) => {
+  await openCredits(page);
+  const text = credits(page).locator(".credits-text");
+  const box = (await text.boundingBox())!;
+  // The check below looks at what is behind the text, so some of the name has to be there.
+  const nameBehindText = await page.evaluate((b) => {
+    const letters = (window as any).__sandbox.layout().letters as { loops: { x: number; y: number }[][] }[];
+    return letters.some((letter) => {
+      const points = letter.loops.flat();
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      return Math.min(...xs) < b.x + b.width && Math.max(...xs) > b.x && Math.min(...ys) < b.y + b.height && Math.max(...ys) > b.y;
+    });
+  }, box);
+  expect(nameBehindText).toBe(true);
+  await text.evaluate((el) => (el.style.visibility = "hidden")); // look at what is behind the text, not at the text
+  const pixels = await pixelsOf(page, { x: Math.floor(box.x), y: Math.floor(box.y), width: Math.ceil(box.width), height: Math.ceil(box.height) });
+  // Luminance by the usual accessibility formula; the brightest pixel behind the text is the hardest one to read white on.
+  const linear = (v: number) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+  let brightest = 0;
+  for (let i = 0; i < pixels.length; i += 4) {
+    brightest = Math.max(brightest, 0.2126 * linear(pixels[i]) + 0.7152 * linear(pixels[i + 1]) + 0.0722 * linear(pixels[i + 2]));
+  }
+  // White has a luminance of 1. 4.5 is the usual bar for body text.
+  expect(1.05 / (brightest + 0.05)).toBeGreaterThan(4.5);
+});
+
+test("Escape closes the credits", async ({ page }) => {
+  await openCredits(page);
+  await page.keyboard.press("Escape");
+  await expect(credits(page)).toBeHidden();
+  await expect(page.locator("#court")).toBeVisible();
+});
+
+test("on a window too small for the credit text, its first line is still on screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 200 }); // about what 400% zoom leaves of a laptop screen
+  await openCredits(page);
+  const first = (await credits(page).getByRole("listitem").first().boundingBox())!;
+  expect(first.y).toBeGreaterThanOrEqual(0);
+});
+
+test("a click outside the credit text closes the credits, and does not hit the ball under it", async ({ page }) => {
+  await openCredits(page);
+  const text = (await credits(page).locator(".credits-text").boundingBox())!;
+  const second = await dot(page, 1);
+  expect(text.x + text.width).toBeLessThan(second.x - second.r); // this dot is clear of the text
+
+  // A click on the text itself leaves the credits open...
+  await credits(page).getByText("the colors").click();
+  await expect(credits(page)).toBeVisible();
+  // ...and so does a press on the text that lets go beside it, as when selecting a name to copy...
+  const line = (await credits(page).getByText("the letters").boundingBox())!;
+  await page.mouse.move(line.x + 10, line.y + line.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(text.x + text.width + 60, line.y + line.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(credits(page)).toBeVisible();
+  // ...but a click beside it, right on a ball, closes them and goes no further: the ball is not hit.
+  await page.mouse.click(second.x, second.y);
+  await expect(credits(page)).toBeHidden();
+  expect(await sandbox(page, "lastHit()")).toBeNull();
+  expect((await ball(page, second.id)).pinned).toBe(true);
+});
+
+test("the close button closes the credits, from the keyboard or with the mouse", async ({ page }) => {
+  const close = credits(page).getByRole("button", { name: "Close" });
+  // It has the focus the moment the credits open, so Enter presses it.
+  await openCredits(page);
+  await expect(close).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(credits(page)).toBeHidden();
+
+  await openCredits(page);
+  await close.click();
+  await expect(credits(page)).toBeHidden();
+  await expect(page.locator("#court")).toBeVisible();
+});
+
+test("the credit text says word for word what CITATIONS.md says", async ({ page }) => {
+  const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
+  const items = markdown.split("\n").filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
+  const link = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const links = items.flatMap((item) => [...item.matchAll(link)].map(([, text, href]) => ({ text, href })));
+  expect(items.length).toBeGreaterThan(0);
+
+  await openCredits(page);
+  await expect(credits(page).getByRole("listitem")).toHaveText(items.map((item) => item.replace(link, "$1")));
+  await expect(credits(page).getByRole("link")).toHaveCount(links.length);
+  for (const { text, href } of links) {
+    await expect(credits(page).getByRole("link", { name: text, exact: true })).toHaveAttribute("href", href);
+  }
+});
+
+test("with ?tune, the blur and the dimming have sliders that work while the credits are open", async ({ page }) => {
+  await page.goto("./?tune");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  // Put a ball in the air first, so there is something moving behind the credits when they open.
+  const d = await dot(page, 0);
+  await page.mouse.click(d.x, d.y + d.r * 0.8);
+  await advance(page, 0.1);
+  await openCredits(page);
+
+  const alpha = () =>
+    credits(page).evaluate((el) => {
+      // Written as color(srgb r g b / a) or rgba(r, g, b, a), with no alpha shown at all when it is 1.
+      const match = /(?:\/ |, )([\d.]+)\)$/.exec(getComputedStyle(el).backgroundColor);
+      return match ? Number(match[1]) : 1;
+    });
+  const blur = page.getByLabel("credits blur");
+  const dim = page.getByLabel("credits dim");
+
+  // A real click on the slider: it only lands if nothing, such as the credits themselves, covers it. It goes
+  // to whichever end is farther from where the slider is now, so it moves the slider whatever the default is.
+  const before = await credits(page).evaluate((el) => getComputedStyle(el).backdropFilter);
+  const track = (await blur.boundingBox())!;
+  const inLowerHalf = Number(await blur.inputValue()) <= Number(await blur.getAttribute("max")) / 2;
+  await blur.click({ position: { x: inLowerHalf ? track.width - 4 : 4, y: track.height / 2 } });
+  const after = await credits(page).evaluate((el) => getComputedStyle(el).backdropFilter);
+  expect(after).toBe(`blur(${await blur.inputValue()}px)`);
+  expect(after).not.toBe(before);
+
+  await dim.fill("0.25");
+  await expect.poll(alpha).toBeCloseTo(0.25, 2);
+  await dim.fill("0.9");
+  await expect.poll(alpha).toBeCloseTo(0.9, 2);
+
+  // Tuning the credits' look leaves the toy behind them alone. Rebuilding the court would stop the ball in the
+  // air dead, so every ball must be exactly as it was a moment ago (all in one go, with no frame in between).
+  const moved = await page.evaluate(() => {
+    const sandbox = (window as any).__sandbox;
+    const slider = [...document.querySelectorAll<HTMLInputElement>("input[type=range]")].find((input) =>
+      input.parentElement!.textContent!.includes("credits blur"),
+    )!;
+    const balls = () => JSON.stringify(sandbox.balls());
+    const was = balls();
+    slider.value = String(Number(slider.value) === 25 ? 24 : 25);
+    slider.dispatchEvent(new Event("input"));
+    return { was, now: balls(), flying: sandbox.balls().some((b: Ball) => !b.pinned && Math.hypot(b.vx, b.vy) > 100) };
+  });
+  expect(moved.flying).toBe(true);
+  expect(moved.now).toBe(moved.was);
 });
 
 test("a dot always comes back, and the clear button sweeps the court", async ({ page }) => {

@@ -1,8 +1,8 @@
-# Credits and influences
+# Credits
 
-An informal, running list of what inspired this project. Inspiration, not duplication: we borrow colors and moods, never logos, characters or artwork.
+What the homepage borrowed, and from whom. These lines are word for word what the credits button on the page shows. Change them in both places; a browser test checks that they match.
 
-- **Monument Valley**, the game series by ustwo games, first released in 2014. The flat, minimal look: say the idea of a thing with as few lines as possible. https://www.monumentvalleygame.com/mv3
-- **The Australian Open**, by way of a 2013 tournament towel. The palette: navy, court blue and ball green.
-- **Combo Pool**, a game by nusan. The chunky trails that break up behind a moving ball. https://nusan.itch.io/combo-pool
-- **Typefaces on Google Fonts**: Roboto (Christian Robertson, with ParaType and Font Bureau), Roboto Mono (Christian Robertson), Lato (Łukasz Dziedzic), Lora (Cyreal), Oswald (Vernon Adams, Kalapi Gajjar and Cyreal) and Ubuntu (Dalton Maag). Starting points for the lettering of the name, which is currently set in Ubuntu.
+- the look: [Monument Valley](https://www.monumentvalleygame.com/mv3), by ustwo games
+- the colors: a towel from the 2013 Australian Open
+- the letters: Ubuntu, by Dalton Maag
+- the ball trails: [Combo Pool](https://nusan.itch.io/combo-pool), by nusan

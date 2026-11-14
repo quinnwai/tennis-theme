@@ -16,13 +16,15 @@ const FIELDS: Field[] = [
   ["drag", "air drag", 0, 0.1, 0.001],
   ["friction", "surface grip", 0, 1.5, 0.05],
   ["rollingResistance", "rolling resistance", 0, 0.5, 0.01],
+  ["creditsBlur", "credits blur (px)", 0, 40, 1],
+  ["creditsDim", "credits dimming (0 to 1)", 0, 1, 0.05],
 ];
 
 /**
  * A small panel of sliders for tuning feel by hand. Shown only when the address has ?tune.
- * `rebuild` is called after every change so the world picks the new numbers up.
+ * `rebuild` is called after every change, with the name of the number that moved, so the world can pick it up.
  */
-export function mountTuner(rebuild: () => void): void {
+export function mountTuner(rebuild: (changed: keyof Params) => void): void {
   const panel = document.createElement("div");
   panel.style.cssText =
     "position:fixed;top:70px;left:12px;padding:10px 12px;background:rgba(255,255,255,.92);" +
@@ -42,7 +44,7 @@ export function mountTuner(rebuild: () => void): void {
     input.addEventListener("input", () => {
       params[key] = Number(input.value);
       value.textContent = input.value;
-      rebuild();
+      rebuild(key);
     });
     row.append(label, input, value);
     panel.append(row);

@@ -1,4 +1,4 @@
-/** Everything tunable about how the ball feels. SI units unless a name says otherwise. */
+/** Everything tunable about how the toy feels and looks. SI units unless a name says otherwise. */
 export const params = {
   // The ball: regulation numbers.
   ballDiameter: 0.067, // m
@@ -25,6 +25,12 @@ export const params = {
   minGrabReachPx: 14,
   followRate: 14, // 1/s; how quickly a carried ball closes the gap to the pointer
   carrySpeed: 5, // m/s; the fastest a carried ball moves, and so the fastest throw
+
+  // The credits, which open over the toy: how blurred the toy is behind the text, and how far a coat of
+  // navy dims it so the white text reads. Both are judged by eye; the browser tests insist the white text
+  // keeps a contrast of 4.5 against the brightest thing behind it (the blurred name), which is why 0.65.
+  creditsBlur: 10, // px
+  creditsDim: 0.65, // 0 leaves the toy as it is, 1 hides it
 };
 
 export type Params = typeof params;
