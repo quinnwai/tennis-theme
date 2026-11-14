@@ -1,4 +1,5 @@
 import { Gestures, type BallView, type Vec } from "./input";
+import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
 import { params } from "./params";
 import { Court, STEP, type Ball } from "./physics";
@@ -132,22 +133,27 @@ function main(): void {
     return sprites;
   }
 
+  const noteInteraction = startMeasuring();
   const gestures = new Gestures(views, {
     hit(id, dir, at) {
+      noteInteraction();
       court.hit(id, dir.x, -dir.y);
       renderer.burst(at.x, at.y, performance.now());
       lastHit = { id, dir, at };
     },
     grab(id, at) {
+      noteInteraction();
       court.grab(id);
       const p = toMeters(at);
       court.carryTo(p.x, p.y);
     },
     carry(at) {
+      noteInteraction();
       const p = toMeters(at);
       court.carryTo(p.x, p.y);
     },
     release() {
+      noteInteraction();
       court.release();
     },
   });
