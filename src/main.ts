@@ -27,7 +27,10 @@ function main(): void {
   const renderer = new Renderer(canvas, readPalette());
   const contact = document.querySelector<HTMLElement>(".contact")!;
   const toggle = contact.querySelector<HTMLButtonElement>(".toggle")!;
-  const creditsChip = document.querySelector<HTMLElement>(".chip.credits")!;
+  const creditsChip = document.querySelector<HTMLButtonElement>(".chip.credits")!;
+  const credits = document.querySelector<HTMLDialogElement>(".credits-overlay")!;
+  const creditsText = credits.querySelector<HTMLElement>(".credits-text")!;
+  const creditsClose = credits.querySelector<HTMLButtonElement>(".close")!;
   const clearButton = document.querySelector<HTMLButtonElement>(".chip.clear")!;
 
   // The name is set in Ubuntu. Add ?font=roboto-mono to the address to compare.
@@ -223,6 +226,29 @@ function main(): void {
   });
   clearButton.addEventListener("click", reset);
 
+  // The credits open over the toy, which keeps running behind them. A modal dialog brings Escape, focus and a
+  // shut-out page with it. With ?tune the sliders have to stay in reach, so there it opens as a plain dialog that
+  // sits under them instead, and Escape is handled here.
+  creditsChip.addEventListener("click", () => (query.has("tune") ? credits.show() : credits.showModal()));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") credits.close();
+  });
+  creditsClose.addEventListener("click", () => credits.close());
+  // A click on the dimmed toy around the text closes it too. The press has to start out there as well as end
+  // there: selecting a name and letting go beside the text is not a click outside it.
+  let pressedOutside = false;
+  credits.addEventListener("pointerdown", (e) => (pressedOutside = !creditsText.contains(e.target as Node)));
+  credits.addEventListener("click", (e) => {
+    if (pressedOutside && !creditsText.contains(e.target as Node)) credits.close();
+  });
+
+  /** How blurred and how dimmed the toy is behind the credits. The stylesheet reads both from these properties. */
+  function styleCredits(): void {
+    const root = document.documentElement.style;
+    root.setProperty("--credits-blur", `${params.creditsBlur}px`);
+    root.setProperty("--credits-dim", String(params.creditsDim));
+  }
+
   let resizeTimer = 0;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -232,8 +258,13 @@ function main(): void {
     }, 150);
   });
 
+  styleCredits();
   build();
-  if (query.has("tune")) mountTuner(build);
+  if (query.has("tune")) {
+    // The credits' look is only CSS, so changing it needs no new court (a new court would stop every ball in
+    // the air); every other number does.
+    mountTuner((changed) => (changed.startsWith("credits") ? styleCredits() : build()));
+  }
 
   let last = performance.now();
   let pending = 0;

@@ -16,7 +16,6 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         home: resolve(import.meta.dirname, "index.html"),
-        credits: resolve(import.meta.dirname, "credits/index.html"),
       },
     },
   },

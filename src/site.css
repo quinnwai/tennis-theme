@@ -166,42 +166,70 @@ a {
   pointer-events: auto;
 }
 
-/* ---- Text pages ---- */
+/* ---- The credits: text over the blurred toy ---- */
 
-.page main {
+/*
+ * A dialog that fills the window. Its own backdrop-filter blurs everything behind it (the toy and the corner
+ * buttons) and the navy tint dims it, so the white text reads over the name. The numbers come from params.ts.
+ * Only an open dialog is shown: display is set on [open], or a closed one would stay on screen.
+ */
+.credits-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5; /* in a modal dialog the browser puts it on top anyway; this is for the ?tune version, which sits under the sliders */
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 24px;
+  border: 0;
+  background: color-mix(in srgb, var(--navy) calc(var(--credits-dim) * 100%), transparent);
+  color: var(--white);
+  -webkit-backdrop-filter: blur(var(--credits-blur));
+  backdrop-filter: blur(var(--credits-blur));
+}
+
+.credits-overlay[open] {
+  display: grid;
+  place-items: center;
+}
+
+/* The page behind a modal dialog gets a faint shade of its own by default; the tint above does that job. */
+.credits-overlay::backdrop {
+  background: none;
+}
+
+.credits-text {
   max-width: 34rem;
-  margin: 0 auto;
-  padding: 3rem 1.25rem 4rem;
-  font-size: 15px;
+  font-size: 20px;
   line-height: 1.7;
 }
 
-.page h1 {
-  margin: 2rem 0 1rem;
-  font-size: 1.5rem;
-  font-weight: 400;
+.credits-text ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.page a {
-  color: var(--white);
+.credits-text li + li {
+  margin-top: 0.75rem; /* enough that a line that wraps on a narrow screen still reads as one item */
+}
+
+.credits-text a {
   text-decoration-color: var(--court-blue);
   text-underline-offset: 3px;
 }
 
-.page a:hover,
-.page a:focus-visible {
+.credits-text a:hover,
+.credits-text a:focus-visible {
   color: var(--ball);
 }
 
-.page ul {
-  padding-left: 1.1rem;
-}
-
-.page li {
-  margin-bottom: 0.9rem;
-}
-
-.page .back {
-  color: var(--quiet);
-  text-decoration: none;
+/* The close button sits exactly where the credits button does, so the "i" turns into an "x" in place. */
+.chip.close {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
 }

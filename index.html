@@ -18,12 +18,7 @@
         <path d="M3 3v5h5" />
       </svg>
     </button>
-    <a class="chip credits" href="./credits/" aria-label="Credits" title="Credits">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="6.2" r="2.4" fill="var(--ball)" />
-        <rect x="10.3" y="10.4" width="3.4" height="9.4" rx="0.6" fill="currentColor" />
-      </svg>
-    </a>
+    <button class="chip credits" type="button" aria-label="Credits" title="Credits" aria-haspopup="dialog">i</button>
     <p class="rotate-note">Best on a wide screen. Try turning your phone sideways.</p>
 
     <nav class="contact" aria-label="Contact">
@@ -47,6 +42,23 @@
         </svg>
       </a>
     </nav>
+
+    <!-- The credits, over the toy. Keep these lines word for word the same as CITATIONS.md. -->
+    <dialog class="credits-overlay" aria-label="Credits">
+      <button class="chip close" type="button" aria-label="Close" title="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6 6 18" />
+        </svg>
+      </button>
+      <div class="credits-text">
+        <ul>
+          <li>the look: <a href="https://www.monumentvalleygame.com/mv3" target="_blank" rel="noopener">Monument Valley</a>, by ustwo games</li>
+          <li>the colors: a towel from the 2013 Australian Open</li>
+          <li>the letters: Ubuntu, by Dalton Maag</li>
+          <li>the ball trails: <a href="https://nusan.itch.io/combo-pool" target="_blank" rel="noopener">Combo Pool</a>, by nusan</li>
+        </ul>
+      </div>
+    </dialog>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
