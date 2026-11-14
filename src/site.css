@@ -1,19 +1,19 @@
-@import "@fontsource/roboto-mono/latin-400.css";
+@import "@fontsource/ubuntu/latin-400.css";
 
 :root {
   /*
    * Navy and court blue are sampled from the 2013 Australian Open towel in the reference photos,
-   * the green from its edge band and a tennis ball, each nudged to hold up on a screen.
-   * The canvas reads these same values, so the page and the toy cannot drift apart.
+   * the green from its edge band and from the photo of a real ball, each nudged to hold up on a
+   * screen. The canvas reads these same values, so the page and the toy cannot drift apart.
    */
   --navy: #132637;
   --court-blue: #2e92b9;
-  --ball: #dbed3b;
-  --ball-shade: #bbd12e;
+  --ball: #d5e645;
+  --ball-shade: #b4c738;
   --white: #ffffff;
   --quiet: #9fb0c0;
 
-  font-family: "Roboto Mono", ui-monospace, Menlo, monospace;
+  font-family: "Ubuntu", system-ui, sans-serif;
 }
 
 html,
@@ -50,22 +50,6 @@ a {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-
-/* Quiet page furniture lives in the top corners, where balls pass through but never come to rest. */
-.credits-link {
-  position: fixed;
-  top: 18px;
-  left: 20px;
-  color: var(--quiet);
-  font-size: 13px;
-  text-decoration: none;
-}
-
-.credits-link:hover,
-.credits-link:focus-visible {
-  color: var(--white);
-  text-decoration: underline;
 }
 
 .rotate-note {
@@ -137,6 +121,22 @@ a {
 .chip svg {
   width: 18px;
   height: 18px;
+}
+
+/*
+ * The corner buttons. Clear sits at top left, where balls only pass through. Credits sits at
+ * bottom left and, like the contact button opposite it, is a solid object in the toy.
+ */
+.chip.clear {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+}
+
+.chip.credits {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
 }
 
 .contact a.chip {

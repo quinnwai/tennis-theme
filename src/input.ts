@@ -20,12 +20,8 @@ export interface GestureActions {
   grab(id: number, at: Vec): void;
   /** The pointer moved while carrying a ball. */
   carry(at: Vec): void;
-  /** The ball was let go. `velocity` is the pointer's, in px/s. */
-  release(velocity: Vec): void;
-}
-
-interface Sample extends Vec {
-  t: number;
+  /** The ball was let go. It keeps whatever speed it had. */
+  release(): void;
 }
 
 /** The way a ball flies when tapped at `point`: away from the tap, or straight up for a dead-center tap. */
@@ -37,25 +33,14 @@ export function hitDirection(ball: BallView, point: Vec): Vec {
   return { x: dx / d, y: dy / d };
 }
 
-/** Pointer velocity over the last 100 ms, or zero if the pointer had paused before `now`. */
-export function pointerVelocity(samples: Sample[], now: number): Vec {
-  const recent = samples.filter((s) => now - s.t <= 100);
-  if (recent.length < 2) return { x: 0, y: 0 };
-  const first = recent[0];
-  const last = recent[recent.length - 1];
-  if (now - last.t > 50 || last.t === first.t) return { x: 0, y: 0 };
-  const dt = (last.t - first.t) / 1000;
-  return { x: (last.x - first.x) / dt, y: (last.y - first.y) / dt };
-}
-
 type State =
   | { kind: "idle" }
   | { kind: "pending"; id: number; at: Vec; t: number; dir: Vec; canGrab: boolean }
-  | { kind: "carrying"; id: number; samples: Sample[] };
+  | { kind: "carrying" };
 
 /**
  * Turns pointer events into the three things you can do to a ball:
- * a quick tap hits it, a hold picks it up, and letting go while moving throws it.
+ * a quick tap hits it, a hold picks it up, and letting go while it moves throws it.
  * Times are in milliseconds.
  */
 export class Gestures {
@@ -89,7 +74,7 @@ export class Gestures {
     };
   }
 
-  move(x: number, y: number, t: number): void {
+  move(x: number, y: number): void {
     const s = this.state;
     if (s.kind === "pending") {
       if (Math.hypot(x - s.at.x, y - s.at.y) <= params.tapSlopPx) return;
@@ -97,21 +82,16 @@ export class Gestures {
         this.state = { kind: "idle" };
         return;
       }
-      this.startCarry(s.id, s.at, s.t);
+      this.startCarry(s.id, s.at);
     }
-    if (this.state.kind === "carrying") {
-      const samples = this.state.samples;
-      samples.push({ x, y, t });
-      while (samples.length > 2 && t - samples[0].t > 150) samples.shift();
-      this.actions.carry({ x, y });
-    }
+    if (this.state.kind === "carrying") this.actions.carry({ x, y });
   }
 
   /** Call every frame: a press held still past the tap window becomes a pick-up. */
   tick(t: number): void {
     const s = this.state;
     if (s.kind !== "pending" || t - s.t <= params.tapMaxMs) return;
-    if (s.canGrab) this.startCarry(s.id, s.at, t);
+    if (s.canGrab) this.startCarry(s.id, s.at);
     else this.state = { kind: "idle" };
   }
 
@@ -121,18 +101,18 @@ export class Gestures {
     if (s.kind === "pending") {
       if (t - s.t <= params.tapMaxMs) this.actions.hit(s.id, s.dir, s.at);
     } else if (s.kind === "carrying") {
-      this.actions.release(pointerVelocity(s.samples, t));
+      this.actions.release();
     }
   }
 
   cancel(): void {
     const s = this.state;
     this.state = { kind: "idle" };
-    if (s.kind === "carrying") this.actions.release({ x: 0, y: 0 });
+    if (s.kind === "carrying") this.actions.release();
   }
 
-  private startCarry(id: number, at: Vec, t: number): void {
-    this.state = { kind: "carrying", id, samples: [{ ...at, t }] };
+  private startCarry(id: number, at: Vec): void {
+    this.state = { kind: "carrying" };
     this.actions.grab(id, at);
   }
 }

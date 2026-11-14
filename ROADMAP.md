@@ -1,31 +1,32 @@
 # Roadmap: the quinn wai tennis sandbox
 
-Draft 5, Saturday 2026-11-14. No open decisions.
+Draft 8, Saturday 2026-11-14. No open decisions.
 
 A homepage that is a toy. The name "quinn wai" sits on navy, the dots of the i's are tennis balls, and you can hit, carry and throw them.
 
 ## Status
 
 - **Live:** https://tennis-theme.vercel.app (Vercel production, public).
-- **Milestone 0, the feel spike: built, waiting on review pass 1.** Hit, carry, fling, bounce, the trail and the "pow" all work and are covered by tests.
-- **Milestone 1, the name is the level: built, waiting on review pass 2.** The letters are solid, the dots are balls, each i refills from three spares, the top is open, and the window can resize.
-- **Not started:** the look pass (milestone 2), and from milestone 3 the contact control, the credits page and the browser tests.
+- **Milestones 0 and 1: built, and through two rounds of Quinn-Wai's review.** The first made the balls heavier in the hand, redrew them from the reference photo, made them larger and switched the name to Ubuntu. The second made the dots regenerate without limit, added a clear button, and turned the credits link into an icon at bottom left.
+- **Milestone 2, the look: first pass done, waiting on review.** Colors come from the towel and ball photos; the ball has one tapering seam line.
+- **Milestone 3: partly built.** The contact control and credits page are in. The browser tests are not started.
 
-Add `?tune` to the address for sliders that change the feel live. To run it on this Mac instead, use `npm run dev` and open http://localhost:5173.
+Add `?tune` to the address for sliders that change the feel live, and `?font=roboto-mono` to see the name in the earlier typeface. To run it on this Mac instead, use `npm run dev` and open http://localhost:5173.
 
 ## Decided
 
 - **Page:** this is the homepage. Name centered, lowercase, landscape, desktop first.
 - **Feel:** a toy to fiddle with, not a game. No score, no goals.
-- **Look:** flat and minimal, icon-like. Navy background. The towel's blue and ball green are for accents only. The ball is a circle with two white seam lines.
+- **Look:** flat and minimal, icon-like. Navy background. The towel's blue and ball green are for accents only. The ball is a circle with one white seam line, traced from the reference photo, and it is a little larger than the dot the typeface gives the i.
 - **Not the look:** app-onboarding clip art (thick outlines, cartoon proportions, mascot energy) and retro arcade (pixel fonts, neon, Pong nostalgia).
-- **Lettering:** Roboto Mono for now. A custom typeface comes later.
-- **Balls:** the dots of the two i's. Each i is also the can: knock the dot away and a fresh ball rises out of the stem. The i is drawn as a plain letter; the can is in how it behaves, not how it looks. When both cans are empty, they refill once every ball has left the screen.
-- **Controls:** click to hit (the ball flies away from the click), hold to carry, fling to throw.
+- **Lettering:** Ubuntu Bold, on trial. Roboto Mono is still one address change away. A custom typeface comes later.
+- **Balls:** the dots of the two i's. Each i is also the can: knock the dot away and a fresh ball rises out of the stem. The i is drawn as a plain letter; the can is in how it behaves, not how it looks. The stem never runs out, so a dot always comes back. A clear button sweeps every ball away. Past about 60 balls on the court, the oldest loose one makes way for each new one. At this ball size nothing drops inside or between the letters, and that is fine.
+- **Controls:** click to hit (the ball flies away from the click), hold to carry, let go while moving to throw. A carried ball has weight: it trails the pointer and can only be thrown as fast as it was actually moving.
 - **World:** the floor and side walls are solid and the top is open. A ball that leaves through the top falls back in, unless it drifts past the side lines up there, in which case it is gone.
-- **Around the edges:** a contact control at bottom right (a "?" in a circle that opens to email, GitHub and LinkedIn), which is a solid object that balls bounce off. A sound toggle at top right (default on, arriving with sound). A credits page.
+- **Around the edges:** a contact control at bottom right (a "?" in a circle that opens to email, GitHub and LinkedIn) and a credits icon at bottom left, both solid objects that balls bounce off. A clear button at top left. A sound toggle at top right (default on, arriving with sound).
 - **Contact links:** quinnwai.wong@gmail.com, https://github.com/quinnwai, https://www.linkedin.com/in/quinn-wai-wong/
 - **Where it runs:** public, on Vercel production at https://tennis-theme.vercel.app. The Vercel project is `tennis-theme` under the team `quinnwaiwong-3429s-projects`, deployed with the CLI on Quinn-Wai's Mac.
+- **One skin of several:** tennis is the first of several planned skins of the homepage, each in its own repo, later joined under one address. The shared rules are in `../water-theme/SKIN-RULES.md`. Following them, every address in the built site is relative and its files sit in a `tennis/` folder, so the same build works at the root of a domain or under a path such as `/tennis/`.
 - **Physics engine:** Planck. In a head-to-head test it matched Rapier on every pass or fail check (bounce height, fast balls against thin outlines, coming to rest, piles) and is about 45 kB to download instead of 1.26 MB.
 - **Deadline:** the first draft (milestones 0 to 3) is live by the end of Sunday 2026-11-15.
 - **Testing:** Quinn-Wai's own testing and the automated checks judge each version until the page works on phones. The five-friend test comes after that.
@@ -36,11 +37,11 @@ Add `?tune` to the address for sliders that change the feel live. To run it on t
 Say no to any of these and the plan changes.
 
 - A click on or right next to a ball counts as a hit from that side.
-- Clicks give a fixed pop. Fling speed is how you hit harder.
+- Clicks give a fixed pop. A carried ball tops out at 5 m/s, which is also the fastest throw.
 - The ball behaves like a real one: 6.7 cm across, real gravity at that scale, air drag, and a regulation bounce (dropped from 254 cm, it rebounds 135 to 147 cm; ours rebounds 141).
 - The name is white.
 - No sound toggle on screen until there is sound to toggle.
-- A click on the middle of a ball sends it straight up. A tap is worth 4.5 m/s, about a meter of height.
+- A click on the middle of a ball sends it straight up. A tap is worth 3 m/s, about 45 cm of height, which keeps a tapped dot on screen.
 - An i refills 1.2 seconds after its dot has gone, and only when nothing is sitting on the stem or about to land on it.
 - Built as a small static site (Vite and TypeScript, drawn on a canvas), with Playwright for the browser tests.
 

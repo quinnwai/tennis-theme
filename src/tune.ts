@@ -8,8 +8,9 @@ const FIELDS: Field[] = [
   ["hitReach", "tap reach (ball radii)", 1, 5, 0.1],
   ["grabReach", "grab reach (ball radii)", 0.8, 3, 0.1],
   ["tapMaxMs", "longest tap (ms)", 80, 500, 10],
-  ["maxFling", "fastest throw (m/s)", 4, 30, 0.5],
-  ["followRate", "carry tightness", 5, 60, 1],
+  ["carrySpeed", "carry and throw speed (m/s)", 1, 20, 0.5],
+  ["followRate", "carry tightness", 3, 60, 1],
+  ["ballScale", "ball size vs the dot", 0.8, 1.8, 0.05],
   ["restitution", "bounciness", 0.3, 0.95, 0.005],
   ["gravity", "gravity (m/s²)", 2, 20, 0.1],
   ["drag", "air drag", 0, 0.1, 0.001],
@@ -17,16 +18,19 @@ const FIELDS: Field[] = [
   ["rollingResistance", "rolling resistance", 0, 0.5, 0.01],
 ];
 
-/** A small panel of sliders for tuning feel by hand. Shown only when the address ends in ?tune. */
-export function mountTuner(onChange: () => void): void {
+/**
+ * A small panel of sliders for tuning feel by hand. Shown only when the address has ?tune.
+ * `rebuild` is called after every change so the world picks the new numbers up.
+ */
+export function mountTuner(rebuild: () => void): void {
   const panel = document.createElement("div");
   panel.style.cssText =
-    "position:fixed;top:12px;left:12px;padding:10px 12px;background:rgba(255,255,255,.92);" +
-    "border-radius:8px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#0e2240;z-index:10;";
+    "position:fixed;top:70px;left:12px;padding:10px 12px;background:rgba(255,255,255,.92);" +
+    "border-radius:8px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#132637;z-index:10;";
 
   for (const [key, label, min, max, step] of FIELDS) {
     const row = document.createElement("label");
-    row.style.cssText = "display:grid;grid-template-columns:170px 130px 48px;gap:8px;align-items:center;";
+    row.style.cssText = "display:grid;grid-template-columns:190px 130px 48px;gap:8px;align-items:center;";
     const input = document.createElement("input");
     input.type = "range";
     input.min = String(min);
@@ -38,7 +42,7 @@ export function mountTuner(onChange: () => void): void {
     input.addEventListener("input", () => {
       params[key] = Number(input.value);
       value.textContent = input.value;
-      onChange();
+      rebuild();
     });
     row.append(label, input, value);
     panel.append(row);

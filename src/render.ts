@@ -4,6 +4,67 @@ const TRAIL_MS = 350;
 const BURST_MS = 220;
 const TAU = Math.PI * 2;
 
+/**
+ * The seam, traced from the reference photo of a real ball: a single line that comes in from
+ * the left, sweeps up across the face and hooks down around the right side. Unit circle, y down,
+ * running a little past the edge at both ends so the ball's outline trims it.
+ */
+const SEAM: [number, number][] = [
+  [-1.06, 0.03],
+  [-0.56, -0.18],
+  [-0.1, -0.46],
+  [0.28, -0.6],
+  [0.63, -0.53],
+  [0.84, -0.25],
+  [0.91, 0.1],
+  [0.84, 0.46],
+  [0.63, 0.74],
+  [0.3, 0.93],
+  [0.1, 1.06],
+];
+
+/**
+ * The seam as a ribbon to fill: the traced points smoothed into one line, widest where it comes
+ * in on the left and narrowing around the hook, as it does in the photo.
+ */
+function seamRibbon(): Path2D {
+  const line: [number, number][] = [SEAM[0]];
+  let start = SEAM[0];
+  for (let i = 1; i < SEAM.length - 1; i++) {
+    // Curve through the midpoints between traced points, so they join without corners.
+    const control = SEAM[i];
+    const next = SEAM[i + 1];
+    const end: [number, number] =
+      i === SEAM.length - 2 ? next : [(control[0] + next[0]) / 2, (control[1] + next[1]) / 2];
+    for (let k = 1; k <= 6; k++) {
+      const t = k / 6;
+      const a = (1 - t) * (1 - t);
+      const b = 2 * (1 - t) * t;
+      const c = t * t;
+      line.push([a * start[0] + b * control[0] + c * end[0], a * start[1] + b * control[1] + c * end[1]]);
+    }
+    start = end;
+  }
+
+  const left: [number, number][] = [];
+  const right: [number, number][] = [];
+  line.forEach((p, i) => {
+    const before = line[Math.max(0, i - 1)];
+    const after = line[Math.min(line.length - 1, i + 1)];
+    const dx = after[0] - before[0];
+    const dy = after[1] - before[1];
+    const length = Math.hypot(dx, dy);
+    const half = (0.11 - 0.05 * (i / (line.length - 1))) / 2;
+    left.push([p[0] - (dy / length) * half, p[1] + (dx / length) * half]);
+    right.push([p[0] + (dy / length) * half, p[1] - (dx / length) * half]);
+  });
+
+  const ribbon = new Path2D();
+  [...left, ...right.reverse()].forEach(([x, y], i) => (i ? ribbon.lineTo(x, y) : ribbon.moveTo(x, y)));
+  ribbon.closePath();
+  return ribbon;
+}
+
 /** What the renderer needs to know about a ball. Screen space: CSS pixels, y down, angle clockwise. */
 export interface BallSprite {
   id: number;
@@ -25,6 +86,7 @@ interface Timed extends Point {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private letters = new Path2D();
+  private seam = seamRibbon();
   private trails = new Map<number, Timed[]>();
   private bursts: Timed[] = [];
   width = 0;
@@ -95,7 +157,7 @@ export class Renderer {
     const ctx = this.ctx;
     ctx.lineCap = "round";
     ctx.strokeStyle = this.palette.white;
-    ctx.lineWidth = Math.max(1.5, radius * 0.28);
+    ctx.lineWidth = Math.max(1.25, radius * 0.14);
     for (const [id, points] of this.trails) {
       while (points.length && now - points[0].t > TRAIL_MS) points.shift();
       if (!points.length) {
@@ -115,8 +177,8 @@ export class Renderer {
   }
 
   /**
-   * A flat ball: one circle, a sliver of deeper green along its lower right as the only hint of
-   * felt, and two white seam lines, which turn with the ball so spin is visible.
+   * A flat ball: one circle, a sliver of deeper green along its lower left as the only hint of
+   * felt, and one tapering seam line, which turns with the ball so spin is visible.
    */
   private drawBall(b: BallSprite): void {
     const ctx = this.ctx;
@@ -128,17 +190,14 @@ export class Renderer {
     ctx.fill();
     ctx.clip();
     ctx.beginPath();
-    ctx.arc(-b.r * 0.14, -b.r * 0.14, b.r, 0, TAU);
+    ctx.arc(b.r * 0.12, -b.r * 0.12, b.r, 0, TAU);
     ctx.fillStyle = this.palette.ball;
     ctx.fill();
+
     ctx.rotate(b.angle);
-    ctx.strokeStyle = this.palette.white;
-    ctx.lineWidth = Math.max(1.5, b.r * 0.16);
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(side * b.r * 1.3, 0, b.r * 0.95, 0, TAU);
-      ctx.stroke();
-    }
+    ctx.scale(b.r, b.r);
+    ctx.fillStyle = this.palette.white;
+    ctx.fill(this.seam);
     ctx.restore();
   }
 
@@ -148,7 +207,7 @@ export class Renderer {
     this.bursts = this.bursts.filter((b) => now - b.t < BURST_MS);
     ctx.strokeStyle = this.palette.white;
     ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(1.5, radius * 0.18);
+    ctx.lineWidth = Math.max(1.25, radius * 0.1);
     for (const b of this.bursts) {
       const p = (now - b.t) / BURST_MS;
       const eased = 1 - (1 - p) * (1 - p);

@@ -15,10 +15,11 @@ function run(court: Court, seconds: number, watch?: () => void): void {
   }
 }
 
-/** Throw a ball: pick it up and let it go with the given velocity. */
+/** Send a resting ball off with the given velocity, as one clean hit. */
 function launch(court: Court, id: number, vx: number, vy: number): void {
-  court.grab(id);
-  court.release(vx, vy);
+  const speed = Math.hypot(vx, vy);
+  params.hitSpeed = speed;
+  court.hit(id, vx / speed, vy / speed);
 }
 
 const atRest = (court: Court) => court.balls.every((b) => Math.hypot(b.vx, b.vy) < 0.001);
@@ -114,18 +115,31 @@ describe("Court", () => {
     expect(leftmost).toBeGreaterThan(RADIUS - 0.005);
   });
 
-  it("carries a held ball to the pointer and throws it on release", () => {
+  it("carries a held ball to the pointer, never faster than the carry speed", () => {
     const court = new Court(4, 4);
     const ball = court.addBall(1, 1, true);
     court.grab(ball.id);
     court.carryTo(2, 2.5);
-    run(court, 0.5);
+    let fastest = 0;
+    run(court, 1, () => (fastest = Math.max(fastest, Math.hypot(ball.vx, ball.vy))));
     expect(ball.x).toBeCloseTo(2, 1);
     expect(ball.y).toBeCloseTo(2.5, 1);
-    court.release(3, 0);
+    expect(fastest).toBeLessThan(params.carrySpeed + 0.01);
+  });
+
+  it("throws a carried ball with the speed it had when let go", () => {
+    const court = new Court(4, 4);
+    const ball = court.addBall(1, 2.5, true);
+    court.grab(ball.id);
+    court.carryTo(3.5, 2.5); // sweep to the right
+    run(court, 0.1);
+    court.release();
     court.step();
     expect(ball.held).toBe(false);
-    expect(ball.vx).toBeCloseTo(3, 0);
+    expect(ball.vx).toBeGreaterThan(2);
+    expect(Math.hypot(ball.vx, ball.vy)).toBeLessThan(params.carrySpeed + 0.2);
+    run(court, 0.3);
+    expect(ball.vy).toBeLessThan(-1); // and gravity has it again
   });
 
   it("lets a ball leave through the top and fall back in", () => {
@@ -144,7 +158,7 @@ describe("Court", () => {
     const ball = court.addBall(1.8, 1.9, false);
     launch(court, ball.id, 3, 6);
     const gone: number[] = [];
-    for (let i = 0; i < 360; i++) gone.push(...court.step());
+    for (let i = 0; i < 3 / STEP; i++) gone.push(...court.step());
     expect(gone).toEqual([ball.id]);
     expect(court.balls).toHaveLength(0);
   });

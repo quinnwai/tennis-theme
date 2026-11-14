@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { Gestures, hitDirection, pointerVelocity, type GestureActions, type Vec } from "./input";
+import { Gestures, hitDirection, type GestureActions, type Vec } from "./input";
 
 const ball = { id: 1, x: 100, y: 100, r: 13 };
 
 function setup() {
   const log: string[] = [];
-  const last: { dir?: Vec; velocity?: Vec } = {};
+  const last: { dir?: Vec } = {};
   const actions: GestureActions = {
     hit: (id, dir) => {
       log.push(`hit:${id}`);
@@ -13,10 +13,7 @@ function setup() {
     },
     grab: (id) => log.push(`grab:${id}`),
     carry: (at) => log.push(`carry:${at.x},${at.y}`),
-    release: (velocity) => {
-      log.push("release");
-      last.velocity = velocity;
-    },
+    release: () => log.push("release"),
   };
   return { g: new Gestures(() => [ball], actions), log, last };
 }
@@ -39,20 +36,6 @@ describe("hitDirection", () => {
   });
 });
 
-describe("pointerVelocity", () => {
-  it("measures a steady drag", () => {
-    const samples = [0, 20, 40, 60].map((t) => ({ x: t * 2, y: -t, t }));
-    const v = pointerVelocity(samples, 65);
-    expect(v.x).toBeCloseTo(2000);
-    expect(v.y).toBeCloseTo(-1000);
-  });
-
-  it("is zero when the pointer paused before letting go", () => {
-    const samples = [0, 20, 40].map((t) => ({ x: t * 2, y: 0, t }));
-    expect(pointerVelocity(samples, 140)).toEqual({ x: 0, y: 0 });
-  });
-});
-
 describe("Gestures", () => {
   it("treats a quick tap beside the ball as a hit from that side", () => {
     const { g, log, last } = setup();
@@ -69,20 +52,17 @@ describe("Gestures", () => {
     expect(log).toEqual([]);
   });
 
-  it("picks the ball up when pressed and dragged, then throws it on release", () => {
-    const { g, log, last } = setup();
+  it("picks the ball up when pressed and dragged, and lets it go on release", () => {
+    const { g, log } = setup();
     g.down(102, 101, 0);
-    g.move(120, 101, 20);
-    g.move(140, 101, 40);
-    g.move(160, 101, 60);
+    g.move(120, 101);
+    g.move(140, 101);
     g.up(62);
-    expect(log).toEqual(["grab:1", "carry:120,101", "carry:140,101", "carry:160,101", "release"]);
-    expect(last.velocity!.x).toBeCloseTo(((160 - 102) / 60) * 1000);
-    expect(last.velocity!.y).toBeCloseTo(0);
+    expect(log).toEqual(["grab:1", "carry:120,101", "carry:140,101", "release"]);
   });
 
   it("picks the ball up when held still past the tap window", () => {
-    const { g, log, last } = setup();
+    const { g, log } = setup();
     g.down(100, 100, 0);
     g.tick(100);
     expect(log).toEqual([]);
@@ -90,13 +70,12 @@ describe("Gestures", () => {
     expect(log).toEqual(["grab:1"]);
     g.up(900);
     expect(log).toEqual(["grab:1", "release"]);
-    expect(last.velocity).toEqual({ x: 0, y: 0 });
   });
 
   it("does nothing for a drag that starts beside the ball rather than on it", () => {
     const { g, log } = setup();
     g.down(100, 128, 0);
-    g.move(140, 128, 30);
+    g.move(140, 128);
     g.up(60);
     expect(log).toEqual([]);
   });

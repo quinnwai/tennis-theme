@@ -8,19 +8,23 @@ export const params = {
   drag: 0.0206, // 1/m; air drag deceleration = drag * speed^2
   rollingResistance: 0.1, // how hard a surface slows a rolling ball; 0.1 stops a 2 m/s roll in about 3 s
 
+  // On the page, a ball is drawn this many times wider than the dot the typeface gives the "i".
+  ballScale: 1.15,
+
   // A tap.
-  hitSpeed: 4.5, // m/s
+  hitSpeed: 3.0, // m/s; lifts a ball about 45 cm, which keeps a tapped dot on screen
   hitCarryOver: 0.15, // share of the ball's old velocity that survives a hit
   hitReach: 2.5, // a tap within this many ball radii of the center is a hit
   minHitReachPx: 24,
   tapMaxMs: 220,
   tapSlopPx: 6,
 
-  // Carry and fling.
+  // Carry and throw. A carried ball has weight: it trails the pointer, and it can only be
+  // thrown as fast as it was actually moving when let go.
   grabReach: 1.4, // a press within this many ball radii picks the ball up
   minGrabReachPx: 14,
-  followRate: 30, // 1/s; how tightly a carried ball tracks the pointer
-  maxFling: 14, // m/s
+  followRate: 14, // 1/s; how quickly a carried ball closes the gap to the pointer
+  carrySpeed: 5, // m/s; the fastest a carried ball moves, and so the fastest throw
 };
 
 export type Params = typeof params;

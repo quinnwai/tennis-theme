@@ -5,19 +5,19 @@ import { Court, STEP, type Ball } from "./physics";
 import { Renderer, type BallSprite } from "./render";
 import { mountTuner } from "./tune";
 import { layoutName, type NameLayout } from "./wordmark";
+import { WORDMARKS } from "./wordmark.data";
 
-const REFILLS = 3; // balls waiting in each can, besides the dot on show
 const REFILL_DELAY_MS = 1200; // longer than a tapped ball takes to go straight up and come back down
 const RISE_MS = 260; // how long a fresh ball takes to rise out of the stem
 const TRAIL_MIN_SPEED = 1; // m/s; slower balls leave no trail
+const MAX_BALLS = 60; // past this, the oldest loose ball makes way for each new one
 
-/** An "i": the spot where its dot sits, and the can of spare balls in its stem. Meters, y up. */
+/** An "i": the spot where its dot sits. Its stem never runs out of balls. Meters, y up. */
 interface Home {
   x: number;
   y: number;
   stemTop: number;
   ballId: number | null;
-  left: number;
   emptySince: number;
   risingSince: number | null;
 }
@@ -27,6 +27,12 @@ function main(): void {
   const renderer = new Renderer(canvas, readPalette());
   const contact = document.querySelector<HTMLElement>(".contact")!;
   const toggle = contact.querySelector<HTMLButtonElement>(".toggle")!;
+  const creditsChip = document.querySelector<HTMLElement>(".chip.credits")!;
+  const clearButton = document.querySelector<HTMLButtonElement>(".chip.clear")!;
+
+  // The name is set in Ubuntu. Add ?font=roboto-mono to the address to compare.
+  const query = new URLSearchParams(location.search);
+  const mark = WORDMARKS[query.get("font") ?? ""] ?? WORDMARKS.ubuntu;
 
   let layout!: NameLayout;
   let pxPerMeter = 1;
@@ -40,9 +46,9 @@ function main(): void {
   const toScreen = (x: number, y: number): Vec => ({ x: x * pxPerMeter, y: renderer.height - y * pxPerMeter });
 
   /**
-   * Lay the name out for the current window and build the world around it. The dot of the "i"
-   * is a real ball's size, which fixes how many pixels make a meter. On a resize, loose balls
-   * keep their place relative to the letters.
+   * Lay the name out for the current window and build the world around it. A ball is a real
+   * ball's size, which fixes how many pixels make a meter. On a rebuild, loose balls keep
+   * their place relative to the letters.
    */
   function build(): void {
     const loose = court
@@ -56,23 +62,27 @@ function main(): void {
     const before = homes;
 
     renderer.resize();
-    layout = layoutName(renderer.width, renderer.height);
-    renderer.setLetters(layout.outlines);
+    layout = layoutName(renderer.width, renderer.height, mark, params.ballScale);
+    const outlines = layout.letters.flatMap((letter) => letter.loops);
+    renderer.setLetters(outlines);
     radiusPx = layout.ballPx / 2;
     pxPerMeter = layout.ballPx / params.ballDiameter;
     const width = renderer.width / pxPerMeter;
     const height = renderer.height / pxPerMeter;
-    // The contact button is a solid disc in the corner: balls bounce off it.
-    const box = toggle.getBoundingClientRect();
-    const peg = {
-      ...toMeters({ x: box.left + box.width / 2, y: box.top + box.height / 2 }),
-      radius: box.width / 2 / pxPerMeter,
-    };
+
+    // The two buttons in the bottom corners are solid discs: balls bounce off them.
+    const pegs = [toggle, creditsChip].map((chip) => {
+      const box = chip.getBoundingClientRect();
+      return {
+        ...toMeters({ x: box.left + box.width / 2, y: box.top + box.height / 2 }),
+        radius: box.width / 2 / pxPerMeter,
+      };
+    });
     court = new Court(
       width,
       height,
-      layout.outlines.map((loop) => loop.map(toMeters)),
-      [peg],
+      outlines.map((loop) => loop.map(toMeters)),
+      pegs,
     );
 
     homes = layout.dots.map((dot, i) => {
@@ -83,7 +93,6 @@ function main(): void {
         y: at.y,
         stemTop: toMeters(layout.stemTops[i]).y,
         ballId: null,
-        left: old ? old.left : REFILLS,
         emptySince: simMs,
         risingSince: null,
       };
@@ -107,15 +116,15 @@ function main(): void {
     return { id: b.id, ...at, r: radiusPx, angle: -(b.prevAngle + (b.angle - b.prevAngle) * alpha) };
   }
 
-  /** Fresh balls on their way up from inside a stem to the dot's place. */
+  /** Fresh balls on their way out of a stem: each starts small at the top of the stem and grows into the dot's place. */
   function risingSprites(): BallSprite[] {
     const sprites: BallSprite[] = [];
     for (const home of homes) {
       if (home.risingSince === null) continue;
       const p = Math.min(1, (simMs - home.risingSince) / RISE_MS);
       const eased = 1 - (1 - p) * (1 - p);
-      const from = home.stemTop - params.ballDiameter / 2;
-      sprites.push({ id: -1, ...toScreen(home.x, from + (home.y - from) * eased), r: radiusPx, angle: 0 });
+      const at = toScreen(home.x, home.stemTop + (home.y - home.stemTop) * eased);
+      sprites.push({ id: -1, ...at, r: radiusPx * (0.55 + 0.45 * eased), angle: 0 });
     }
     return sprites;
   }
@@ -135,12 +144,12 @@ function main(): void {
       const p = toMeters(at);
       court.carryTo(p.x, p.y);
     },
-    release(velocity) {
-      court.release(velocity.x / pxPerMeter, -velocity.y / pxPerMeter);
+    release() {
+      court.release();
     },
   });
 
-  /** Keep each "i" dotted while its can has balls, and refill both cans once every ball is gone. */
+  /** Keep each "i" dotted: whenever its dot is gone, a fresh ball rises out of the stem. */
   function supply(): void {
     for (const home of homes) {
       if (home.ballId !== null) {
@@ -155,18 +164,18 @@ function main(): void {
         home.ballId = court.addBall(home.x, home.y, true).id;
         continue;
       }
-      if (home.left === 0 || simMs - home.emptySince < REFILL_DELAY_MS) continue;
+      if (simMs - home.emptySince < REFILL_DELAY_MS) continue;
       // A fresh ball rises only when nothing sits on the stem or hangs above it, about to land there.
       const clear = court.balls.every(
         (b) => Math.abs(b.x - home.x) > params.ballDiameter * 1.5 || b.y < home.stemTop,
       );
       if (!clear) continue;
+      // The supply never runs out, so the court has a ceiling instead: the oldest loose ball goes.
+      if (court.balls.length >= MAX_BALLS) {
+        const oldest = court.balls.find((b) => !b.pinned && !b.held);
+        if (oldest) court.remove(oldest.id);
+      }
       home.risingSince = simMs;
-      home.left--;
-    }
-    const empty = homes.every((h) => h.left === 0 && h.risingSince === null);
-    if (court.balls.length === 0 && empty) {
-      for (const home of homes) home.left = REFILLS + 1;
     }
   }
 
@@ -176,13 +185,24 @@ function main(): void {
     supply();
   }
 
+  /** Sweep every ball off the court and let both dots rise again. */
+  function reset(): void {
+    gestures.cancel();
+    for (const ball of [...court.balls]) court.remove(ball.id);
+    for (const home of homes) {
+      home.ballId = null;
+      home.risingSince = null;
+      home.emptySince = simMs - REFILL_DELAY_MS;
+    }
+  }
+
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     gestures.down(e.clientX, e.clientY, e.timeStamp);
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
-    gestures.move(e.clientX, e.clientY, e.timeStamp);
+    gestures.move(e.clientX, e.clientY);
     if (e.buttons === 0) canvas.style.cursor = hoverCursor(e.clientX, e.clientY);
   });
   canvas.addEventListener("pointerup", (e) => gestures.up(e.timeStamp));
@@ -201,6 +221,7 @@ function main(): void {
     const open = contact.classList.toggle("open");
     toggle.setAttribute("aria-expanded", String(open));
   });
+  clearButton.addEventListener("click", reset);
 
   let resizeTimer = 0;
   window.addEventListener("resize", () => {
@@ -212,7 +233,7 @@ function main(): void {
   });
 
   build();
-  if (new URLSearchParams(location.search).has("tune")) mountTuner(() => court.applyParams());
+  if (query.has("tune")) mountTuner(build);
 
   let last = performance.now();
   let pending = 0;
@@ -251,6 +272,8 @@ function main(): void {
           vy: -b.vy * pxPerMeter,
           r: radiusPx,
         })),
+      /** Whether each "i" has its dot right now. */
+      dots: () => homes.map((h) => h.ballId !== null),
       lastHit: () => lastHit,
       effects: () => renderer.effects(),
       pxPerMeter: () => pxPerMeter,

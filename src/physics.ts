@@ -154,8 +154,8 @@ export class Court {
     this.target = { x, y };
   }
 
-  /** Let go of the carried ball with the given velocity, capped at the fastest allowed throw. */
-  release(vx: number, vy: number): void {
+  /** Let go of the carried ball. It keeps the speed it had, which is how a throw happens. */
+  release(): void {
     if (this.heldId === null) return;
     const ball = this.balls.find((b) => b.id === this.heldId);
     const body = this.bodies.get(this.heldId);
@@ -163,9 +163,6 @@ export class Court {
     if (!ball || !body) return;
     ball.held = false;
     body.setGravityScale(1);
-    const speed = Math.hypot(vx, vy);
-    const scale = speed > params.maxFling ? params.maxFling / speed : 1;
-    body.setLinearVelocity({ x: vx * scale * U, y: vy * scale * U });
     body.setAwake(true);
   }
 
@@ -181,12 +178,17 @@ export class Court {
       ball.prevAngle = ball.angle;
 
       if (ball.held) {
-        // The carried ball chases the pointer rather than teleporting, so it still pushes and collides.
+        // The carried ball chases the pointer rather than teleporting, so it still pushes and
+        // collides. It has a top speed, which is what gives it weight in the hand.
         const p = body.getPosition();
-        body.setLinearVelocity({
-          x: (this.target.x * U - p.x) * params.followRate,
-          y: (this.target.y * U - p.y) * params.followRate,
-        });
+        let vx = (this.target.x * U - p.x) * params.followRate;
+        let vy = (this.target.y * U - p.y) * params.followRate;
+        const speed = Math.hypot(vx, vy) / U;
+        if (speed > params.carrySpeed) {
+          vx *= params.carrySpeed / speed;
+          vy *= params.carrySpeed / speed;
+        }
+        body.setLinearVelocity({ x: vx, y: vy });
         body.setAngularVelocity(0);
       } else if (!ball.pinned && body.isAwake()) {
         // Air drag grows with the square of speed. Below 0.5 m/s it is too small to matter.
@@ -226,19 +228,6 @@ export class Court {
     return gone;
   }
 
-  /** Re-read the tunable numbers after they change. */
-  applyParams(): void {
-    Settings.velocityThreshold = deadBounceSpeed() * U;
-    this.world.setGravity({ x: 0, y: -params.gravity * U });
-    for (const body of this.bodies.values()) {
-      for (let f = body.getFixtureList(); f; f = f.getNext()) {
-        f.setRestitution(params.restitution);
-        f.setFriction(params.friction);
-      }
-      body.setAwake(true);
-    }
-  }
-
   private unpin(ball: Ball, body: Body): void {
     if (!ball.pinned) return;
     ball.pinned = false;
@@ -246,7 +235,8 @@ export class Court {
     body.setAwake(true);
   }
 
-  private remove(id: number): void {
+  /** Take a ball off the court. */
+  remove(id: number): void {
     const body = this.bodies.get(id);
     if (body) this.world.destroyBody(body);
     this.bodies.delete(id);

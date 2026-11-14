@@ -1,4 +1,4 @@
-// Reads Roboto Mono Bold and writes the outlines of the letters in "quinn wai" to src/wordmark.data.ts.
+// Sets the name "quinn wai" in each candidate typeface and writes the outlines to src/wordmark.data.ts.
 // The page draws the name from these outlines and builds its solid shapes from the same points,
 // so what you see and what a ball bounces off can never disagree.
 //
@@ -7,24 +7,40 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import opentype from "opentype.js";
 
-const FONT = "node_modules/@fontsource/roboto-mono/files/roboto-mono-latin-700-normal.woff";
-const LETTERS = "quinwa";
+const NAME = "quinn wai";
 const OUT = "src/wordmark.data.ts";
+const FONTS = {
+  ubuntu: {
+    file: "node_modules/@fontsource/ubuntu/files/ubuntu-latin-700-normal.woff",
+    credit: "Ubuntu Bold (Dalton Maag, Ubuntu Font Licence 1.0)",
+  },
+  "roboto-mono": {
+    file: "node_modules/@fontsource/roboto-mono/files/roboto-mono-latin-700-normal.woff",
+    credit: "Roboto Mono Bold (Christian Robertson, SIL Open Font License 1.1)",
+  },
+};
 
-const file = readFileSync(FONT);
-const font = opentype.parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
-const em = font.unitsPerEm;
-const xHeight = font.tables.os2.sxHeight;
-
-/** Font units to ems, rounded to keep the generated file small. */
-const ems = (units) => Math.round((units / em) * 10000) / 10000;
-
-/** A letter's outline as closed loops of [x, y] points in font units, y up, with curves cut into short straight pieces. */
-function contoursOf(char) {
-  const commands = font.charToGlyph(char).getPath(0, 0, em).commands;
+/** A glyph's outline as closed loops of [x, y] points in font units, y up, with curves cut into short straight pieces. */
+function contoursOf(glyph, x, em) {
+  const commands = glyph.getPath(x, 0, em).commands;
   const contours = [];
   let points = null;
   let last = null;
+  const addCurve = (controls, end) => {
+    // Works for quadratic (one control point) and cubic (two) curves alike.
+    const hull = [last, ...controls, end];
+    let length = 0;
+    for (let i = 1; i < hull.length; i++) length += Math.hypot(hull[i][0] - hull[i - 1][0], hull[i][1] - hull[i - 1][1]);
+    const pieces = Math.min(12, Math.max(2, Math.ceil(length / (0.03 * em))));
+    for (let i = 1; i <= pieces; i++) {
+      const t = i / pieces;
+      let layer = hull;
+      while (layer.length > 1) {
+        layer = layer.slice(1).map((p, k) => [layer[k][0] + (p[0] - layer[k][0]) * t, layer[k][1] + (p[1] - layer[k][1]) * t]);
+      }
+      points.push(layer[0]);
+    }
+  };
   for (const c of commands) {
     if (c.type === "Z") continue;
     // getPath returns y pointing down; flip it back.
@@ -35,18 +51,11 @@ function contoursOf(char) {
     } else if (c.type === "L") {
       points.push(end);
     } else if (c.type === "Q") {
-      const control = [c.x1, -c.y1];
-      const length = Math.hypot(control[0] - last[0], control[1] - last[1]) + Math.hypot(end[0] - control[0], end[1] - control[1]);
-      const pieces = Math.min(10, Math.max(2, Math.ceil(length / (0.03 * em))));
-      for (let i = 1; i <= pieces; i++) {
-        const t = i / pieces;
-        const a = (1 - t) * (1 - t);
-        const b = 2 * (1 - t) * t;
-        const d = t * t;
-        points.push([a * last[0] + b * control[0] + d * end[0], a * last[1] + b * control[1] + d * end[1]]);
-      }
+      addCurve([[c.x1, -c.y1]], end);
+    } else if (c.type === "C") {
+      addCurve([[c.x1, -c.y1], [c.x2, -c.y2]], end);
     } else {
-      throw new Error(`Unexpected path command ${c.type} in "${char}"`);
+      throw new Error(`Unexpected path command ${c.type}`);
     }
     last = end;
   }
@@ -61,53 +70,74 @@ function contoursOf(char) {
   );
 }
 
-const glyphs = {};
-let dot = null;
-for (const char of LETTERS) {
-  let contours = contoursOf(char);
-  if (char === "i") {
-    // The dot is the loop that sits entirely above the lowercase letters. It becomes a ball, not a shape.
-    const isDot = (loop) => Math.min(...loop.map((p) => p[1])) > xHeight;
-    const loop = contours.find(isDot);
-    const xs = loop.map((p) => p[0]);
-    const ys = loop.map((p) => p[1]);
-    const width = Math.max(...xs) - Math.min(...xs);
-    const height = Math.max(...ys) - Math.min(...ys);
-    dot = {
-      x: ems((Math.max(...xs) + Math.min(...xs)) / 2),
-      y: ems((Math.max(...ys) + Math.min(...ys)) / 2),
-      diameter: ems((width + height) / 2),
-    };
-    contours = contours.filter((c) => !isDot(c));
-  }
-  glyphs[char] = contours.map((loop) => loop.flatMap(([x, y]) => [ems(x), ems(y)]));
+function setName(file) {
+  const bytes = readFileSync(file);
+  const font = opentype.parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  const em = font.unitsPerEm;
+  const xHeight = font.tables.os2.sxHeight;
+  /** Font units to ems, rounded to keep the generated file small. */
+  const ems = (units) => Math.round((units / em) * 10000) / 10000;
+
+  const letters = [];
+  const dots = [];
+  const width = font.forEachGlyph(NAME, 0, 0, em, { kerning: true }, (glyph, x) => {
+    let loops = contoursOf(glyph, x, em);
+    if (!loops.length) return;
+    const char = String.fromCodePoint(glyph.unicode);
+    if (char === "i") {
+      // The dot is the loop that sits entirely above the lowercase letters. It becomes a ball, not a shape.
+      const isDot = (loop) => Math.min(...loop.map((p) => p[1])) > xHeight;
+      const dot = loops.find(isDot);
+      loops = loops.filter((loop) => !isDot(loop));
+      const xs = dot.map((p) => p[0]);
+      const ys = dot.map((p) => p[1]);
+      dots.push({
+        x: ems((Math.max(...xs) + Math.min(...xs)) / 2),
+        y: ems((Math.max(...ys) + Math.min(...ys)) / 2),
+        diameter: ems((Math.max(...xs) - Math.min(...xs) + Math.max(...ys) - Math.min(...ys)) / 2),
+        stemTop: ems(Math.max(...loops.flat().map((p) => p[1]))),
+      });
+    }
+    letters.push({ char, loops: loops.map((loop) => loop.flatMap(([px, py]) => [ems(px), ems(py)])) });
+  });
+
+  const ys = letters.flatMap((letter) => letter.loops.flatMap((loop) => loop.filter((_, i) => i % 2 === 1)));
+  return {
+    width: ems(width),
+    xHeight: ems(xHeight),
+    bottom: Math.min(...ys),
+    top: Math.max(...dots.map((d) => d.y + d.diameter / 2)),
+    letters,
+    dots,
+  };
 }
 
-const advance = ems(font.charToGlyph("n").advanceWidth);
-
 const lines = [
-  "// Generated by scripts/extract-glyphs.mjs from Roboto Mono Bold",
-  "// (Christian Robertson, SIL Open Font License 1.1). Do not edit by hand.",
+  "// Generated by scripts/extract-glyphs.mjs. Do not edit by hand.",
   "",
-  "/** Width of every letter cell, in ems. */",
-  `export const ADVANCE = ${advance};`,
+  '/** The name "quinn wai" set in one typeface. Ems, y up, origin at the left end of the baseline. */',
+  "export interface Wordmark {",
+  "  /** Width of the whole name. */",
+  "  width: number;",
+  "  /** Height of the lowercase letters. */",
+  "  xHeight: number;",
+  "  /** Lowest point of the outlines (the tail of the q) and the top of the dots. */",
+  "  bottom: number;",
+  "  top: number;",
+  '  /** Each letter in place, as closed loops of x, y pairs. The i\'s come without their dots. */',
+  "  letters: { char: string; loops: number[][] }[];",
+  "  /** The dot of each i: its center, its width, and the top of the stem underneath. */",
+  "  dots: { x: number; y: number; diameter: number; stemTop: number }[];",
+  "}",
   "",
-  "/** Height of the lowercase letters, in ems. */",
-  `export const X_HEIGHT = ${ems(xHeight)};`,
-  "",
-  '/** The dot of the "i": its center relative to the letter\'s origin, and its width, in ems. */',
-  `export const DOT = ${JSON.stringify(dot)};`,
-  "",
-  "/**",
-  " * Each letter's outline as closed loops of x, y pairs. Ems, y up, origin at the left end of the",
-  ' * baseline. The "i" comes without its dot.',
-  " */",
-  "export const GLYPHS: Record<string, number[][]> = {",
-  ...Object.entries(glyphs).map(([char, loops]) => `  ${char}: ${JSON.stringify(loops)},`),
-  "};",
-  "",
+  "export const WORDMARKS: Record<string, Wordmark> = {",
 ];
+for (const [key, { file, credit }] of Object.entries(FONTS)) {
+  const mark = setName(file);
+  const points = mark.letters.reduce((n, letter) => n + letter.loops.reduce((m, loop) => m + loop.length / 2, 0), 0);
+  console.log(`${key}: ${points} points, width ${mark.width} em, dots ${JSON.stringify(mark.dots)}`);
+  lines.push(`  // ${credit}`, `  ${JSON.stringify(key)}: ${JSON.stringify(mark)},`);
+}
+lines.push("};", "");
 writeFileSync(OUT, lines.join("\n"));
-
-const pointCount = Object.values(glyphs).flat().reduce((n, loop) => n + loop.length / 2, 0);
-console.log(`Wrote ${OUT}: ${LETTERS.length} letters, ${pointCount} points, dot ${JSON.stringify(dot)}, advance ${advance}`);
+console.log(`Wrote ${OUT}`);
