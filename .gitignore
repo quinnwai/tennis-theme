@@ -1,6 +1,8 @@
 .DS_Store
 node_modules/
 dist/
+test-results/
+playwright-report/
 
 # Third-party reference images and the private voice memo stay local (this repo is public).
 # Their sources are credited in CITATIONS.md.
