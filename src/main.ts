@@ -73,7 +73,7 @@ function main(): void {
     const width = renderer.width / pxPerMeter;
     const height = renderer.height / pxPerMeter;
 
-    // The two buttons in the bottom corners are solid discs: balls bounce off them.
+    // The two buttons at the bottom right are solid discs: balls bounce off them.
     const pegs = [toggle, creditsChip].map((chip) => {
       const box = chip.getBoundingClientRect();
       return {
