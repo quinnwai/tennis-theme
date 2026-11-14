@@ -1,0 +1,207 @@
+@import "@fontsource/roboto-mono/latin-400.css";
+
+:root {
+  /*
+   * Navy and court blue are sampled from the 2013 Australian Open towel in the reference photos,
+   * the green from its edge band and a tennis ball, each nudged to hold up on a screen.
+   * The canvas reads these same values, so the page and the toy cannot drift apart.
+   */
+  --navy: #132637;
+  --court-blue: #2e92b9;
+  --ball: #dbed3b;
+  --ball-shade: #bbd12e;
+  --white: #ffffff;
+  --quiet: #9fb0c0;
+
+  font-family: "Roboto Mono", ui-monospace, Menlo, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--navy);
+  color: var(--white);
+}
+
+a {
+  color: inherit;
+}
+
+/* ---- The homepage: one screen, all canvas ---- */
+
+.play {
+  height: 100%;
+  overflow: hidden;
+}
+
+.play canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+}
+
+/* The name is drawn on the canvas; this copy is for screen readers and search engines. */
+.play h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Quiet page furniture lives in the top corners, where balls pass through but never come to rest. */
+.credits-link {
+  position: fixed;
+  top: 18px;
+  left: 20px;
+  color: var(--quiet);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.credits-link:hover,
+.credits-link:focus-visible {
+  color: var(--white);
+  text-decoration: underline;
+}
+
+.rotate-note {
+  display: none;
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  color: var(--quiet);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+@media (orientation: portrait) and (max-width: 700px) {
+  .rotate-note {
+    display: block;
+  }
+}
+
+/*
+ * The contact control: a "?" in the bottom right corner that opens upward into three links.
+ * The "?" is also a solid object in the toy, so balls bounce off it. Only the chips take
+ * pointer events; the space around them still belongs to the canvas.
+ */
+.contact {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  pointer-events: none;
+}
+
+.chip {
+  position: relative;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--quiet);
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--quiet);
+  font: inherit;
+  font-size: 18px;
+  text-decoration: none;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    opacity 0.15s,
+    transform 0.15s;
+}
+
+.chip:hover,
+.chip:focus-visible {
+  color: var(--white);
+  border-color: var(--white);
+  outline: none;
+}
+
+.chip svg {
+  width: 18px;
+  height: 18px;
+}
+
+.contact a.chip {
+  margin-bottom: 8px;
+  opacity: 0;
+  transform: translateY(8px);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Bridge the gap under each link so the pointer can travel between chips without the menu closing. */
+.contact a.chip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 10px;
+}
+
+.contact:hover a.chip,
+.contact:focus-within a.chip,
+.contact.open a.chip {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* ---- Text pages ---- */
+
+.page main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 4rem;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.page h1 {
+  margin: 2rem 0 1rem;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.page a {
+  color: var(--white);
+  text-decoration-color: var(--court-blue);
+  text-underline-offset: 3px;
+}
+
+.page a:hover,
+.page a:focus-visible {
+  color: var(--ball);
+}
+
+.page ul {
+  padding-left: 1.1rem;
+}
+
+.page li {
+  margin-bottom: 0.9rem;
+}
+
+.page .back {
+  color: var(--quiet);
+  text-decoration: none;
+}
