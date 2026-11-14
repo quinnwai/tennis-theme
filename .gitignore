@@ -4,6 +4,9 @@ dist/
 test-results/
 playwright-report/
 
+# The roadmap is a working document kept on Quinn-Wai's Mac and handed over directly, not published.
+ROADMAP.md
+
 # Third-party reference images and the private voice memo stay local (this repo is public).
 # Their sources are credited in CITATIONS.md.
 reference/

@@ -1,5 +1,5 @@
-// The checks that say the first draft is done (see "The first draft is done when" in ROADMAP.md),
-// run in a real browser against the dev server or, with BASE_URL set, against a deployed copy.
+// The checks that say the first draft is done, run in a real browser against the dev server or,
+// with BASE_URL set, against a deployed copy.
 
 import { expect, test, type Page } from "@playwright/test";
 
