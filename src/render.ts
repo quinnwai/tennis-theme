@@ -1,6 +1,7 @@
 import type { Palette } from "./palette";
+import { params } from "./params";
+import { SHAPE_STRIDE, Trail } from "./trail";
 
-const TRAIL_MS = 350;
 const BURST_MS = 220;
 const TAU = Math.PI * 2;
 
@@ -87,7 +88,10 @@ export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private letters = new Path2D();
   private seam = seamRibbon();
-  private trails = new Map<number, Timed[]>();
+  private trails = new Trail();
+  private livePieces = 0;
+  /** The last ball radius seen, so chips keep their size while no ball is on the court, as just after Clear. */
+  private ballRadius = 12;
   private bursts: Timed[] = [];
   width = 0;
   height = 0;
@@ -108,6 +112,8 @@ export class Renderer {
     this.canvas.width = Math.round(this.width * dpr);
     this.canvas.height = Math.round(this.height * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // A resize rebuilds the court, and its balls start again from number 1: no flight carries over.
+    this.trails.endFlights();
   }
 
   /** The name, as the same closed outlines the balls bounce off. */
@@ -124,18 +130,14 @@ export class Renderer {
     this.bursts.push({ x, y, t: now });
   }
 
-  /** Start or extend a ball's fading flight path. Call only while the ball is in flight. */
-  trail(id: number, x: number, y: number, now: number): void {
-    let points = this.trails.get(id);
-    if (!points) this.trails.set(id, (points = []));
-    points.push({ x, y, t: now });
+  /** Start or extend a ball's trail. Call only while the ball is in flight. */
+  trail(ball: BallSprite, now: number): void {
+    this.trails.follow(ball.id, ball.x, ball.y, ball.r, now);
   }
 
-  /** How many bursts and trail points are on screen right now. For automated checks. */
+  /** How many bursts and trail chips are on screen right now. For automated checks. */
   effects(): { bursts: number; trailPoints: number } {
-    let trailPoints = 0;
-    for (const points of this.trails.values()) trailPoints += points.length;
-    return { bursts: this.bursts.length, trailPoints };
+    return { bursts: this.bursts.length, trailPoints: this.livePieces };
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
@@ -145,7 +147,8 @@ export class Renderer {
     ctx.fillRect(0, 0, this.width, this.height);
 
     const radius = balls[0]?.r ?? rising[0]?.r ?? 12;
-    this.drawTrails(now, radius);
+    if (balls.length) this.ballRadius = balls[0].r;
+    this.drawTrails(now, this.ballRadius);
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
@@ -153,26 +156,34 @@ export class Renderer {
     this.drawBursts(now, radius);
   }
 
+  /**
+   * Every living chip as a flat white rectangle, all in one path and filled once, so chips that
+   * overlap make one solid shape rather than a darker patch.
+   */
   private drawTrails(now: number, radius: number): void {
+    const count = this.trails.shapes(now, radius);
+    this.livePieces = count;
+    if (!count) return;
     const ctx = this.ctx;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = this.palette.white;
-    ctx.lineWidth = Math.max(1.25, radius * 0.14);
-    for (const [id, points] of this.trails) {
-      while (points.length && now - points[0].t > TRAIL_MS) points.shift();
-      if (!points.length) {
-        this.trails.delete(id);
-        continue;
-      }
-      for (let i = 1; i < points.length; i++) {
-        const age = (now - points[i].t) / TRAIL_MS;
-        ctx.globalAlpha = 0.55 * (1 - age);
-        ctx.beginPath();
-        ctx.moveTo(points[i - 1].x, points[i - 1].y);
-        ctx.lineTo(points[i].x, points[i].y);
-        ctx.stroke();
-      }
+    const shapes = this.trails.out;
+    ctx.fillStyle = this.palette.white;
+    ctx.globalAlpha = params.trailOpacity;
+    ctx.beginPath();
+    for (let i = 0; i < count; i++) {
+      const o = i * SHAPE_STRIDE;
+      const x = shapes[o];
+      const y = shapes[o + 1];
+      // Half the chip's length along its long side, and half its thickness across it.
+      const lx = shapes[o + 2] * shapes[o + 4];
+      const ly = shapes[o + 2] * shapes[o + 5];
+      const tx = -shapes[o + 3] * shapes[o + 5];
+      const ty = shapes[o + 3] * shapes[o + 4];
+      ctx.moveTo(x + lx + tx, y + ly + ty);
+      ctx.lineTo(x - lx + tx, y - ly + ty);
+      ctx.lineTo(x - lx - tx, y - ly - ty);
+      ctx.lineTo(x + lx - tx, y + ly - ty);
     }
+    ctx.fill();
     ctx.globalAlpha = 1;
   }
 

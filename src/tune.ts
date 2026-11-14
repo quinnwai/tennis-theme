@@ -1,8 +1,9 @@
 import { params, type Params } from "./params";
 
-type Field = [key: keyof Params, label: string, min: number, max: number, step: number];
+/** `live` fields change only how things are drawn, so moving them leaves the world, and any ball in flight, alone. */
+type Field = [key: keyof Params, label: string, min: number, max: number, step: number, live?: true];
 
-const FIELDS: Field[] = [
+export const FIELDS: Field[] = [
   ["hitSpeed", "tap power (m/s)", 1, 10, 0.1],
   ["hitCarryOver", "old speed kept on a tap", 0, 1, 0.05],
   ["hitReach", "tap reach (ball radii)", 1, 5, 0.1],
@@ -18,6 +19,12 @@ const FIELDS: Field[] = [
   ["rollingResistance", "rolling resistance", 0, 0.5, 0.01],
   ["creditsBlur", "credits blur (px)", 0, 40, 1],
   ["creditsDim", "credits dimming (0 to 1)", 0, 1, 0.05],
+  ["trailWidth", "trail width (× ball)", 0.2, 1.5, 0.05, true],
+  ["trailPiece", "trail chip size (× ball)", 0.15, 1, 0.05, true],
+  ["trailShrink", "trail shrink speed", 0.3, 5, 0.1, true],
+  ["trailScatter", "trail scatter (× ball)", 0, 3, 0.05, true],
+  ["trailLifetime", "trail lifetime (s)", 0.1, 2, 0.05, true],
+  ["trailOpacity", "trail opacity", 0.2, 1, 0.05, true],
 ];
 
 /**
@@ -30,7 +37,7 @@ export function mountTuner(rebuild: (changed: keyof Params) => void): void {
     "position:fixed;top:70px;left:12px;padding:10px 12px;background:rgba(255,255,255,.92);" +
     "border-radius:8px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#132637;z-index:10;";
 
-  for (const [key, label, min, max, step] of FIELDS) {
+  for (const [key, label, min, max, step, live] of FIELDS) {
     const row = document.createElement("label");
     row.style.cssText = "display:grid;grid-template-columns:190px 130px 48px;gap:8px;align-items:center;";
     const input = document.createElement("input");
@@ -44,7 +51,7 @@ export function mountTuner(rebuild: (changed: keyof Params) => void): void {
     input.addEventListener("input", () => {
       params[key] = Number(input.value);
       value.textContent = input.value;
-      rebuild(key);
+      if (!live) rebuild(key);
     });
     row.append(label, input, value);
     panel.append(row);
