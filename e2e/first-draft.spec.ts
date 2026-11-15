@@ -2,7 +2,8 @@
 // with BASE_URL set, against a deployed copy.
 
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { params } from "../src/params";
 
 /** One ball as the page's test hook reports it. Screen units: px and px/s, y down. */
 interface Ball {
@@ -314,47 +315,6 @@ async function rowStats(page: Page, row: { x: number; y: number; width: number }
   return { range, sharpness: range === 0 ? 0 : step / range };
 }
 
-test("the credits button sits right beside the contact button, to its left and level with it, and the bottom left corner is free", async ({ page }) => {
-  const creditsBox = (await creditsButton(page).boundingBox())!;
-  const contactBox = (await page.getByRole("navigation", { name: "Contact" }).getByRole("button", { name: "Contact" }).boundingBox())!;
-  expect(creditsBox.x + creditsBox.width).toBeLessThanOrEqual(contactBox.x); // to its left
-  expect(contactBox.x - (creditsBox.x + creditsBox.width)).toBeLessThan(20); // right beside it, not across the page
-  expect(Math.abs(creditsBox.y + creditsBox.height / 2 - (contactBox.y + contactBox.height / 2))).toBeLessThan(1); // level with it
-  // Nothing but the toy itself is in the bottom left corner any more.
-  expect(await page.evaluate(() => document.elementFromPoint(38, innerHeight - 38)?.id)).toBe("court");
-});
-
-test("the credits button is a solid object: a ball dropped on it bounces off instead of falling through", async ({ page }) => {
-  const box = (await creditsButton(page).boundingBox())!;
-  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const above = { x: centre.x, y: centre.y - 160 };
-  // Carry the right-hand dot to a spot straight above the button and let it drop from there.
-  const d = await dot(page, 1);
-  await page.mouse.move(d.x, d.y);
-  await page.mouse.down();
-  await page.mouse.move(above.x, d.y, { steps: 8 });
-  await page.mouse.move(above.x, above.y, { steps: 8 });
-  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - above.x, (await ball(page, d.id)).y - above.y)).toBeLessThan(6);
-  await page.waitForTimeout(120); // let it stop before letting go, so it drops straight down
-  const closest = await page.evaluate(
-    ({ id, at }) => {
-      const sandbox = (window as any).__sandbox;
-      // Let go and watch the whole fall in this one step: no frame can slip in between and move the ball unseen.
-      document.getElementById("court")!.dispatchEvent(new PointerEvent("pointerup"));
-      let closest = Infinity;
-      for (let i = 0; i < 180; i++) {
-        sandbox.advance(1 / 120);
-        const b = sandbox.balls().find((ball: Ball) => ball.id === id) as Ball;
-        closest = Math.min(closest, Math.hypot(b.x - at.x, b.y - at.y));
-      }
-      return closest;
-    },
-    { id: d.id, at: centre },
-  );
-  // A ball that had fallen through would have passed through the button's middle. A solid button keeps it a ball's radius and a button's radius apart.
-  expect(closest).toBeGreaterThan(box.width / 2 + d.r - 4);
-});
-
 test("the credits button shows the credit text over the toy, blurred behind it, without leaving the page", async ({ page }) => {
   const address = page.url();
   const row = await stemRow(page);
@@ -546,6 +506,425 @@ test("with ?tune, the blur and the dimming have sliders that work while the cred
     return { sameLayout: sandbox.layout() === layout, sameBalls: JSON.stringify(sandbox.balls()) === balls };
   });
   expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
+});
+
+// ---- The corner buttons: credits, clear and sound in a row at the top right, the "?" at the bottom right, all bare icons ----
+
+const soundToggle = (page: Page) => page.getByRole("switch", { name: "Sound" });
+const clearButton = (page: Page) => page.getByRole("button", { name: "Clear the balls" });
+const contactButton = (page: Page) => page.getByRole("navigation", { name: "Contact" }).getByRole("button", { name: "Contact" });
+/** The four buttons that are always on the page. The info button is the credits one; the restart button is the clear one. */
+const cornerButtons = (page: Page) => [creditsButton(page), clearButton(page), soundToggle(page), contactButton(page)];
+
+/** Everything the page has in browser storage, as an object. */
+const stored = (page: Page) =>
+  page.evaluate(() => {
+    const all: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)!;
+      all[key] = localStorage.getItem(key)!;
+    }
+    return all;
+  });
+
+/** Load the page again and wait for the toy to be up, as `beforeEach` does the first time. */
+async function reload(page: Page) {
+  await page.reload();
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+}
+
+/** Red, green and blue (0 to 255) of any CSS color, however the browser writes it. */
+const rgbOf = (page: Page, css: string) =>
+  page.evaluate((color) => {
+    const ctx = new OffscreenCanvas(1, 1).getContext("2d")!;
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, 1, 1);
+    return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+  }, css);
+
+/** The color a control's icon is drawn in, which is its text color. */
+const iconColor = async (page: Page, control: Locator) => rgbOf(page, await control.evaluate((el) => getComputedStyle(el).color));
+
+/** Wait until every fade on the page has finished. The buttons change color over 0.15 s, so a color read sooner may be halfway. */
+const fadesDone = (page: Page) =>
+  page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)).then(() => undefined));
+
+/** How light a color is, by the usual accessibility formula: 0 is black and 1 is white. */
+const lightness = (rgb: number[]) => {
+  const [r, g, b] = rgb.map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/**
+ * How many pixels of two same-size PNG pictures differ by more than a shade in some color. Two pictures of the same
+ * thing can still differ by a level in a pixel here and there, from the way edges are smoothed, so equal bytes are too much to ask.
+ */
+const differingPixels = (page: Page, a: Buffer, b: Buffer) =>
+  page.evaluate(
+    async ([first, second]) => {
+      const read = async (base64: string) => {
+        const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+        const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+        ctx.drawImage(bitmap, 0, 0);
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      };
+      const [x, y] = await Promise.all([read(first), read(second)]);
+      let count = 0;
+      for (let i = 0; i < x.length; i += 4) {
+        if (Math.max(Math.abs(x[i] - y[i]), Math.abs(x[i + 1] - y[i + 1]), Math.abs(x[i + 2] - y[i + 2])) > 32) count++;
+      }
+      return count;
+    },
+    [a.toString("base64"), b.toString("base64")] as const,
+  );
+
+/**
+ * Sixteen pixels spaced round the middle of the outer 1.5px of a button's box, which is where a 1.5px circle would be
+ * drawn if it had one. (An icon never reaches that far out: the restart arrow's corner comes within a pixel of it.)
+ */
+async function ringPixels(page: Page, control: Locator) {
+  const box = (await control.boundingBox())!;
+  const size = Math.ceil(box.width);
+  const pixels = await pixelsOf(page, { x: Math.floor(box.x), y: Math.floor(box.y), width: size, height: size });
+  const radius = box.width / 2 - 0.75;
+  return Array.from({ length: 16 }, (_, i) => {
+    const angle = (i * Math.PI) / 8;
+    const x = Math.round(size / 2 + radius * Math.cos(angle) - 0.5);
+    const y = Math.round(size / 2 + radius * Math.sin(angle) - 0.5);
+    return [0, 1, 2].map((channel) => pixels[(y * size + x) * 4 + channel]);
+  });
+}
+
+/** What a ball did on its way to a button. */
+interface Flight {
+  /** Where the ball was, and how fast it was moving at the button, when it was let go. */
+  thrown: { from: number; speed: number };
+  /** The nearest the ball's middle came to the button's middle, in px. */
+  closest: number;
+  /** Whether it reached the button and then left it fast. */
+  bounced: boolean;
+  /** How far apart the two middles are when the ball touches the button. */
+  contact: number;
+}
+
+/**
+ * Throw a ball at a button and see what the button does to it. The real mouse picks up the right-hand dot and carries
+ * it to a spot straight below the button (sideways first, clear of the letters), where it settles. Then, in one in-page
+ * step so that no frame can slip in between and move the ball unseen, the pointer is put on the button's middle so that
+ * the ball runs straight up at it, and the ball is let go a short run-up away, while it is moving fast, and watched
+ * for a second.
+ */
+async function throwAt(page: Page, button: Locator): Promise<Flight> {
+  const box = (await button.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const below = { x: at.x, y: at.y + 260 };
+  const d = await dot(page, 1);
+  const contact = box.width / 2 + d.r;
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(below.x, d.y, { steps: 8 });
+  await page.mouse.move(below.x, below.y, { steps: 8 });
+  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - below.x, (await ball(page, d.id)).y - below.y)).toBeLessThan(6);
+  await page.waitForTimeout(120); // let it stop, so that the run-up starts the same way every time
+
+  const flight = await page.evaluate(
+    ({ id, at, contact }) => {
+      const sandbox = (window as any).__sandbox;
+      const find = () => sandbox.balls().find((b: Ball) => b.id === id) as Ball;
+      const gap = (b: Ball) => Math.hypot(b.x - at.x, b.y - at.y);
+      // How fast the ball is moving toward the button's middle, in px/s. Negative means it is moving away.
+      const toward = (b: Ball) => -((b.x - at.x) * b.vx + (b.y - at.y) * b.vy) / gap(b);
+
+      // The pointer goes to the button's middle, so the carried ball chases it in a straight line.
+      document.getElementById("court")!.dispatchEvent(new PointerEvent("pointermove", { clientX: at.x, clientY: at.y }));
+      let ball = find();
+      for (let i = 0; i < 2400 && gap(ball) > contact + 70; i++) {
+        sandbox.advance(1 / 240);
+        ball = find();
+      }
+      const thrown = { from: gap(ball), speed: toward(ball) };
+      document.getElementById("court")!.dispatchEvent(new PointerEvent("pointerup"));
+
+      let closest = Infinity;
+      let bounced = false;
+      for (let i = 0; i < 240; i++) {
+        sandbox.advance(1 / 240);
+        ball = find();
+        closest = Math.min(closest, gap(ball));
+        if (closest < contact + 10 && toward(ball) < -300) bounced = true; // it reached the button, and now it is leaving
+      }
+      return { thrown, closest, bounced };
+    },
+    { id: d.id, at, contact },
+  );
+  await page.mouse.up();
+  return { ...flight, contact };
+}
+
+/** A real throw that reached the button, did not go into it, and came away from it. */
+function expectBounce(flight: Flight) {
+  expect(flight.thrown.speed).toBeGreaterThan(600); // a real throw: it was moving at the button when let go...
+  expect(flight.thrown.from).toBeGreaterThan(flight.contact + 30); // ...from a run-up away, not already against it
+  expect(flight.closest).toBeGreaterThan(flight.contact - 4); // it never got inside the button
+  expect(flight.closest).toBeLessThan(flight.contact + 10); // though it did reach it
+  expect(flight.bounced).toBe(true); // and it came away
+}
+
+test("the info, restart and sound buttons sit in a row in the top right corner, in that order, and the left corners are free", async ({ page }) => {
+  const [info, restart, sound] = await Promise.all(
+    [creditsButton(page), clearButton(page), soundToggle(page)].map(async (button) => (await button.boundingBox())!),
+  );
+  const { width, height } = page.viewportSize()!;
+  // Left to right: info, restart, sound...
+  expect(info.x + info.width).toBeLessThanOrEqual(restart.x);
+  expect(restart.x + restart.width).toBeLessThanOrEqual(sound.x);
+  // ...level with each other, the same size, and evenly spaced...
+  for (const box of [restart, sound]) {
+    expect(box.y).toBeCloseTo(info.y, 0);
+    expect(box.width).toBeCloseTo(info.width, 0);
+  }
+  expect(restart.x - (info.x + info.width)).toBeCloseTo(sound.x - (restart.x + restart.width), 0);
+  // ...with the sound button in the corner itself.
+  expect(width - (sound.x + sound.width)).toBeLessThan(20);
+  expect(sound.y).toBeLessThan(20);
+
+  // The "?" is the one button at the bottom right, and nothing but the toy itself is in the two left corners.
+  const contact = (await contactButton(page).boundingBox())!;
+  expect(width - (contact.x + contact.width)).toBeLessThan(20);
+  expect(height - (contact.y + contact.height)).toBeLessThan(20);
+  expect(await page.evaluate(() => [document.elementFromPoint(38, 38)?.id, document.elementFromPoint(38, innerHeight - 38)?.id])).toEqual([
+    "court",
+    "court",
+  ]);
+});
+
+test("the close button takes the info button's place while the credits are open", async ({ page }) => {
+  const info = (await creditsButton(page).boundingBox())!;
+  await openCredits(page);
+  const close = (await credits(page).getByRole("button", { name: "Close" }).boundingBox())!;
+  for (const key of ["x", "y", "width", "height"] as const) expect(close[key]).toBeCloseTo(info[key], 0);
+});
+
+test("no button has a circle around it", async ({ page }) => {
+  const navy = await rgbOf(page, await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--navy")));
+  const isNavy = (rgb: number[]) => rgb.every((v, i) => Math.abs(v - navy[i]) <= 4);
+  const bare = (control: Locator) =>
+    control.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { border: s.borderTopWidth, fill: s.backgroundColor };
+    });
+
+  // No border and no fill, and the pixels agree: all the way round where a circle would be, the page is just its navy.
+  for (const button of cornerButtons(page)) {
+    expect(await bare(button), (await button.getAttribute("aria-label")) ?? "").toEqual({ border: "0px", fill: "rgba(0, 0, 0, 0)" });
+    expect((await ringPixels(page, button)).every(isNavy)).toBe(true);
+  }
+  // The links that open above the "?" are buttons too.
+  await contactButton(page).click();
+  const links = await page.getByRole("navigation", { name: "Contact" }).getByRole("link").all();
+  expect(links).toHaveLength(3);
+  for (const link of links) expect(await bare(link)).toEqual({ border: "0px", fill: "rgba(0, 0, 0, 0)" });
+
+  // The pixel check can tell: give one button a circle and it is found.
+  await page.addStyleTag({ content: ".chip.credits { border: 1.5px solid #9fb0c0; }" });
+  expect((await ringPixels(page, creditsButton(page))).every(isNavy)).toBe(false);
+});
+
+test("every button is in one tone, the one in params.ts, and turns white under the pointer", async ({ page }) => {
+  const navy = await rgbOf(page, await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--navy")));
+  const expected = navy.map((v) => v + (255 - v) * params.iconTone); // the page's navy lightened toward white by the tone
+  await fadesDone(page);
+  for (const button of cornerButtons(page)) {
+    (await iconColor(page, button)).forEach((v, i) => expect(Math.abs(v - expected[i])).toBeLessThanOrEqual(2));
+  }
+  for (const button of cornerButtons(page)) {
+    await button.hover();
+    await expect.poll(() => iconColor(page, button)).toEqual([255, 255, 255]);
+  }
+});
+
+test("every icon is the size in params.ts, and every button is its icon with 4px to spare all round", async ({ page }) => {
+  const sizes = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".chip:not(.close)")].map((chip) => {
+      const svg = chip.querySelector("svg");
+      return {
+        name: chip.getAttribute("aria-label"),
+        box: chip.getBoundingClientRect().width,
+        icon: svg ? svg.getBoundingClientRect().width : parseFloat(getComputedStyle(chip).fontSize), // "i" and "?" are letters
+      };
+    }),
+  );
+  expect(sizes).toHaveLength(7); // credits, clear, sound, the "?" and its three links
+  for (const size of sizes) {
+    expect(size.icon, `the ${size.name} icon`).toBe(params.iconSize);
+    expect(size.box, `the ${size.name} button`).toBe(params.iconSize + 8);
+  }
+});
+
+for (const [name, button] of [
+  ["info", creditsButton],
+  ["restart", clearButton],
+  ["sound", soundToggle],
+] as const) {
+  test(`a ball thrown at the ${name} button bounces off it instead of passing through`, async ({ page }) => {
+    expectBounce(await throwAt(page, button(page)));
+  });
+}
+
+test("a ball dropped on the ? bounces off it instead of falling through", async ({ page }) => {
+  const box = (await contactButton(page).boundingBox())!;
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const above = { x: centre.x, y: centre.y - 160 };
+  // Carry the right-hand dot to a spot straight above the button and let it drop from there.
+  const d = await dot(page, 1);
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(above.x, d.y, { steps: 8 });
+  await page.mouse.move(above.x, above.y, { steps: 8 });
+  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - above.x, (await ball(page, d.id)).y - above.y)).toBeLessThan(6);
+  await page.waitForTimeout(120); // let it stop before letting go, so it drops straight down
+  const closest = await page.evaluate(
+    ({ id, at }) => {
+      const sandbox = (window as any).__sandbox;
+      // Let go and watch the whole fall in this one step: no frame can slip in between and move the ball unseen.
+      document.getElementById("court")!.dispatchEvent(new PointerEvent("pointerup"));
+      let closest = Infinity;
+      for (let i = 0; i < 180; i++) {
+        sandbox.advance(1 / 120);
+        const b = sandbox.balls().find((ball: Ball) => ball.id === id) as Ball;
+        closest = Math.min(closest, Math.hypot(b.x - at.x, b.y - at.y));
+      }
+      return closest;
+    },
+    { id: d.id, at: centre },
+  );
+  // A ball that had fallen through would have passed through the button's middle. A solid button keeps it a ball's radius and a button's radius apart.
+  expect(closest).toBeGreaterThan(box.width / 2 + d.r - 4);
+});
+
+test("the sound toggle starts on, and nothing is stored until the visitor chooses", async ({ page }) => {
+  await expect(soundToggle(page)).toHaveAttribute("aria-checked", "true");
+  // A missing key means on, which is how the sound reads it too.
+  expect((await stored(page))["site:sound"]).toBeUndefined();
+});
+
+test("a click flips the sound toggle between on and off, and the icon shows which it is", async ({ page }) => {
+  const toggle = soundToggle(page);
+  const box = (await toggle.boundingBox())!;
+  // A picture of the toggle alone, with the pointer well away so that hovering does not tint it, and any fade finished.
+  const picture = async () => {
+    await page.mouse.move(700, 780);
+    return page.screenshot({ clip: box, scale: "css", animations: "disabled" });
+  };
+
+  const on = await picture();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  const off = await picture();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  const onAgain = await picture();
+
+  expect(await differingPixels(page, off, on)).toBeGreaterThan(20); // the two states look different (waves against a cross)...
+  expect(await differingPixels(page, onAgain, on)).toBe(0); // ...and the same state looks the same, so that was no noise
+});
+
+test("on a portrait phone, the turn-your-phone note sits below the row of buttons instead of running through it", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const note = page.getByText("Best on a wide screen");
+  await expect(note).toBeVisible();
+  const noteTop = (await note.boundingBox())!.y;
+  for (const button of [creditsButton(page), clearButton(page), soundToggle(page)]) {
+    const box = (await button.boundingBox())!;
+    expect(noteTop).toBeGreaterThanOrEqual(box.y + box.height);
+  }
+});
+
+test("the sound toggle works from the keyboard", async ({ page }) => {
+  const toggle = soundToggle(page);
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+test("the sound toggle's choice is stored as site:sound, and survives a reload", async ({ page }) => {
+  const toggle = soundToggle(page);
+  const before = await stored(page);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  const after = await stored(page);
+  // The one thing the click put in storage is the key that every skin of the homepage shares for this setting.
+  expect(Object.keys(after).filter((key) => after[key] !== before[key])).toEqual(["site:sound"]);
+  expect(after["site:sound"]).toBe("off");
+
+  await reload(page);
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  expect((await stored(page))["site:sound"]).toBe("on");
+  await reload(page);
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+test("with browser storage blocked, the page still starts and the sound toggle still flips", async ({ page }) => {
+  // Some browsers throw at the mere mention of localStorage, for instance with all cookies blocked.
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+  });
+  await page.goto("./");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  const toggle = soundToggle(page);
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+});
+
+test("with ?tune, the buttons' tone and icon size have sliders that work, and moving the tone leaves the toy alone", async ({ page }) => {
+  await page.goto("./?tune");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  const tone = page.getByLabel("button tone");
+  const size = page.getByLabel("button icon size");
+  const shades = async () => Promise.all(cornerButtons(page).map(async (button) => lightness(await iconColor(page, button))));
+
+  await tone.fill("0");
+  await expect.poll(async () => Math.max(...(await shades()))).toBeLessThan(0.05); // every button fades into the navy
+  await tone.fill("1");
+  await expect.poll(async () => Math.min(...(await shades()))).toBeGreaterThan(0.95); // every button is white
+
+  // Only the color changes. Rebuilding the court would stop every ball in the air dead, and a rebuild makes the name's
+  // layout afresh, so a new layout is how to tell. (Checked in one step, so that no ball can move in between.)
+  const untouched = await page.evaluate(() => {
+    const sandbox = (window as any).__sandbox;
+    const slider = [...document.querySelectorAll<HTMLInputElement>("input[type=range]")].find((input) =>
+      input.parentElement!.textContent!.includes("button tone"),
+    )!;
+    const layout = sandbox.layout();
+    const balls = JSON.stringify(sandbox.balls());
+    slider.value = String(Number(slider.value) === 0.5 ? 0.55 : 0.5);
+    slider.dispatchEvent(new Event("input"));
+    return { sameLayout: sandbox.layout() === layout, sameBalls: JSON.stringify(sandbox.balls()) === balls };
+  });
+  expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
+
+  await size.fill("24");
+  await expect.poll(async () => (await clearButton(page).boundingBox())!.width).toBe(32); // the icon and 4px to spare all round
+  expect(await clearButton(page).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
+});
+
+test("with ?tune, bigger icons make bigger solid buttons: a ball thrown at the sound button still bounces off it", async ({ page }) => {
+  await page.goto("./?tune");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  await page.getByLabel("button icon size").fill("60");
+  await expect.poll(async () => (await soundToggle(page).boundingBox())!.width).toBe(68);
+  expectBounce(await throwAt(page, soundToggle(page)));
 });
 
 test("a dot always comes back, and the clear button sweeps the court", async ({ page }) => {

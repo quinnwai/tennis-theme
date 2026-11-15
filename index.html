@@ -12,13 +12,24 @@
     <h1>quinn wai</h1>
     <canvas id="court"></canvas>
 
-    <button class="chip clear" type="button" aria-label="Clear the balls" title="Clear">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-        <path d="M3 3v5h5" />
-      </svg>
-    </button>
-    <button class="chip credits" type="button" aria-label="Credits" title="Credits" aria-haspopup="dialog">i</button>
+    <!-- The buttons at the top right, left to right: credits, clear and sound. -->
+    <div class="tools">
+      <button class="chip credits" type="button" aria-label="Credits" title="Credits" aria-haspopup="dialog">i</button>
+      <button class="chip clear" type="button" aria-label="Clear the balls" title="Clear">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+        </svg>
+      </button>
+      <!-- On or off, remembered under "site:sound" (see src/sound-setting.ts). The icon shows the state: waves when on, a cross when off. -->
+      <button class="chip sound" type="button" role="switch" aria-checked="true" aria-label="Sound" title="Sound">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />
+          <path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.6a7.6 7.6 0 0 1 0 10.8" />
+          <path class="off" d="m16 9.5 5 5m0-5-5 5" />
+        </svg>
+      </button>
+    </div>
     <p class="rotate-note">Best on a wide screen. Try turning your phone sideways.</p>
 
     <nav class="contact" aria-label="Contact">
