@@ -48,7 +48,9 @@ describe("the built site", () => {
     const css = textOf((await builtFiles()).find((file) => file.fileName.endsWith(".css"))!);
     // What the stylesheet starts a custom property at. (The minified file may write 0.25 as .25, which is the same number.)
     const startsAt = (name: string) => new RegExp(`${name}:\\s*([^;}]+)`).exec(css)?.[1].trim();
-    expect(startsAt("--icon-size")).toBe(`${params.iconSize}px`);
+    // The size is params.iconSize, or less on a short window: the share iconShare of its shorter side (dvmin is 1% of that).
+    const share = Number((params.iconShare * 100).toFixed(4));
+    expect(startsAt("--icon-size")?.replace(/\s+/g, "")).toBe(`min(${params.iconSize}px,${share}dvmin)`);
     expect(Number(startsAt("--icon-tone"))).toBe(params.iconTone);
   });
 });

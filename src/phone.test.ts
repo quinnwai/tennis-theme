@@ -22,6 +22,9 @@ const WINDOWS: [phone: string, width: number, height: number][] = [
   ["Galaxy S8", 740, 360],
   ["iPhone SE", 568, 320],
   ["iPhone 8", 667, 375],
+  // iOS 26's Safari, held sideways, takes 110 points of the height for two rows of toolbar: the window of Quinn-Wai's iPhone.
+  ["iPhone 13 in iOS 26's Safari", 750, 280],
+  ["iPhone SE in iOS 26's Safari", 667, 265],
 ];
 
 /** The space the corner buttons take, as the stylesheet lays them out: 44 px boxes, 12 px from the edges, 4 px apart. */
@@ -79,10 +82,12 @@ describe.each(WINDOWS)("the name on %s held sideways (%i by %i)", (_phone, width
   });
 });
 
-describe("the finger reach numbers in the tuner", () => {
+describe("the numbers for a phone in the tuner", () => {
   it.each([
     ["touchMinHitReachPx", "finger tap reach (px)"],
     ["touchMinGrabReachPx", "finger grab reach (px)"],
+    ["floorLiftPx", "floor lift on a touch screen (px)"],
+    ["iconShare", "icon share of the short side"],
   ] as const)("%s has a slider, whose range holds the number in params.ts", (key, label) => {
     const field = FIELDS.find(([k]) => k === key);
     expect(field, `a slider for ${key}`).toBeDefined();

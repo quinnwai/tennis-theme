@@ -34,6 +34,12 @@ export const params = {
   touchMinHitReachPx: 32,
   touchMinGrabReachPx: 22,
 
+  // The bottom edge of a phone's screen is where the system's own swipe-up lives (the home bar): a press there is taken for it,
+  // so a ball lying on a floor at the edge cannot be picked up. On a touch screen the floor is lifted by this many px, to keep
+  // balls clear of that strip; about 30 clears an iPhone's. 0 leaves the floor at the window's edge, as on a laptop, and is
+  // how it is until Quinn-Wai has tried it on a phone. Judged by feel, on a phone.
+  floorLiftPx: 0,
+
   // The credits, which open over the toy: how blurred the toy is behind the text, and how far a coat of
   // navy dims it so the white text reads. Both are judged by eye; the browser tests insist the white text
   // keeps a contrast of 4.5 against the brightest thing behind it (the blurred name), which is why 0.65.
@@ -67,9 +73,13 @@ export const params = {
   // The buttons in the corners are icons with no circle (but for the "?"), all one tone and one size. The tone runs from the page's navy
   // (0, which fades them away) to white (1); a button turns fully white under the pointer. The size is the icon's width
   // and height in px: the first draft's were 18, so 36 is twice that. Both are judged by eye. The stylesheet starts from
-  // the same two numbers, so the buttons are right before the script runs (a unit test checks that they agree).
+  // the same numbers, so the buttons are right before the script runs (a unit test checks that they agree).
   iconTone: 0.25,
-  iconSize: 36, // px
+  iconSize: 36, // px; the biggest the icons get, as on a laptop
+  // On a short window the icons are smaller, by this share of the window's shorter side (and never below 20 px). A phone
+  // held sideways is only about 280 px tall in iOS 26's Safari, with its two rows of toolbar, and 36 px icons crowd it:
+  // this makes them 28 px there. Judged by eye, on a phone. (The stylesheet starts from the same two numbers.)
+  iconShare: 0.1,
 };
 
 export type Params = typeof params;

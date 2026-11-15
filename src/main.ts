@@ -1,3 +1,4 @@
+import { floorLiftFor, iconSizeFor } from "./controls";
 import { Gestures, type BallView, type Vec } from "./input";
 import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
@@ -73,6 +74,7 @@ function main(): void {
     const before = homes;
 
     renderer.resize();
+    styleControls(); // the icons' size depends on the window, so it is settled before the buttons are measured below
     layout = layoutName(renderer.width, renderer.height, mark, params.ballScale);
     const outlines = layout.letters.flatMap((letter) => letter.loops);
     renderer.setLetters(outlines);
@@ -80,6 +82,7 @@ function main(): void {
     pxPerMeter = layout.ballPx / params.ballDiameter;
     const width = renderer.width / pxPerMeter;
     const height = renderer.height / pxPerMeter;
+    const floor = floorLiftFor(matchMedia("(pointer: coarse)").matches) / pxPerMeter; // meters
 
     // The corner buttons (the "?" at the bottom right, and credits, clear and sound in the row at the top right) are
     // solid discs: balls bounce off them. Each disc is its button's box, so it follows the buttons' size.
@@ -95,6 +98,7 @@ function main(): void {
       height,
       outlines.map((loop) => loop.map(toMeters)),
       pegs,
+      floor,
     );
 
     homes = layout.dots.map((dot, i) => {
@@ -115,7 +119,7 @@ function main(): void {
     const radius = params.ballDiameter / 2;
     for (const b of loose) {
       const at = toMeters({ x: layout.origin.x + b.x * layout.emPx, y: layout.origin.y - b.y * layout.emPx });
-      court.addBall(Math.min(width - radius, Math.max(radius, at.x)), Math.max(radius, at.y), false);
+      court.addBall(Math.min(width - radius, Math.max(radius, at.x)), Math.max(radius + floor, at.y), false);
     }
   }
 
@@ -299,10 +303,10 @@ function main(): void {
     root.setProperty("--credits-dim", String(params.creditsDim));
   }
 
-  /** How big the buttons' icons are, and how light. The stylesheet reads both from these properties. */
+  /** How big the buttons' icons are in this window, and how light. The stylesheet reads both from these properties. */
   function styleControls(): void {
     const root = document.documentElement.style;
-    root.setProperty("--icon-size", `${params.iconSize}px`);
+    root.setProperty("--icon-size", `${iconSizeFor(renderer.width, renderer.height)}px`);
     root.setProperty("--icon-tone", String(params.iconTone));
   }
 
@@ -316,20 +320,17 @@ function main(): void {
   });
 
   styleCredits();
-  styleControls();
   build();
   if (query.has("tune")) {
     // The credits' look and the buttons' tone are only CSS, the trail and the poof are only drawing, the sounds'
     // numbers are read at the moment a sound plays and a finger's reaches at the moment of a press, so changing any of
     // them needs no new court (a new court would stop every ball in the air); every other number does. The buttons'
-    // size is CSS too, but each button is also a solid disc in the court, so the court is made again to measure them.
+    // size is CSS too (build sets it for the window), but each button is also a solid disc in the court, so the court
+    // is made again to measure them, which is what moving the icon size or share does.
     mountTuner((changed) => {
       if (changed.startsWith("credits")) styleCredits();
       else if (changed === "iconTone") styleControls();
-      else if (changed === "iconSize") {
-        styleControls();
-        build();
-      } else if (
+      else if (
         !changed.startsWith("trail") &&
         !changed.startsWith("poof") &&
         !changed.startsWith("sound") &&

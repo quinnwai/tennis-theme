@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { iconSizeFor } from "../src/controls";
 import { params } from "../src/params";
 
 /** One ball as the page's test hook reports it. Screen units: px and px/s, y down. */
@@ -686,8 +687,10 @@ interface Flight {
  * for a second.
  *
  * The spot is 260 px below the button in a tall window, as the desktop one this was first written for, and nearer in a
- * short one: 40% of the window's height. In a phone held sideways (about 340 px tall) 260 px below a button in the top
- * row is on top of the "?" in the bottom corner, a solid disc that the ball can never get inside. The ball is carried
+ * short one: 40% of the window's height, but never nearer than the ball's reach of the button and a clear 90 px more (the
+ * throw is measured from 70 px short of the button, and a bigger button reaches farther). In a phone held sideways (about
+ * 280 to 340 px tall) 260 px below a button in the top row is on top of the "?" in the bottom corner, a solid disc that the
+ * ball can never get inside. The ball is carried
  * sideways at the dot's height and then straight down, which stays clear of the buttons (all at the top, and the
  * carried ball is lower than their lowest edge) and of the name (the spot is at the buttons' column, past the name's
  * right-hand end).
@@ -695,10 +698,10 @@ interface Flight {
 async function throwAt(page: Page, button: Locator): Promise<Flight> {
   const box = (await button.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const runUp = Math.min(260, 0.4 * page.viewportSize()!.height);
-  const below = { x: at.x, y: at.y + runUp };
   const d = await dot(page, 1);
   const contact = box.width / 2 + d.r;
+  const runUp = Math.min(260, Math.max(0.4 * page.viewportSize()!.height, contact + 90));
+  const below = { x: at.x, y: at.y + runUp };
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
   await page.mouse.move(below.x, d.y, { steps: 8 });
@@ -810,7 +813,8 @@ test("the ? has a circle around it, in its own tone and as thick as the icons' l
   expect(ring.style).toBe("solid");
   expect(ring.color).toBe(ring.glyph);
   expect(ring.fill).toBe("rgba(0, 0, 0, 0)");
-  expect(Math.abs(ring.width - (params.iconSize / 24) * 1.8)).toBeLessThan(1);
+  const { width, height } = page.viewportSize()!;
+  expect(Math.abs(ring.width - (iconSizeFor(width, height) / 24) * 1.8)).toBeLessThan(1);
   expect((await ringPixels(page, contactButton(page))).some(isNavy)).toBe(false);
 
   // The links that open above the "?" have no circle.
@@ -843,7 +847,12 @@ test("every button is in one tone, the one in params.ts, and turns white under t
     .toBe(true);
 });
 
-test("every icon is the size in params.ts, and every button is its icon with 4px to spare all round", async ({ page }) => {
+test("every icon is the size params.ts gives for the window, and every button is its icon with 4px to spare all round", async ({ page }) => {
+  // params.iconSize on a roomy window, and on a short one (a phone held sideways) less (src/controls.ts). A button is never under
+  // 44px on a touch screen, however small its icon is, so there the box can be bigger than the icon and 4px.
+  const { width, height } = page.viewportSize()!;
+  const icon = iconSizeFor(width, height);
+  const floor = (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) ? 44 : 0;
   const sizes = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>(".chip:not(.close)")].map((chip) => {
       const svg = chip.querySelector("svg");
@@ -856,8 +865,8 @@ test("every icon is the size in params.ts, and every button is its icon with 4px
   );
   expect(sizes).toHaveLength(7); // credits, clear, sound, the "?" and its three links
   for (const size of sizes) {
-    expect(size.icon, `the ${size.name} icon`).toBe(params.iconSize);
-    expect(size.box, `the ${size.name} button`).toBe(params.iconSize + 8);
+    expect(size.icon, `the ${size.name} icon`).toBe(icon);
+    expect(size.box, `the ${size.name} button`).toBe(Math.max(icon + 8, floor));
   }
 });
 
@@ -1054,6 +1063,9 @@ test("with ?tune, the buttons' tone and icon size have sliders that work, and mo
 test("with ?tune, bigger icons make bigger solid buttons: a ball thrown at the sound button still bounces off it", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  // The icon size is the biggest the icons get; on a short window (a phone held sideways) their share of the window's shorter side is
+  // less, and wins. So that 60 is what is asked for in any window, the share is lifted out of the way first (the slider stops at 0.2).
+  await page.evaluate("window.__sandbox.params.iconShare = 1");
   await page.getByLabel("button icon size").fill("60");
   await expect.poll(async () => (await soundToggle(page).boundingBox())!.width).toBe(68);
   expectBounce(await throwAt(page, soundToggle(page)));
