@@ -705,7 +705,7 @@ test("the close button takes the info button's place while the credits are open"
   for (const key of ["x", "y", "width", "height"] as const) expect(close[key]).toBeCloseTo(info[key], 0);
 });
 
-test("no button has a circle around it", async ({ page }) => {
+test("the ? has a circle around it, in its own tone and as thick as the icons' lines, and no other button has one", async ({ page }) => {
   const navy = await rgbOf(page, await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--navy")));
   const isNavy = (rgb: number[]) => rgb.every((v, i) => Math.abs(v - navy[i]) <= 4);
   const bare = (control: Locator) =>
@@ -714,20 +714,31 @@ test("no button has a circle around it", async ({ page }) => {
       return { border: s.borderTopWidth, fill: s.backgroundColor };
     });
 
-  // No border and no fill, and the pixels agree: all the way round where a circle would be, the page is just its navy.
-  for (const button of cornerButtons(page)) {
+  // The credits, restart and sound buttons: no border and no fill, and the pixels agree: all the way round where a
+  // circle would be, the page is just its navy.
+  for (const button of [creditsButton(page), clearButton(page), soundToggle(page)]) {
     expect(await bare(button), (await button.getAttribute("aria-label")) ?? "").toEqual({ border: "0px", fill: "rgba(0, 0, 0, 0)" });
     expect((await ringPixels(page, button)).every(isNavy)).toBe(true);
   }
-  // The links that open above the "?" are buttons too.
+
+  // The "?" has its circle back: a solid border in the same color as its glyph (so the one tone sets both), no fill, as
+  // thick as the lines of the icons (1.8 of their 24 units, give or take the whole pixel a browser rounds a border to),
+  // and the pixels show it all the way round. That is also what shows the pixel check above can tell a circle from none.
+  const ring = await contactButton(page).evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { style: s.borderTopStyle, width: parseFloat(s.borderTopWidth), color: s.borderTopColor, glyph: s.color, fill: s.backgroundColor };
+  });
+  expect(ring.style).toBe("solid");
+  expect(ring.color).toBe(ring.glyph);
+  expect(ring.fill).toBe("rgba(0, 0, 0, 0)");
+  expect(Math.abs(ring.width - (params.iconSize / 24) * 1.8)).toBeLessThan(1);
+  expect((await ringPixels(page, contactButton(page))).some(isNavy)).toBe(false);
+
+  // The links that open above the "?" have no circle.
   await contactButton(page).click();
   const links = await page.getByRole("navigation", { name: "Contact" }).getByRole("link").all();
   expect(links).toHaveLength(3);
   for (const link of links) expect(await bare(link)).toEqual({ border: "0px", fill: "rgba(0, 0, 0, 0)" });
-
-  // The pixel check can tell: give one button a circle and it is found.
-  await page.addStyleTag({ content: ".chip.credits { border: 1.5px solid #9fb0c0; }" });
-  expect((await ringPixels(page, creditsButton(page))).every(isNavy)).toBe(false);
 });
 
 test("every button is in one tone, the one in params.ts, and turns white under the pointer", async ({ page }) => {
@@ -741,6 +752,16 @@ test("every button is in one tone, the one in params.ts, and turns white under t
     await button.hover();
     await expect.poll(() => iconColor(page, button)).toEqual([255, 255, 255]);
   }
+  // The "?" turns its circle white along with its glyph. (The circle has to be there: a border of no width still has a color.)
+  await contactButton(page).hover();
+  await expect
+    .poll(() =>
+      contactButton(page).evaluate((el) => {
+        const s = getComputedStyle(el);
+        return parseFloat(s.borderTopWidth) > 0 && s.borderTopColor === "rgb(255, 255, 255)";
+      }),
+    )
+    .toBe(true);
 });
 
 test("every icon is the size in params.ts, and every button is its icon with 4px to spare all round", async ({ page }) => {
@@ -750,7 +771,7 @@ test("every icon is the size in params.ts, and every button is its icon with 4px
       return {
         name: chip.getAttribute("aria-label"),
         box: chip.getBoundingClientRect().width,
-        icon: svg ? svg.getBoundingClientRect().width : parseFloat(getComputedStyle(chip).fontSize), // "i" and "?" are letters
+        icon: svg ? svg.getBoundingClientRect().width : parseFloat(getComputedStyle(chip).fontSize), // the "?" is a letter
       };
     }),
   );
@@ -759,6 +780,35 @@ test("every icon is the size in params.ts, and every button is its icon with 4px
     expect(size.icon, `the ${size.name} icon`).toBe(params.iconSize);
     expect(size.box, `the ${size.name} button`).toBe(params.iconSize + 8);
   }
+});
+
+test("the credits button is a book, not a letter", async ({ page }) => {
+  await expect(creditsButton(page).locator("svg")).toHaveCount(1);
+  await expect(creditsButton(page)).toHaveText("");
+});
+
+// How big an icon looks is judged by eye (Quinn-Wai on live). This only keeps the speaker from shrinking back below its
+// neighbours: the room its drawing takes, against the average of the book's and the restart arrow's, which it was a
+// third short of when it was first made (0.74).
+test("the speaker is about as big as the restart arrow and the book beside it", async ({ page }) => {
+  const areas = await page.evaluate(() => {
+    // The room an icon's drawing takes, in px squared: the box round what is on show (the speaker keeps a cross for its
+    // off state, hidden), with the thickness of the line added all round.
+    const area = (selector: string) => {
+      const svg = document.querySelector<SVGSVGElement>(`${selector} svg`)!;
+      const unit = svg.getBoundingClientRect().width / 24; // px for one of the drawing's 24 units
+      const boxes = [...svg.querySelectorAll<SVGGraphicsElement>("path")]
+        .filter((path) => getComputedStyle(path).display !== "none")
+        .map((path) => path.getBBox());
+      const width = Math.max(...boxes.map((b) => b.x + b.width)) - Math.min(...boxes.map((b) => b.x));
+      const height = Math.max(...boxes.map((b) => b.y + b.height)) - Math.min(...boxes.map((b) => b.y));
+      return (width + 1.8) * (height + 1.8) * unit * unit;
+    };
+    return { book: area(".chip.credits"), restart: area(".chip.clear"), speaker: area(".chip.sound") };
+  });
+  const ratio = areas.speaker / ((areas.book + areas.restart) / 2);
+  expect(ratio).toBeGreaterThan(0.8);
+  expect(ratio).toBeLessThan(1.25);
 });
 
 for (const [name, button] of [
