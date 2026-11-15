@@ -220,17 +220,35 @@ function main(): void {
     }
   }
 
+  // A hand can put down more than one finger: a thumb resting on the screen, or a second finger that taps another ball.
+  // The gestures follow one press at a time, so the finger that began the current one is the only finger they listen
+  // to until it lets go. Without that, a second finger would pull a carried ball to where it is, and its lifting would
+  // drop the ball the first finger is still holding. (A mouse has no second pointer, and the browser tests steer with
+  // events of their own that carry no finger, so only a finger is filtered.)
+  let finger: number | null = null;
+  const stray = (e: PointerEvent) => e.pointerType === "touch" && finger !== null && e.pointerId !== finger;
+
   canvas.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    gestures.down(e.clientX, e.clientY, e.timeStamp);
+    if (e.button !== 0 || stray(e)) return;
+    const touch = e.pointerType === "touch";
+    if (gestures.down(e.clientX, e.clientY, e.timeStamp, touch) && touch) finger = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (stray(e)) return;
     gestures.move(e.clientX, e.clientY);
     if (e.buttons === 0) canvas.style.cursor = hoverCursor(e.clientX, e.clientY);
   });
-  canvas.addEventListener("pointerup", (e) => gestures.up(e.timeStamp));
-  canvas.addEventListener("pointercancel", () => gestures.cancel());
+  canvas.addEventListener("pointerup", (e) => {
+    if (stray(e)) return;
+    finger = null;
+    gestures.up(e.timeStamp);
+  });
+  canvas.addEventListener("pointercancel", (e) => {
+    if (stray(e)) return;
+    finger = null;
+    gestures.cancel();
+  });
 
   function hoverCursor(x: number, y: number): string {
     let nearest = Infinity;
@@ -301,17 +319,23 @@ function main(): void {
   styleControls();
   build();
   if (query.has("tune")) {
-    // The credits' look and the buttons' tone are only CSS, the trail and the poof are only drawing, and the sounds'
-    // numbers are read at the moment a sound plays, so changing any of them needs no new court (a new court would stop
-    // every ball in the air); every other number does. The buttons' size is CSS too, but each button is also a solid
-    // disc in the court, so the court is made again to measure them.
+    // The credits' look and the buttons' tone are only CSS, the trail and the poof are only drawing, the sounds'
+    // numbers are read at the moment a sound plays and a finger's reaches at the moment of a press, so changing any of
+    // them needs no new court (a new court would stop every ball in the air); every other number does. The buttons'
+    // size is CSS too, but each button is also a solid disc in the court, so the court is made again to measure them.
     mountTuner((changed) => {
       if (changed.startsWith("credits")) styleCredits();
       else if (changed === "iconTone") styleControls();
       else if (changed === "iconSize") {
         styleControls();
         build();
-      } else if (!changed.startsWith("trail") && !changed.startsWith("poof") && !changed.startsWith("sound")) build();
+      } else if (
+        !changed.startsWith("trail") &&
+        !changed.startsWith("poof") &&
+        !changed.startsWith("sound") &&
+        !changed.startsWith("touch")
+      )
+        build();
     });
   }
 

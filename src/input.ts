@@ -51,18 +51,24 @@ export class Gestures {
     private actions: GestureActions,
   ) {}
 
-  down(x: number, y: number, t: number): void {
+  /**
+   * A press at (x, y). `touch` says it is a finger, which reaches a little farther than a mouse. Returns whether it
+   * landed on a ball, that is, whether a tap, hold or carry has begun for the press to steer.
+   */
+  down(x: number, y: number, t: number, touch = false): boolean {
+    const hitFloor = touch ? params.touchMinHitReachPx : params.minHitReachPx;
+    const grabFloor = touch ? params.touchMinGrabReachPx : params.minGrabReachPx;
     let best: BallView | undefined;
     let bestDist = Infinity;
     for (const b of this.balls()) {
       const d = Math.hypot(b.x - x, b.y - y);
-      const reach = Math.max(b.r * params.hitReach, params.minHitReachPx);
+      const reach = Math.max(b.r * params.hitReach, hitFloor);
       if (d <= reach && d < bestDist) {
         best = b;
         bestDist = d;
       }
     }
-    if (!best) return;
+    if (!best) return false;
     const at = { x, y };
     this.state = {
       kind: "pending",
@@ -70,8 +76,9 @@ export class Gestures {
       at,
       t,
       dir: hitDirection(best, at),
-      canGrab: bestDist <= Math.max(best.r * params.grabReach, params.minGrabReachPx),
+      canGrab: bestDist <= Math.max(best.r * params.grabReach, grabFloor),
     };
+    return true;
   }
 
   move(x: number, y: number): void {

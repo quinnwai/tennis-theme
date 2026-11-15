@@ -7,6 +7,8 @@ export const FIELDS: Field[] = [
   ["hitCarryOver", "old speed kept on a tap", 0, 1, 0.05],
   ["hitReach", "tap reach (ball radii)", 1, 5, 0.1],
   ["grabReach", "grab reach (ball radii)", 0.8, 3, 0.1],
+  ["touchMinHitReachPx", "finger tap reach (px)", 16, 80, 1],
+  ["touchMinGrabReachPx", "finger grab reach (px)", 8, 60, 1],
   ["tapMaxMs", "longest tap (ms)", 80, 500, 10],
   ["carrySpeed", "carry and throw speed (m/s)", 1, 20, 0.5],
   ["followRate", "carry tightness", 3, 60, 1],
@@ -43,8 +45,12 @@ export const FIELDS: Field[] = [
  */
 export function mountTuner(rebuild: (changed: keyof Params) => void): void {
   const panel = document.createElement("div");
+  // The panel is longer than a phone held sideways is tall, and the page itself never scrolls, so the panel scrolls on its
+  // own (pan-y lets a finger do that), and a push past its end goes no farther.
   panel.style.cssText =
-    "position:fixed;top:70px;left:12px;padding:10px 12px;background:rgba(255,255,255,.92);" +
+    "position:fixed;top:70px;left:12px;box-sizing:border-box;max-height:calc(100% - 82px);max-width:calc(100% - 24px);" +
+    "overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;" +
+    "padding:10px 12px;background:rgba(255,255,255,.92);" +
     "border-radius:8px;font:12px/1.5 ui-monospace,Menlo,monospace;color:#132637;z-index:10;";
 
   for (const [key, label, min, max, step] of FIELDS) {
