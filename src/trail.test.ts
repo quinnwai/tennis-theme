@@ -367,18 +367,17 @@ describe("the trail's numbers", () => {
     );
   });
 
-  it("each have a slider that leaves the world alone, with the default inside its range", () => {
+  it("each have a slider, with the default inside its range", () => {
     const keys = Object.keys(defaults).filter((key) => key.startsWith("trail") || key.startsWith("poof")) as (keyof typeof defaults)[];
     expect(keys.length).toBeGreaterThanOrEqual(8);
     for (const key of keys) {
       const field = FIELDS.find(([name]) => name === key);
       expect(field, `a slider for ${key}`).toBeDefined();
-      const [, label, min, max, step, live] = field!;
+      const [, label, min, max, step] = field!;
       expect(label.length, key).toBeGreaterThan(0);
       expect(min, key).toBeLessThanOrEqual(defaults[key]);
       expect(max, key).toBeGreaterThanOrEqual(defaults[key]);
       expect(step, key).toBeGreaterThan(0);
-      expect(live, `${key} should not rebuild the court`).toBe(true);
     }
   });
 

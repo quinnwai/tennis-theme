@@ -267,9 +267,12 @@ function main(): void {
   styleCredits();
   build();
   if (query.has("tune")) {
-    // The credits' look is only CSS, so changing it needs no new court (a new court would stop every ball in
-    // the air); every other number does.
-    mountTuner((changed) => (changed.startsWith("credits") ? styleCredits() : build()));
+    // The credits' look is only CSS, and the trail and the poof are only drawing, so changing them needs no
+    // new court (a new court would stop every ball in the air); every other number does.
+    mountTuner((changed) => {
+      if (changed.startsWith("credits")) styleCredits();
+      else if (!changed.startsWith("trail") && !changed.startsWith("poof")) build();
+    });
   }
 
   let last = performance.now();
