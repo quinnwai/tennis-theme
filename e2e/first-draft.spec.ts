@@ -511,6 +511,28 @@ test("the credit text says word for word what CITATIONS.md says", async ({ page 
   }
 });
 
+// The page and CITATIONS.md are checked against each other above, so this is the one place that holds the wording itself.
+test("the credit lines read as Quinn-Wai asked: lowercase labels, the palette as merch, and each sound as a label with its maker in brackets", async ({ page }) => {
+  await openCredits(page);
+  const lines = await credits(page)
+    .locator("li")
+    .evaluateAll((items) =>
+      items.map((li) => {
+        const copy = li.cloneNode(true) as Element;
+        copy.querySelectorAll("ul").forEach((inner) => inner.remove()); // the line itself, not the lines inside it
+        return copy.textContent!.replace(/\s+/g, " ").trim();
+      }),
+    );
+  expect(lines).toContain("color palette: 2013 Australian Open merch");
+  expect(lines).toContain("ball animations: Combo Pool (nusan)");
+  // The sounds follow the pattern of the other lines, a label and then the maker in brackets, and say no more than that.
+  const sounds = ["hit", "bounce", "ball rising", "ball out"].map((label) => lines.find((line) => line.startsWith(`${label}:`)));
+  expect(sounds).toHaveLength(4);
+  for (const line of sounds) expect(line).toMatch(/^[a-z ]+: \([^()]+ from (Pixabay|freesound)\)$/);
+  expect(sounds[0]).toBe("hit: (Jurij from Pixabay)");
+  expect(lines.filter((line) => /sound effect|towel/i.test(line) || line.includes("Ball animations"))).toEqual([]); // none of the old wording is left
+});
+
 test("with ?tune, the blur and the dimming have sliders that work while the credits are open", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
