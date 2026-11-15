@@ -4,6 +4,7 @@ import { readPalette } from "./palette";
 import { params } from "./params";
 import { Court, STEP, type Ball } from "./physics";
 import { Renderer, type BallSprite } from "./render";
+import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { leavesTrail } from "./trail";
 import { mountTuner } from "./tune";
 import { layoutName, type NameLayout } from "./wordmark";
@@ -33,6 +34,10 @@ function main(): void {
   const creditsText = credits.querySelector<HTMLElement>(".credits-text")!;
   const creditsClose = credits.querySelector<HTMLButtonElement>(".close")!;
   const clearButton = document.querySelector<HTMLButtonElement>(".chip.clear")!;
+
+  // Sounds answer what the visitor does, so they only play once the visitor has done something (see sound.ts).
+  const sound = new Sound(browserEnv());
+  wakeOnGesture(sound, window);
 
   // The name is set in Ubuntu. Add ?font=roboto-mono to the address to compare.
   const query = new URLSearchParams(location.search);
@@ -139,6 +144,7 @@ function main(): void {
       noteInteraction();
       court.hit(id, dir.x, -dir.y);
       renderer.burst(at.x, at.y, performance.now());
+      sound.play("hit");
       lastHit = { id, dir, at };
     },
     grab(id, at) {
@@ -160,6 +166,7 @@ function main(): void {
 
   /** Keep each "i" dotted: whenever its dot is gone, a fresh ball rises out of the stem. */
   function supply(): void {
+    let rising = false;
     for (const home of homes) {
       if (home.ballId !== null) {
         const ball = court.balls.find((b) => b.id === home.ballId);
@@ -185,11 +192,16 @@ function main(): void {
         if (oldest) court.remove(oldest.id);
       }
       home.risingSince = simMs;
+      rising = true;
     }
+    // One sound, even when the clear button has both dots rising in the same instant.
+    if (rising) sound.play("rising");
   }
 
   function stepOnce(): void {
-    court.step();
+    const gone = court.step();
+    for (const impact of court.impacts) sound.bounce(impact.speed);
+    if (gone.length > 0) sound.play("out");
     simMs += STEP * 1000;
     supply();
   }
@@ -267,11 +279,12 @@ function main(): void {
   styleCredits();
   build();
   if (query.has("tune")) {
-    // The credits' look is only CSS, and the trail and the poof are only drawing, so changing them needs no
-    // new court (a new court would stop every ball in the air); every other number does.
+    // The credits' look is only CSS, the trail and the poof are only drawing, and the sounds' numbers are read at the
+    // moment a sound plays, so changing any of them needs no new court (a new court would stop every ball in the
+    // air); every other number does.
     mountTuner((changed) => {
       if (changed.startsWith("credits")) styleCredits();
-      else if (!changed.startsWith("trail") && !changed.startsWith("poof")) build();
+      else if (!changed.startsWith("trail") && !changed.startsWith("poof") && !changed.startsWith("sound")) build();
     });
   }
 
