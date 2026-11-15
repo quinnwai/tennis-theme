@@ -463,16 +463,39 @@ test('the credit text starts with "inspo…" and has no title of its own', async
 test("the credit text says word for word what CITATIONS.md says", async ({ page }) => {
   const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
   const lines = markdown.split("\n");
-  const intro = lines.find((line) => line.trim() !== "" && !/^(-|<!--)/.test(line)); // the first line that is not a bullet or a note
-  const items = lines.filter((line) => line.startsWith("- ")).map((line) => line.slice(2));
+  const intro = lines.find((line) => line.trim() !== "" && !/^(-|\s|<!--)/.test(line)); // the first line that is not a bullet or a note
   const link = /\[([^\]]+)\]\(([^)]+)\)/g;
-  const links = items.flatMap((item) => [...item.matchAll(link)].map(([, text, href]) => ({ text, href })));
+  const plain = (text: string) => text.replace(link, "$1");
+  // The list: a bullet at the margin is an item, and bullets indented under it are the lines inside that item.
+  const items: { text: string; inside: string[] }[] = [];
+  const bullets: string[] = [];
+  for (const line of lines) {
+    const bullet = /^(\s*)- (.*)$/.exec(line);
+    if (!bullet) continue;
+    bullets.push(bullet[2]);
+    if (bullet[1] === "") items.push({ text: plain(bullet[2]), inside: [] });
+    else items[items.length - 1].inside.push(plain(bullet[2]));
+  }
+  const links = bullets.flatMap((bullet) => [...bullet.matchAll(link)].map(([, text, href]) => ({ text, href })));
   expect(intro).toBeTruthy();
   expect(items.length).toBeGreaterThan(0);
+  expect(items.some((item) => item.inside.length > 0)).toBe(true); // the sounds, with a line for each
 
   await openCredits(page);
   await expect(credits(page).locator("p")).toHaveText(intro!);
-  await expect(credits(page).getByRole("listitem")).toHaveText(items.map((item) => item.replace(link, "$1")));
+  // What each item says, and the lines inside it, as the page shows them. Not just the text of the whole item,
+  // which would include everything inside it.
+  const shown = await credits(page)
+    .locator(".credits-text > ul")
+    .evaluate((list) => {
+      const own = (li: Element) => {
+        const copy = li.cloneNode(true) as Element;
+        copy.querySelectorAll("ul").forEach((inner) => inner.remove());
+        return copy.textContent!.replace(/\s+/g, " ").trim();
+      };
+      return [...list.children].map((li) => ({ text: own(li), inside: [...li.querySelectorAll(":scope > ul > li")].map(own) }));
+    });
+  expect(shown).toEqual(items);
   await expect(credits(page).getByRole("link")).toHaveCount(links.length);
   for (const { text, href } of links) {
     await expect(credits(page).getByRole("link", { name: text, exact: true })).toHaveAttribute("href", href);

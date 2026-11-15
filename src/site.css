@@ -226,6 +226,16 @@ a {
   margin-top: 0.75rem; /* enough that a line that wraps on a narrow screen still reads as one item */
 }
 
+/* A list inside an item, such as the sounds under "sfx", steps in from its heading line and sits close to it. */
+.credits-text li ul {
+  margin-top: 0.4rem;
+  padding-left: 1.5rem;
+}
+
+.credits-text li li + li {
+  margin-top: 0.4rem;
+}
+
 .credits-text a {
   text-decoration-color: var(--court-blue);
   text-underline-offset: 3px;
