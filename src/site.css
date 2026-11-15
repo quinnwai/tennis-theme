@@ -17,13 +17,14 @@
 }
 
 /*
- * The buttons are icons with no circle (but for the "?"), all one tone and one size (iconTone and iconSize in
- * params.ts). The script writes those two numbers over the ones here, which are the same, so the buttons are right
- * before it runs (a unit test checks that they agree). A button's box is its icon with 4px to spare all round, and
- * that box is also its solid disc in the toy.
+ * The buttons are icons with no circle (but for the "?"), all one tone and one size (iconTone, iconSize and iconShare in
+ * params.ts: the size is the biggest, and on a short window a share of its shorter side). The script writes the tone and
+ * the size it works out for the window over the ones here, which come to the same, so the buttons are right before it
+ * runs (a unit test checks that they agree). A button's box is its icon with 4px to spare all round (never under 44px
+ * on a touch screen, below), and that box is also its solid disc in the toy.
  */
 :root {
-  --icon-size: 36px;
+  --icon-size: min(36px, 10dvmin); /* iconSize and iconShare in params.ts; the script writes the size it works out for the window over this one */
   --icon-tone: 0.25; /* from the page's navy (0) to white (1) */
   --stroke: calc(var(--icon-size) * 0.075); /* the icons' line weight, 1.8 of their 24 units; the "?" circle is as thick */
   --chip: calc(var(--icon-size) + 8px);
@@ -418,5 +419,20 @@ a {
 
   .credits-text li li + li {
     margin-top: 0.2rem;
+  }
+}
+
+/*
+ * iOS 26's Safari leaves a phone held sideways a window of only about 265 to 285px, with its two rows of toolbar, and the credits
+ * above need 286. A step smaller still brings them to about 240px, so that they fit there too. (Below that they scroll.)
+ */
+@media (max-height: 300px) {
+  .credits-overlay {
+    padding: 8px 12px;
+  }
+
+  .credits-text {
+    font-size: 14px;
+    line-height: 1.4;
   }
 }

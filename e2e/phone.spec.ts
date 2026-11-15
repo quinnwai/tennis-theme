@@ -8,6 +8,7 @@
 // growing and shrinking, pull to refresh, swiping back from the screen's edge, iOS's rubber band and its long-press callout.
 
 import { expect, test, type CDPSession, type Page } from "@playwright/test";
+import { iconSizeFor } from "../src/controls";
 import { params } from "../src/params";
 
 /** One ball as the page's test hook reports it. Screen units: px and px/s, y down. */
@@ -521,6 +522,96 @@ test.describe("a phone held sideways", () => {
     const stopped = distance(await ball(page, d.id), middle);
     expect(stopped).toBeGreaterThan(contact - 4);
     expect(stopped).toBeLessThan(contact + 6);
+    await fingers.lift(1);
+  });
+
+  // A phone's window is short (about 280 px in iOS 26's Safari held sideways, which is what the iPhone project is), and icons that are
+  // big enough for a laptop crowd it. How big they are is the window's shorter side times params.iconShare, up to params.iconSize.
+  const iconsInWindow = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".chip:not(.close)")].map((chip) => {
+        const svg = chip.querySelector("svg");
+        return {
+          name: chip.getAttribute("aria-label"),
+          icon: svg ? svg.getBoundingClientRect().width : parseFloat(getComputedStyle(chip).fontSize), // the "?" is a letter
+          box: chip.getBoundingClientRect().width,
+        };
+      }),
+    );
+
+  test("a shorter window has smaller icons, and the buttons around them stay 44 px", async ({ page }) => {
+    const expectIcons = async (icon: number) => {
+      await expect.poll(async () => (await iconsInWindow(page)).map((c) => c.icon)).toEqual(Array(7).fill(icon)); // credits, clear, sound, the ? and its links
+      for (const c of await iconsInWindow(page)) expect(c.box, `the ${c.name} button`).toBe(Math.max(icon + 8, 44));
+    };
+    const { width, height } = size(page);
+    await expectIcons(iconSizeFor(width, height)); // this project's own window
+
+    await page.setViewportSize({ width: 750, height: 280 }); // an iPhone held sideways, in iOS 26's Safari
+    await expectIcons(28);
+    await page.setViewportSize({ width: 750, height: 240 });
+    await expectIcons(24);
+    await page.setViewportSize({ width: 900, height: 420 }); // roomy enough for the full size
+    await expectIcons(params.iconSize);
+  });
+
+  test("with ?tune, the icon share slider sets how big the icons are in a short window, and the court is made again to measure them", async ({ page }) => {
+    await page.goto("./?tune");
+    await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+    await page.setViewportSize({ width: 750, height: 280 });
+    const soundIcon = () => page.getByRole("switch", { name: "Sound" }).locator("svg").evaluate((svg) => svg.getBoundingClientRect().width);
+    await expect.poll(soundIcon).toBe(28);
+    await page.getByLabel("icon share of the short side").fill("0.08");
+    expect(await sandbox<number>(page, "params.iconShare")).toBe(0.08);
+    await expect.poll(soundIcon).toBe(22); // 8% of 280
+    // The buttons are still 44 px, and the ball still bounces off the sound button's disc at that size.
+    expect((await page.getByRole("switch", { name: "Sound" }).boundingBox())!.width).toBe(44);
+  });
+
+  // The bottom edge of the screen is where a phone's own swipe-up lives (the home bar on an iPhone), and a press that starts there is
+  // taken for it: a ball lying on a floor at the edge cannot be picked up. Lifting the floor is what keeps balls out of that strip. It is
+  // off until Quinn-Wai has tried it on a phone, so this switches it on with the slider.
+  test("with ?tune, a lifted floor keeps resting balls clear of the screen's bottom edge, and a finger can pick one up", async ({ page }) => {
+    await page.goto("./?tune");
+    await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+    const fingers = await Fingers.on(page);
+    const { width, height } = size(page);
+
+    // Carry the right-hand ball to the clear floor between the name and the buttons, and let it go there.
+    const d = await dot(page, 1);
+    const nameRight = await page.evaluate(() => Math.max(...(window as any).__sandbox.layout().letters.flatMap((l: { loops: Point[][] }) => l.loops.flat()).map((p: Point) => p.x)));
+    const over = { x: (nameRight + width) / 2, y: d.y + 3 * d.r };
+    await fingers.press(1, d);
+    await fingers.move(1, { x: d.x + 20, y: d.y + 4 }, 2);
+    await fingers.move(1, over, 8);
+    await expect.poll(async () => distance(await ball(page, d.id), over)).toBeLessThan(6);
+    await fingers.lift(1);
+    await advance(page, 6);
+    // The one ball that is not a dot. (Making the court again, as moving the slider does, numbers its balls afresh, so it is found by what it
+    // is and not by its number.)
+    const lying = async () => {
+      const loose = (await balls(page)).filter((b) => !b.pinned);
+      expect(loose, "the one ball that was let go").toHaveLength(1);
+      return loose[0];
+    };
+    expect(Math.hypot((await lying()).vx, (await lying()).vy), "at rest").toBeLessThan(1);
+    // With the floor where it is by default, the ball lies on the window's very edge.
+    expect(height - ((await lying()).y + d.r), "its underside from the bottom of the window").toBeLessThan(2);
+
+    // Lift the floor 30 px, about what an iPhone's home bar asks for.
+    await page.getByLabel("floor lift on a touch screen").fill("30");
+    expect(await sandbox<number>(page, "params.floorLiftPx")).toBe(30);
+    await advance(page, 3);
+    const lifted = await lying();
+    expect(Math.hypot(lifted.vx, lifted.vy), "at rest again").toBeLessThan(1);
+    expect(height - (lifted.y + d.r), "its underside is now 30 px from the bottom edge").toBeGreaterThan(28);
+    expect(height - (lifted.y + d.r)).toBeLessThan(32);
+    expect(height - lifted.y, "so a press on the middle of the ball is clear of the strip").toBeGreaterThan(30 + d.r - 2);
+
+    // And a finger on the ball picks it up.
+    await fingers.press(1, lifted);
+    await fingers.move(1, { x: lifted.x - 30, y: lifted.y - 20 }, 3);
+    await expect.poll(async () => (await lying()).held).toBe(true);
     await fingers.lift(1);
   });
 

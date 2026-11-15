@@ -47,6 +47,27 @@ describe("Court", () => {
     expect(ball.y - RADIUS).toBeLessThan(0.002);
   });
 
+  it.each([0.03, 0.1])("rests on a floor lifted %s m off the bottom of the window, and a ball cannot sink below it", (lift) => {
+    // On a phone the bottom edge of the screen is the system's own swipe-up zone; the toy keeps its balls out of it by lifting the floor.
+    const court = new Court(4, 6, [], [], lift);
+    const dropped = court.addBall(1, 2, false);
+    const held = court.addBall(3, 2, false); // pressed down by a finger into the floor, which it must not go through
+    run(court, 8);
+    expect(atRest(court)).toBe(true);
+    expect(dropped.y - RADIUS).toBeCloseTo(lift, 2);
+    court.grab(held.id);
+    court.carryTo(3, -1); // a pointer somewhere under the floor
+    run(court, 1);
+    expect(held.y - RADIUS).toBeGreaterThan(lift - 0.002);
+  });
+
+  it("has its floor at the bottom of the window unless it is told to lift it", () => {
+    const court = new Court(4, 6);
+    const ball = court.addBall(2, 1, false);
+    run(court, 8);
+    expect(ball.y - RADIUS).toBeLessThan(0.002);
+  });
+
   it("comes to rest from every one of 200 drop heights", () => {
     // Guards the dead-bounce speed in physics.ts: set it too low and a few drops hop forever.
     const stillHopping: number[] = [];

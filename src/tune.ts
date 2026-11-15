@@ -9,6 +9,7 @@ export const FIELDS: Field[] = [
   ["grabReach", "grab reach (ball radii)", 0.8, 3, 0.1],
   ["touchMinHitReachPx", "finger tap reach (px)", 16, 80, 1],
   ["touchMinGrabReachPx", "finger grab reach (px)", 8, 60, 1],
+  ["floorLiftPx", "floor lift on a touch screen (px)", 0, 80, 1],
   ["tapMaxMs", "longest tap (ms)", 80, 500, 10],
   ["carrySpeed", "carry and throw speed (m/s)", 1, 20, 0.5],
   ["followRate", "carry tightness", 3, 60, 1],
@@ -36,7 +37,8 @@ export const FIELDS: Field[] = [
   ["soundBounceFullSpeed", "sound: loud bounce (m/s)", 1, 10, 0.5],
   ["soundMaxVoices", "sound: most at once", 1, 24, 1],
   ["iconTone", "button tone (0 to 1)", 0, 1, 0.05],
-  ["iconSize", "button icon size (px)", 12, 72, 1],
+  ["iconSize", "button icon size (px, at most)", 12, 72, 1],
+  ["iconShare", "icon share of the short side", 0.04, 0.2, 0.005],
 ];
 
 /**

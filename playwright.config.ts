@@ -50,7 +50,9 @@ export default defineConfig({
     { name: "chromium", testIgnore: /phone\.spec\.ts/, use: { browserName: "chromium", launchOptions } },
     // A phone held sideways, which is how it is played: every check of every spec runs here too, on a touch screen, plus the
     // phone checks in e2e/phone.spec.ts for a phone held sideways. (The groups of that file are told apart by their titles.)
-    { name: "iphone-landscape", grepInvert: /a phone held upright/, use: phone("iPhone 13 landscape") },
+    // The iPhone's window is the one iOS 26's Safari leaves: 750 by 280, which is what Quinn-Wai's iPhone showed (two rows of toolbar
+    // take 110 of its 390 points). The descriptor's own 342 is from the Safari before that.
+    { name: "iphone-landscape", grepInvert: /a phone held upright/, use: { ...phone("iPhone 13 landscape"), viewport: { width: 750, height: 280 } } },
     { name: "pixel-landscape", grepInvert: /a phone held upright/, use: phone("Pixel 7 landscape") },
     // A phone held upright is shown the rotate prompt, and the checks of a phone held upright and of every phone are all that is asked of it.
     { name: "iphone-portrait", testMatch: /phone\.spec\.ts/, grepInvert: /a phone held sideways/, use: phone("iPhone 13") },

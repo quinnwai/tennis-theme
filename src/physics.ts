@@ -110,13 +110,16 @@ export class Court {
 
   /**
    * `letters` are closed outlines, each a loop of points in meters. `pegs` are solid discs,
-   * such as the contact button in the corner.
+   * such as the contact button in the corner. `floor` is how far above the bottom of the window
+   * the floor lies, in meters: 0 puts it at the window's edge, and a phone lifts it clear of the
+   * strip along the screen's bottom edge where a press is taken for the system's own swipe.
    */
   constructor(
     private width: number,
     height: number,
     letters: { x: number; y: number }[][] = [],
     pegs: { x: number; y: number; radius: number }[] = [],
+    floor = 0,
   ) {
     Settings.velocityThreshold = deadBounceSpeed() * U;
     this.world = new World({ gravity: { x: 0, y: -params.gravity * U } });
@@ -124,7 +127,7 @@ export class Court {
     const surface = { friction: params.friction };
     const w = width * U;
     const h = height * U;
-    walls.createFixture(new Edge({ x: 0, y: 0 }, { x: w, y: 0 }), surface);
+    walls.createFixture(new Edge({ x: 0, y: floor * U }, { x: w, y: floor * U }), surface);
     walls.createFixture(new Edge({ x: 0, y: 0 }, { x: 0, y: h }), surface);
     walls.createFixture(new Edge({ x: w, y: 0 }, { x: w, y: h }), surface);
     for (const loop of letters) {
