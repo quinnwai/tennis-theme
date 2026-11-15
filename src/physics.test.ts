@@ -348,19 +348,22 @@ describe("Court impacts", () => {
     expect(log[1].speed).toBeGreaterThan(5);
   });
 
-  it("counts a push into a wall again only if it gets much harder: a little harder is still the same push", () => {
+  it("counts a push into a wall once, however much harder it gets: a ball in the hand does not bounce", () => {
+    // A carried ball is not bouncy (see Court.grab), so pressing it into a wall is one meeting, and pushing harder
+    // afterwards makes no new one: there is no bounce for it to come back from. (That a much harder meeting inside
+    // the quiet spell counts again is shown with a free ball, in the test above about a graze and a knock.)
     params.gravity = 0;
+    params.followRate = 14; // a gentle chase, so that the three pushes below are three different speeds; the default
+    // chase reaches the speed limit on the first one
     const court = new Court(4, 4);
     const ball = court.addBall(3.9, 1, true);
     court.grab(ball.id);
     court.carryTo(4.1, 1); // the pointer is beyond the wall, so the ball is pushed into it at about 1.9 m/s
     expect(collect(court, 0.3)).toHaveLength(1);
-    court.carryTo(4.16, 1); // a harder push, but not by half again
+    court.carryTo(4.16, 1); // a harder push
     expect(collect(court, 0.3)).toHaveLength(0);
     court.carryTo(4.5, 1); // a much harder one: the fastest a ball is carried
-    const [slam, ...rest] = collect(court, 0.3);
-    expect(rest).toEqual([]);
-    expect(slam.speed).toBeGreaterThan(4.5);
+    expect(collect(court, 0.3)).toHaveLength(0);
   });
 
   it("counts a ball that meets a wall and then the floor a moment later once", () => {
