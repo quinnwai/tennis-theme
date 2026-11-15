@@ -36,7 +36,15 @@
         </svg>
       </button>
     </div>
-    <p class="rotate-note">Best on a wide screen. Try turning your phone sideways.</p>
+    <!-- Shown to a phone held upright (see site.css). The toy is played sideways; this never gets in its way. -->
+    <p class="rotate-note">
+      <!-- A phone, drawn in the buttons' line, that tips onto its side and back. -->
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+        <path d="M10.5 18.5h3" />
+      </svg>
+      Best on a wide screen. Try turning your phone sideways.
+    </p>
 
     <nav class="contact" aria-label="Contact">
       <button class="chip toggle" type="button" aria-label="Contact" aria-expanded="false">?</button>
