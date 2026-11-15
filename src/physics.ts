@@ -1,4 +1,4 @@
-import { Chain, Circle, Edge, Settings, World, type Body } from "planck";
+import { Chain, Circle, Edge, Settings, World, type Body, type Contact } from "planck";
 import { params } from "./params";
 
 /**
@@ -47,6 +47,35 @@ export interface Ball {
   held: boolean;
 }
 
+/** A ball striking something: the floor, a wall, a letter, a button or another ball. */
+export interface Impact {
+  /** How fast the two were closing along the line between them at the moment they met, in m/s. */
+  speed: number;
+}
+
+/**
+ * How long a ball has to go without meeting anything new before its next meeting counts as an impact, in
+ * seconds. A carried ball pressed into a wall is pushed back out and driven into it again at every step,
+ * which would otherwise be a fresh impact 240 times a second; so would the last tiny hops of a settling
+ * ball. A real bounce takes longer than this: even one at 0.3 m/s, the slowest that still bounces, is in
+ * the air for about 60 ms.
+ */
+const QUIET = 0.03;
+
+/**
+ * A meeting inside that quiet spell still counts if it is this many times harder than the hardest one that
+ * counted since the ball was last free. Otherwise a graze along the edge of a letter would swallow the
+ * knock that follows it a few milliseconds later, and a hard impact would sound like the graze.
+ */
+const HARDER = 1.5;
+
+/** A contact that has just begun, before the step is over and the strongest of them are picked. */
+interface Meeting {
+  /** The balls in it: two for a ball meeting a ball, one for a ball meeting anything fixed. */
+  balls: number[];
+  speed: number;
+}
+
 /** Whether the body is resting on or rubbing against the floor, a wall or a letter. */
 function onSurface(body: Body): boolean {
   for (let edge = body.getContactList(); edge; edge = edge.next) {
@@ -61,11 +90,23 @@ function onSurface(body: Body): boolean {
  */
 export class Court {
   readonly balls: Ball[] = [];
+  /**
+   * What the latest `step()` struck, one entry for each time a ball met something new, strongest first.
+   * A ball that rests on something or rolls along it meets nothing new, so it adds nothing; a ball that
+   * touches two things in the same instant, such as the corner of a letter, counts once; and a ball that
+   * keeps meeting something again and again (see `QUIET` and `HARDER`) counts only the first time, and
+   * again for anything much harder.
+   */
+  readonly impacts: Impact[] = [];
   private world: World;
   private bodies = new Map<number, Body>();
   private nextId = 1;
   private heldId: number | null = null;
   private target = { x: 0, y: 0 };
+  private meetings: Meeting[] = [];
+  private time = 0; // seconds of simulated time
+  /** For each ball: when it last met something new, and the hardest meeting that counted since it was last free. */
+  private lastMet = new Map<number, { at: number; hardest: number }>();
 
   /**
    * `letters` are closed outlines, each a loop of points in meters. `pegs` are solid discs,
@@ -93,14 +134,17 @@ export class Court {
     for (const peg of pegs) {
       walls.createFixture(new Circle({ x: peg.x * U, y: peg.y * U }, peg.radius * U), surface);
     }
+    this.world.on("begin-contact", (contact) => this.noteMeeting(contact));
   }
 
   addBall(x: number, y: number, pinned: boolean): Ball {
+    const id = this.nextId++;
     const body = this.world.createBody({
       type: "dynamic",
       position: { x: x * U, y: y * U },
       bullet: true,
       gravityScale: pinned ? 0 : 1,
+      userData: id, // how a contact tells a ball from the walls, which have none
     });
     body.createFixture(new Circle((params.ballDiameter / 2) * U), {
       density: 1,
@@ -108,7 +152,7 @@ export class Court {
       restitution: params.restitution,
     });
     const ball: Ball = {
-      id: this.nextId++,
+      id,
       x,
       y,
       angle: 0,
@@ -170,6 +214,7 @@ export class Court {
   step(): number[] {
     const dt = STEP;
     const radius = params.ballDiameter / 2;
+    this.meetings.length = 0;
 
     for (const ball of this.balls) {
       const body = this.bodies.get(ball.id)!;
@@ -208,6 +253,8 @@ export class Court {
     }
 
     this.world.step(dt, 8, 3);
+    this.time += dt;
+    this.pickImpacts();
 
     const gone: number[] = [];
     for (const ball of this.balls) {
@@ -228,6 +275,48 @@ export class Court {
     return gone;
   }
 
+  /**
+   * A ball and something else have just come into contact. The engine calls this before it resolves the
+   * contact, when the bodies still carry the speed they arrived with; afterwards a bounce has already
+   * turned it around. The speed that counts is the part of their closing speed along the line between them.
+   */
+  private noteMeeting(contact: Contact): void {
+    const bodyA = contact.getFixtureA().getBody();
+    const bodyB = contact.getFixtureB().getBody();
+    const balls = [bodyA, bodyB].map((body) => body.getUserData()).filter((id): id is number => typeof id === "number");
+    const manifold = contact.getWorldManifold(null);
+    if (balls.length === 0 || !manifold) return;
+    const a = bodyA.getLinearVelocity();
+    const b = bodyB.getLinearVelocity();
+    // The normal points from A to B, so they are closing when B moves against it.
+    const speed = -((b.x - a.x) * manifold.normal.x + (b.y - a.y) * manifold.normal.y) / U;
+    if (speed > 0) this.meetings.push({ balls, speed });
+  }
+
+  /**
+   * Turn the contacts that began during the step into `impacts`, the strongest first. A meeting counts if
+   * any ball in it has been free of new contacts for `QUIET`, or if it is much harder (`HARDER`) than what
+   * counted since: two balls meeting count if either qualifies, since a ball that has just bounced off the
+   * floor still strikes a ball that has been sitting there. Every ball in a meeting has met something from
+   * then on, whether or not that counted, which is also what makes a ball that meets two things at once
+   * count once (the strongest first, so it is the strongest that counts).
+   */
+  private pickImpacts(): void {
+    this.impacts.length = 0;
+    for (const meeting of this.meetings.sort((p, q) => q.speed - p.speed)) {
+      const runs = meeting.balls.map((id) => {
+        const met = this.lastMet.get(id);
+        return met && this.time - met.at <= QUIET ? met : undefined; // the ball's recent meetings, if it has had any
+      });
+      const counts = runs.some((run) => !run || meeting.speed > run.hardest * HARDER);
+      meeting.balls.forEach((id, i) => {
+        const hardest = counts ? Math.max(runs[i]?.hardest ?? 0, meeting.speed) : runs[i]!.hardest;
+        this.lastMet.set(id, { at: this.time, hardest });
+      });
+      if (counts) this.impacts.push({ speed: meeting.speed });
+    }
+  }
+
   private unpin(ball: Ball, body: Body): void {
     if (!ball.pinned) return;
     ball.pinned = false;
@@ -240,6 +329,7 @@ export class Court {
     const body = this.bodies.get(id);
     if (body) this.world.destroyBody(body);
     this.bodies.delete(id);
+    this.lastMet.delete(id);
     const index = this.balls.findIndex((b) => b.id === id);
     if (index >= 0) this.balls.splice(index, 1);
     if (this.heldId === id) this.heldId = null;
