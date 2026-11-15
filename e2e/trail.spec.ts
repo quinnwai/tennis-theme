@@ -82,9 +82,10 @@ test("a ball flying up is followed by a solid white band about as wide as the ba
         const core = sample([-0.5, -0.35, -0.2, 0, 0.2, 0.35, 0.5]);
         const lightCore = core.filter(light);
         found.push({
-          // The middle half of the ball's width, and then out toward its edges.
+          // The middle half of the ball's width, and then out toward the edges of the band, wherever the
+          // trail width puts them (its half-width in ball radii is the trail width).
           core: share(core),
-          edges: share(sample([-0.75, -0.65, 0.65, 0.75])),
+          edges: share(sample([-0.83, -0.72, 0.72, 0.83].map((f) => f * s.params.trailWidth))),
           // Well outside the ball's width, on both sides.
           outside: share(sample([-2.2, -1.8, -1.5, 1.5, 1.8, 2.2])),
           // Of the painted pixels in the middle, the share that are exactly the flat color.
@@ -101,7 +102,7 @@ test("a ball flying up is followed by a solid white band about as wide as the ba
   expect(readings.every((r) => r.speed > 300)).toBe(true); // it really was flying
   const best = (key: "core" | "edges" | "flat") => Math.max(...readings.map((r) => r[key]));
   expect(best("core")).toBeGreaterThan(0.9); // solid: the old thin line would score near 0
-  expect(best("edges")).toBeGreaterThan(0.4); // about as wide as the ball, not just its middle
+  expect(best("edges")).toBeGreaterThan(0.4); // as wide as the band is set to, not just its middle
   expect(best("flat")).toBeGreaterThan(0.9); // white at the set opacity, the same wherever chips overlap
   // Never a smear much wider than the ball.
   expect(Math.max(...readings.map((r) => r.outside))).toBeLessThan(0.1);

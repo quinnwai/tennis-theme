@@ -57,8 +57,9 @@ test("a hit bursts into a chunky white star around the point it was struck, and 
         let total = 0;
         const directions = new Set<number>();
         // Directions that fall between the points of any regular star: 32 of them, off the usual angles.
+        // The rings grow with the poof size, so they cross the star wherever its size puts it.
         for (let k = 0; k < 32; k++) {
-          for (const ring of [1.2, 1.7, 2.2]) {
+          for (const ring of [1.2, 1.7, 2.2].map((f) => f * s.params.poofSize)) {
             const a = ((k + 0.37) / 32) * Math.PI * 2;
             const x = at.x + Math.cos(a) * ring * ball.r;
             const y = at.y + Math.sin(a) * ring * ball.r;

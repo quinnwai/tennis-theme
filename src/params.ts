@@ -33,15 +33,17 @@ export const params = {
   creditsDim: 0.65, // 0 leaves the toy as it is, 1 hides it
 
   // The trail of a ball in flight: a band of white chips that breaks up behind it. Sizes are in ball widths.
-  trailWidth: 0.9, // how wide the band is
-  trailPiece: 0.45, // how big the chips it is made of are, on average
+  // The sizes here and the poof's are about 80% of the first draft's (Quinn-Wai), rounded to the ?tune
+  // sliders' steps, so the effects go with the ball rather than crowd it; the lifetimes were left alone.
+  trailWidth: 0.7, // how wide the band is
+  trailPiece: 0.35, // how big the chips it is made of are, on average
   trailShrink: 1.5, // how fast chips shrink as they age; higher shrinks them sooner
-  trailScatter: 0.8, // how far chips drift off the band over their life
+  trailScatter: 0.65, // how far chips drift off the band over their life
   trailLifetime: 0.4, // s; after this long every chip is gone
   trailOpacity: 0.75, // how solid the white of the trail and the poof is; 1 would merge with the white letters where a ball crosses the name
 
   // The poof where a ball is hit: a starburst of the same chips, which flies outward and breaks up.
-  poofSize: 1, // how far its points reach, in ball widths
+  poofSize: 0.8, // how far its points reach, in ball widths
   poofLifetime: 0.3, // s; after this long every chip is gone
 };
 

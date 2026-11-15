@@ -58,12 +58,12 @@ describe("the trail of a ball in flight", () => {
     // From half a ball behind the ball to one and a half behind it: no gaps in the middle of the band,
     // and only small notches along its chunky edges.
     expect(coverage(all, end.x, 0.5, 1.5, 0.5)).toBeGreaterThan(0.99);
-    expect(coverage(all, end.x, 0.5, 1.5, 0.8)).toBeGreaterThan(0.88);
+    expect(coverage(all, end.x, 0.5, 1.5, 0.9 * params.trailWidth)).toBeGreaterThan(0.88);
     // And it is no wider than the band asked for, near the ball where nothing has drifted yet.
     const newest = all.filter((c) => c.x > end.x - 2 * WIDTH);
     expect(Math.max(...newest.map(reach))).toBeLessThanOrEqual(0.5 * params.trailWidth * WIDTH + 2);
-    // About as wide as the ball: a good share of the band is used.
-    expect(Math.max(...newest.map(reach))).toBeGreaterThan(0.35 * WIDTH);
+    // As wide as the band asked for: chips reach most of the way to its edges.
+    expect(Math.max(...newest.map(reach))).toBeGreaterThan(0.4 * params.trailWidth * WIDTH);
   });
 
   it("breaks into smaller pieces, scattered off the ball's line, further back", () => {
@@ -263,7 +263,7 @@ describe("the trail of a ball in flight", () => {
     const newest = chipsAt(trail, end.t, big).filter((c) => c.x > end.x - 2 * big * 2);
     const widest = Math.max(...newest.map(reach));
     expect(widest).toBeLessThanOrEqual(0.5 * params.trailWidth * 2 * big + 2);
-    expect(widest).toBeGreaterThan(0.35 * 2 * big);
+    expect(widest).toBeGreaterThan(0.4 * params.trailWidth * 2 * big);
   });
 });
 
