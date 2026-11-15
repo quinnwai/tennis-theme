@@ -39,6 +39,16 @@ export const FIELDS: Field[] = [
   ["iconTone", "button tone (0 to 1)", 0, 1, 0.05],
   ["iconSize", "button icon size (px, at most)", 12, 72, 1],
   ["iconShare", "icon share of the short side", 0.04, 0.2, 0.005],
+  ["benchReach", "bench: how much shows (m)", 0.1, 1.4, 0.02],
+  ["benchSeatHeight", "bench: seat height (m)", 0.25, 0.7, 0.01],
+  ["bagLength", "bag: length (m)", 0.4, 1.1, 0.02],
+  ["bagHeight", "bag: height (m)", 0.15, 0.5, 0.01],
+  ["bagGap", "bag: gap to the bench (m)", 0, 0.6, 0.02],
+  ["notebookRise", "notebook: how far out of the bag (m)", 0.03, 0.2, 0.01],
+  ["canPourAngle", "can: pours past (degrees)", 40, 170, 1],
+  ["canPourInterval", "can: time between balls (s)", 0.03, 0.6, 0.01],
+  ["canPourSpeed", "can: speed a ball leaves at (m/s)", 0, 2, 0.05],
+  ["canGrip", "can: grip on a carried can", 0, 150, 1],
 ];
 
 /**

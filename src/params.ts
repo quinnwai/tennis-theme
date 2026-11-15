@@ -80,6 +80,26 @@ export const params = {
   // held sideways is only about 280 px tall in iOS 26's Safari, with its two rows of toolbar, and 36 px icons crowd it:
   // this makes them 28 px there. Judged by eye, on a phone. (The stylesheet starts from the same two numbers.)
   iconShare: 0.1,
+
+  // The bench, the bag and the cans are real size, so these are in meters. The window is always 2.4 m wide, since a ball is
+  // the same share of the name wherever the page is shown, and the name always ends 1.92 m from the left. The bench starts to the
+  // right of that and runs off the right edge of the window, so only its left end shows; the bag stands on the floor beside it.
+  // All judged by eye. (A bench seat is about 45 cm up, a racket bag about 80 cm long and 30 cm high.)
+  benchReach: 0.42, // how much of the bench shows: its left end is this far in from the window's right edge
+  benchSeatHeight: 0.45, // m; the top of the seat above the floor
+  bagLength: 0.78, // m
+  bagHeight: 0.3, // m
+  bagGap: 0.12, // m; between the bag's right end and the bench's left end
+  notebookRise: 0.13, // m; how far the notebook stands out of the bag's open top (less where the name hangs low over the bag)
+
+  // The cans of balls. A can holds 3 balls and keeps them while it is upright. Tipped past canPourAngle it lets them out one
+  // after another, each leaving its mouth along the way the mouth points. A can that is carried hangs from the point it was
+  // taken by, like anything held by one point, and canGrip is how firmly the hand keeps it upright: a hard shake overcomes it,
+  // and 0 would be a can that swings like a pendulum. Judged by feel.
+  canPourAngle: 100, // degrees from upright; 90 is lying on its side, so a little more is mouth down
+  canPourInterval: 0.15, // s between one ball leaving and the next
+  canPourSpeed: 0.6, // m/s; how fast a ball is let out of the mouth, on top of the can's own movement
+  canGrip: 70, // the most torque the hand puts into keeping a carried can upright
 };
 
 export type Params = typeof params;
