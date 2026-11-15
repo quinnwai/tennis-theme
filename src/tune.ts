@@ -18,6 +18,13 @@ const FIELDS: Field[] = [
   ["rollingResistance", "rolling resistance", 0, 0.5, 0.01],
   ["creditsBlur", "credits blur (px)", 0, 40, 1],
   ["creditsDim", "credits dimming (0 to 1)", 0, 1, 0.05],
+  ["soundHit", "sound: hit volume", 0, 1, 0.05],
+  ["soundBounce", "sound: bounce volume", 0, 1, 0.05],
+  ["soundRising", "sound: rising volume", 0, 1, 0.05],
+  ["soundOut", "sound: ball out volume", 0, 1, 0.05],
+  ["soundBounceMinSpeed", "sound: min bounce (m/s)", 0, 2, 0.05],
+  ["soundBounceFullSpeed", "sound: loud bounce (m/s)", 1, 10, 0.5],
+  ["soundMaxVoices", "sound: most at once", 1, 24, 1],
 ];
 
 /**

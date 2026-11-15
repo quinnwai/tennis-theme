@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { build } from "vite";
+import { SOUNDS } from "./sound";
 
 /** Every file `vite build` would write, without writing any. */
 async function builtFiles() {
@@ -31,5 +32,14 @@ describe("the built site", () => {
     for (const address of own) expect(address).toMatch(/^\.\.?\//);
 
     for (const [, address] of css.matchAll(/url\(\s*["']?([^"')]+)/g)) expect(address).toMatch(/^\.\.?\//);
+  });
+
+  it("ships every sound file, in the skin's own folder, and reaches each by a relative address", () => {
+    // Whatever is in public/ is copied into the build as it is, so each file has to be there at its address.
+    const inPublic = Object.keys(import.meta.glob("../public/tennis/**"));
+    for (const { file } of Object.values(SOUNDS)) {
+      expect(file).toMatch(/^\.\/tennis\//); // relative, and under tennis/ with the rest of what the build ships
+      expect(inPublic, file).toContain(`../public/${file.slice(2)}`);
+    }
   });
 });
