@@ -271,6 +271,30 @@ test("with sound switched off, none of the four sounds plays; switched on again,
   expect((await voicesOf(page, "hit")).length).toBe(1);
 });
 
+// The test above sets the stored value directly. This one uses the toggle's own button, so that the toggle that writes
+// the setting and the sound that reads it are shown to agree about the key and the words.
+test("a click on the sound toggle silences all the sounds, and a second click brings them back", async ({ page }) => {
+  await open(page);
+  const toggle = page.getByRole("switch", { name: "Sound" });
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await knockOffFirstDot(page);
+  await advance(page, 6);
+  // The hit happened, and so did the bounces and the fresh ball rising after it...
+  expect(await sandbox(page, "lastHit()")).not.toBeNull();
+  expect(await sandbox<boolean[]>(page, "dots()")).toEqual([true, true]);
+  // ...and none of them was heard.
+  expect(await voices(page)).toEqual([]);
+
+  // The setting is read at each sound, so the second click needs no reload.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await knockOffFirstDot(page);
+  expect((await voicesOf(page, "hit")).length).toBe(1);
+});
+
 test("no setting stored means sound is on", async ({ page }) => {
   await open(page);
   expect(await page.evaluate(() => localStorage.getItem("site:sound"))).toBeNull();
