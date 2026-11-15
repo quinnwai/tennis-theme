@@ -36,6 +36,30 @@ const dot = (page: Page, index: number) =>
     return s.balls().find((b: Ball) => b.pinned && Math.hypot(b.x - home.x, b.y - home.y) < 2) as Ball;
   }, index);
 
+/**
+ * Click with the real mouse, and read a ball at the instant the page has acted on the click: straight after the page has handled
+ * the mouse-up, with one step of the simulation run, so that the ball has the speed the hit gave it. Reading it from the test
+ * afterwards leaves room for frames to slip in, and a page that stalls on a busy machine can carry a ball past the top of its
+ * flight (about 0.3 s after a tap) before the read arrives. The page's own listener was added first, so this one runs after it.
+ */
+async function clickAndRead(page: Page, at: Point, id: number): Promise<Ball> {
+  await page.evaluate((id) => {
+    const s = (window as any).__sandbox;
+    document.getElementById("court")!.addEventListener(
+      "pointerup",
+      () => {
+        s.advance(1 / 240);
+        (window as any).__readAfterClick = s.balls().find((b: Ball) => b.id === id);
+      },
+      { once: true },
+    );
+  }, id);
+  await page.mouse.click(at.x, at.y);
+  const read = (await page.evaluate("window.__readAfterClick")) as Ball | undefined;
+  expect(read, "the page handled the click").toBeDefined();
+  return read!;
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
@@ -43,12 +67,10 @@ test.beforeEach(async ({ page }) => {
 
 test("a click under a ball sends it up", async ({ page }) => {
   const d = await dot(page, 0);
-  await page.mouse.click(d.x, d.y + d.r * 0.8);
+  const after = await clickAndRead(page, { x: d.x, y: d.y + d.r * 0.8 }, d.id);
   const hit = await sandbox<{ id: number; dir: Point }>(page, "lastHit()");
   expect(hit.id).toBe(d.id);
   expect(hit.dir.y).toBeLessThan(-0.95);
-  await advance(page, 1 / 240);
-  const after = await ball(page, d.id);
   expect(after.pinned).toBe(false);
   expect(after.vy).toBeLessThan(0);
   expect(Math.abs(after.vx)).toBeLessThan(Math.abs(after.vy) * 0.2);
@@ -57,13 +79,11 @@ test("a click under a ball sends it up", async ({ page }) => {
 test("a click at a ball's bottom left sends it up and to the right, along the line through its center", async ({ page }) => {
   const d = await dot(page, 1);
   const click = { x: d.x - d.r * 0.6, y: d.y + d.r * 0.6 };
-  await page.mouse.click(click.x, click.y);
+  const after = await clickAndRead(page, click, d.id);
   const hit = await sandbox<{ dir: Point }>(page, "lastHit()");
   const length = Math.hypot(d.x - click.x, d.y - click.y);
   const expected = { x: (d.x - click.x) / length, y: (d.y - click.y) / length };
   expect(hit.dir.x * expected.x + hit.dir.y * expected.y).toBeGreaterThan(0.99);
-  await advance(page, 1 / 240);
-  const after = await ball(page, d.id);
   expect(after.vx).toBeGreaterThan(0);
   expect(after.vy).toBeLessThan(0);
 });
@@ -113,6 +133,10 @@ test("pressing, moving and letting go throws the ball the way it was moving", as
 });
 
 test("a hit shows a pow, and a ball in flight leaves a trail", async ({ page }) => {
+  // Slow the pow and the trail down, as the checks of the poof do (e2e/poof.spec.ts), so that a busy machine cannot make the
+  // readings below miss them: a pow lasts only 0.2 s, and all that is asked here is that a hit makes both. How long they last
+  // is tuned by eye, and checked in the trail's and the poof's own specs.
+  await page.evaluate("Object.assign(window.__sandbox.params, { poofLifetime: 1, trailLifetime: 1 })");
   const d = await dot(page, 0);
   await page.mouse.click(d.x - d.r * 0.6, d.y + d.r * 0.6);
   await expect.poll(() => sandbox<number>(page, "effects().bursts"), { intervals: [10] }).toBeGreaterThan(0);
@@ -164,12 +188,17 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
 test("balls bounce off the letters and each other", async ({ page }) => {
   // Letters: set a ball down above the first "n" and it comes to rest on the name, not inside it or under it.
   const first = await dot(page, 0);
-  const above = await page.evaluate(() => {
+  // Distances here are counted in ball radii, not pixels. A ball is the same size in meters on every screen, so a drop of
+  // so many radii is the same fall, landing at the same speed, on a phone as on a desktop. (A drop of 90 px was 4.5 radii
+  // on the desktop window this was first written for, but 0.29 m instead of 0.15 m on a phone, hard enough there to bounce
+  // off the hump of the n and roll away.)
+  const radii = (count: number) => count * first.r;
+  const above = await page.evaluate((drop) => {
     const letters = (window as any).__sandbox.layout().letters;
     const n = letters.find((l: { char: string }) => l.char === "n").loops.flat() as Point[];
     const xs = n.map((p) => p.x);
-    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...n.map((p) => p.y)) - 90 };
-  });
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: Math.min(...n.map((p) => p.y)) - drop };
+  }, radii(4.5));
   await page.mouse.move(first.x, first.y);
   await page.mouse.down();
   await page.mouse.move(first.x, above.y, { steps: 8 });
@@ -203,10 +232,10 @@ test("balls bounce off the letters and each other", async ({ page }) => {
   const carried = await ball(page, first.id);
   await page.mouse.move(carried.x, carried.y);
   await page.mouse.down();
-  await page.mouse.move(carried.x, second.y - 120, { steps: 8 });
-  await page.mouse.move(second.x - 120, second.y - 120, { steps: 8 });
-  await page.mouse.move(second.x - 120, second.y, { steps: 8 });
-  await page.mouse.move(second.x + 60, second.y, { steps: 8 });
+  await page.mouse.move(carried.x, second.y - radii(6), { steps: 8 });
+  await page.mouse.move(second.x - radii(6), second.y - radii(6), { steps: 8 });
+  await page.mouse.move(second.x - radii(6), second.y, { steps: 8 });
+  await page.mouse.move(second.x + radii(3), second.y, { steps: 8 });
   await expect.poll(async () => (await ball(page, second.id)).pinned).toBe(false);
   await page.mouse.up();
 });
@@ -345,8 +374,9 @@ test("the credits button shows the credit text over the toy, blurred behind it, 
   expect(await balls(page)).toHaveLength(2);
   const filter = await credits(page).evaluate((el) => getComputedStyle(el).backdropFilter);
   expect(Number(/^blur\(([\d.]+)px\)$/.exec(filter)?.[1])).toBeGreaterThan(0);
-  const text = (await credits(page).locator(".credits-text").boundingBox())!;
-  expect(text.x + text.width).toBeLessThan(row.x); // the row is measured clear of the text itself
+  // Look at what is behind the text, not at the text: its own edges are crisp. (On a desktop window the row lies beside the
+  // text anyway, but on a phone the name is as wide as the text and the row runs under it.)
+  await credits(page).locator(".credits-text").evaluate((el) => (el.style.visibility = "hidden"));
   await expect.poll(async () => (await rowStats(page, row)).sharpness).toBeLessThan(0.2);
   expect((await rowStats(page, row)).range).toBeGreaterThan(8); // blurred, not hidden: the edge is still there, just soft
 });
@@ -396,7 +426,11 @@ test("a click outside the credit text closes the credits, and does not hit the b
   await openCredits(page);
   const text = (await credits(page).locator(".credits-text").boundingBox())!;
   const second = await dot(page, 1);
-  expect(text.x + text.width).toBeLessThan(second.x - second.r); // this dot is clear of the text
+  // The click below lands on the right-hand part of this dot, which is outside the text. (Not on its middle: on a phone
+  // held sideways the name is as wide as the text, and the middle of this dot can lie just inside the text's box.)
+  const beside = { x: second.x + second.r * 0.8, y: second.y };
+  expect(Math.hypot(beside.x - second.x, beside.y - second.y)).toBeLessThan(second.r); // it is on the ball...
+  expect(text.x + text.width).toBeLessThan(beside.x); // ...and clear of the text
 
   // A click on the text itself leaves the credits open...
   await credits(page).getByText("color palette").click();
@@ -409,7 +443,7 @@ test("a click outside the credit text closes the credits, and does not hit the b
   await page.mouse.up();
   await expect(credits(page)).toBeVisible();
   // ...but a click beside it, right on a ball, closes them and goes no further: the ball is not hit.
-  await page.mouse.click(second.x, second.y);
+  await page.mouse.click(beside.x, beside.y);
   await expect(credits(page)).toBeHidden();
   expect(await sandbox(page, "lastHit()")).toBeNull();
   expect((await ball(page, second.id)).pinned).toBe(true);
@@ -628,11 +662,19 @@ interface Flight {
  * step so that no frame can slip in between and move the ball unseen, the pointer is put on the button's middle so that
  * the ball runs straight up at it, and the ball is let go a short run-up away, while it is moving fast, and watched
  * for a second.
+ *
+ * The spot is 260 px below the button in a tall window, as the desktop one this was first written for, and nearer in a
+ * short one: 40% of the window's height. In a phone held sideways (about 340 px tall) 260 px below a button in the top
+ * row is on top of the "?" in the bottom corner, a solid disc that the ball can never get inside. The ball is carried
+ * sideways at the dot's height and then straight down, which stays clear of the buttons (all at the top, and the
+ * carried ball is lower than their lowest edge) and of the name (the spot is at the buttons' column, past the name's
+ * right-hand end).
  */
 async function throwAt(page: Page, button: Locator): Promise<Flight> {
   const box = (await button.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const below = { x: at.x, y: at.y + 260 };
+  const runUp = Math.min(260, 0.4 * page.viewportSize()!.height);
+  const below = { x: at.x, y: at.y + runUp };
   const d = await dot(page, 1);
   const contact = box.width / 2 + d.r;
   await page.mouse.move(d.x, d.y);
@@ -979,8 +1021,11 @@ test("with ?tune, the buttons' tone and icon size have sliders that work, and mo
   });
   expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
 
+  // A button is its icon and 4px to spare all round, except on a touch screen, where it is never smaller than the 44 by 44 px
+  // that a fingertip needs, however small the icon is tuned (see site.css). The icon itself is the size on the slider either way.
+  const floor = (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) ? 44 : 0;
   await size.fill("24");
-  await expect.poll(async () => (await clearButton(page).boundingBox())!.width).toBe(32); // the icon and 4px to spare all round
+  await expect.poll(async () => (await clearButton(page).boundingBox())!.width).toBe(Math.max(24 + 8, floor));
   expect(await clearButton(page).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
 });
 
