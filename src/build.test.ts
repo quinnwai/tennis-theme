@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { build } from "vite";
+import { params } from "./params";
 import { SOUNDS } from "./sound";
 
 /** Every file `vite build` would write, without writing any. */
@@ -41,5 +42,13 @@ describe("the built site", () => {
       expect(file).toMatch(/^\.\/tennis\//); // relative, and under tennis/ with the rest of what the build ships
       expect(inPublic, file).toContain(`../public/${file.slice(2)}`);
     }
+  });
+
+  it("starts the buttons at the size and tone in params.ts, so they do not jump when the script writes its own", async () => {
+    const css = textOf((await builtFiles()).find((file) => file.fileName.endsWith(".css"))!);
+    // What the stylesheet starts a custom property at. (The minified file may write 0.25 as .25, which is the same number.)
+    const startsAt = (name: string) => new RegExp(`${name}:\\s*([^;}]+)`).exec(css)?.[1].trim();
+    expect(startsAt("--icon-size")).toBe(`${params.iconSize}px`);
+    expect(Number(startsAt("--icon-tone"))).toBe(params.iconTone);
   });
 });

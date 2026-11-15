@@ -33,6 +33,8 @@ export const FIELDS: Field[] = [
   ["soundBounceMinSpeed", "sound: min bounce (m/s)", 0, 2, 0.05],
   ["soundBounceFullSpeed", "sound: loud bounce (m/s)", 1, 10, 0.5],
   ["soundMaxVoices", "sound: most at once", 1, 24, 1],
+  ["iconTone", "button tone (0 to 1)", 0, 1, 0.05],
+  ["iconSize", "button icon size (px)", 12, 72, 1],
 ];
 
 /**

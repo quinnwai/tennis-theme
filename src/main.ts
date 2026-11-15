@@ -5,6 +5,7 @@ import { params } from "./params";
 import { Court, STEP, type Ball } from "./physics";
 import { Renderer, type BallSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
+import { readSound, writeSound } from "./sound-setting";
 import { leavesTrail } from "./trail";
 import { mountTuner } from "./tune";
 import { layoutName, type NameLayout } from "./wordmark";
@@ -34,6 +35,7 @@ function main(): void {
   const creditsText = credits.querySelector<HTMLElement>(".credits-text")!;
   const creditsClose = credits.querySelector<HTMLButtonElement>(".close")!;
   const clearButton = document.querySelector<HTMLButtonElement>(".chip.clear")!;
+  const soundChip = document.querySelector<HTMLButtonElement>(".chip.sound")!;
 
   // Sounds answer what the visitor does, so they only play once the visitor has done something (see sound.ts).
   const sound = new Sound(browserEnv());
@@ -79,8 +81,9 @@ function main(): void {
     const width = renderer.width / pxPerMeter;
     const height = renderer.height / pxPerMeter;
 
-    // The two buttons at the bottom right are solid discs: balls bounce off them.
-    const pegs = [toggle, creditsChip].map((chip) => {
+    // The corner buttons (the "?" at the bottom right, and credits, clear and sound in the row at the top right) are
+    // solid discs: balls bounce off them. Each disc is its button's box, so it follows the buttons' size.
+    const pegs = [toggle, creditsChip, clearButton, soundChip].map((chip) => {
       const box = chip.getBoundingClientRect();
       return {
         ...toMeters({ x: box.left + box.width / 2, y: box.top + box.height / 2 }),
@@ -244,6 +247,17 @@ function main(): void {
   });
   clearButton.addEventListener("click", reset);
 
+  // The sound toggle only keeps the setting: it shows it, flips it on a click, and stores it for the next visit.
+  // Whatever makes a sound reads the same setting from storage (see sound-setting.ts).
+  let soundOn = readSound() === "on";
+  const showSound = () => soundChip.setAttribute("aria-checked", String(soundOn));
+  soundChip.addEventListener("click", () => {
+    soundOn = !soundOn;
+    writeSound(soundOn ? "on" : "off");
+    showSound();
+  });
+  showSound();
+
   // The credits open over the toy, which keeps running behind them. A modal dialog brings Escape, focus and a
   // shut-out page with it. With ?tune the sliders have to stay in reach, so there it opens as a plain dialog that
   // sits under them instead, and Escape is handled here.
@@ -267,6 +281,13 @@ function main(): void {
     root.setProperty("--credits-dim", String(params.creditsDim));
   }
 
+  /** How big the buttons' icons are, and how light. The stylesheet reads both from these properties. */
+  function styleControls(): void {
+    const root = document.documentElement.style;
+    root.setProperty("--icon-size", `${params.iconSize}px`);
+    root.setProperty("--icon-tone", String(params.iconTone));
+  }
+
   let resizeTimer = 0;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -277,14 +298,20 @@ function main(): void {
   });
 
   styleCredits();
+  styleControls();
   build();
   if (query.has("tune")) {
-    // The credits' look is only CSS, the trail and the poof are only drawing, and the sounds' numbers are read at the
-    // moment a sound plays, so changing any of them needs no new court (a new court would stop every ball in the
-    // air); every other number does.
+    // The credits' look and the buttons' tone are only CSS, the trail and the poof are only drawing, and the sounds'
+    // numbers are read at the moment a sound plays, so changing any of them needs no new court (a new court would stop
+    // every ball in the air); every other number does. The buttons' size is CSS too, but each button is also a solid
+    // disc in the court, so the court is made again to measure them.
     mountTuner((changed) => {
       if (changed.startsWith("credits")) styleCredits();
-      else if (!changed.startsWith("trail") && !changed.startsWith("poof") && !changed.startsWith("sound")) build();
+      else if (changed === "iconTone") styleControls();
+      else if (changed === "iconSize") {
+        styleControls();
+        build();
+      } else if (!changed.startsWith("trail") && !changed.startsWith("poof") && !changed.startsWith("sound")) build();
     });
   }
 

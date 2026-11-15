@@ -16,6 +16,20 @@
   font-family: "Ubuntu", system-ui, sans-serif;
 }
 
+/*
+ * The buttons are bare icons: no circle, all one tone and one size (iconTone and iconSize in params.ts). The script
+ * writes those two numbers over the ones here, which are the same, so the buttons are right before it runs (a unit
+ * test checks that they agree). A button's box is its icon with 4px to spare all round, and that box is also its
+ * solid disc in the toy.
+ */
+:root {
+  --icon-size: 36px;
+  --icon-tone: 0.25; /* from the page's navy (0) to white (1) */
+  --chip: calc(var(--icon-size) + 8px);
+  --edge: 12px; /* how far the corner buttons sit from the window's edges */
+  --gap: 4px; /* between neighbouring buttons */
+}
+
 html,
 body {
   margin: 0;
@@ -55,7 +69,7 @@ a {
 .rotate-note {
   display: none;
   position: fixed;
-  top: 48px;
+  top: calc(var(--edge) + var(--chip) + 12px); /* below the row of buttons at the top right */
   left: 0;
   right: 0;
   margin: 0;
@@ -78,35 +92,49 @@ a {
  */
 .contact {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: var(--edge);
+  bottom: var(--edge);
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
   pointer-events: none;
 }
 
+/*
+ * The other corner: a row of three buttons at the top right. Left to right they are credits (the "i"), clear (the
+ * restart arrow) and the sound toggle, which sits in the corner itself. Like the "?", each is a solid object in
+ * the toy. The close button that replaces the "i" while the credits are open takes exactly the same spot.
+ */
+.tools {
+  position: fixed;
+  top: var(--edge);
+  right: var(--edge);
+  display: flex;
+  gap: var(--gap);
+  pointer-events: none;
+}
+
 .chip {
   position: relative;
   box-sizing: border-box;
-  width: 40px;
-  height: 40px;
+  width: var(--chip);
+  height: var(--chip);
   margin: 0;
   padding: 0;
   display: grid;
   place-items: center;
-  border: 1.5px solid var(--quiet);
-  border-radius: 50%;
-  background: var(--navy);
-  color: var(--quiet);
+  border: 0;
+  border-radius: 50%; /* no circle is drawn; this only rounds the area that takes a click, and the keyboard focus ring */
+  background: none;
+  color: color-mix(in srgb, var(--white) calc(var(--icon-tone) * 100%), var(--navy));
   font: inherit;
-  font-size: 18px;
+  font-size: var(--icon-size);
+  line-height: 1;
   text-decoration: none;
   cursor: pointer;
   pointer-events: auto;
   transition:
     color 0.15s,
-    border-color 0.15s,
     opacity 0.15s,
     transform 0.15s;
 }
@@ -114,38 +142,30 @@ a {
 .chip:hover,
 .chip:focus-visible {
   color: var(--white);
-  border-color: var(--white);
-  outline: none;
+}
+
+/* With no circle to turn white, keyboard focus gets a ring of its own. */
+.chip:focus-visible {
+  outline: 1.5px solid var(--white);
 }
 
 .chip svg {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
-/*
- * The corner buttons. Clear sits at top left, where balls only pass through. Credits sits at the bottom
- * right, just left of the contact button and level with it, and like that button it is a solid object in
- * the toy. The close button that replaces it while the credits are open takes exactly the same spot.
- */
-.chip.clear {
-  position: fixed;
-  top: 18px;
-  left: 18px;
+/* The sound toggle's icon shows the state: sound waves while it is on, a cross while it is off. */
+.chip.sound .off,
+.chip.sound[aria-checked="false"] .on {
+  display: none;
 }
 
-.chip.credits,
-.chip.close {
-  right: 66px; /* the 18px margin, the 40px contact button, and 8px between them, as between the contact links */
-  bottom: 18px;
-}
-
-.chip.credits {
-  position: fixed;
+.chip.sound[aria-checked="false"] .off {
+  display: inline;
 }
 
 .contact a.chip {
-  margin-bottom: 8px;
+  margin-bottom: var(--gap);
   opacity: 0;
   transform: translateY(8px);
   visibility: hidden;
@@ -246,7 +266,9 @@ a {
   color: var(--ball);
 }
 
-/* The close button sits exactly where the credits button does (see the corner buttons), so the "i" turns into an "x" in place. */
+/* The close button sits exactly where the credits button does (the left one of the three at the top right), so the "i" turns into an "x" in place. */
 .chip.close {
   position: absolute;
+  top: var(--edge);
+  right: calc(var(--edge) + 2 * (var(--chip) + var(--gap)));
 }
