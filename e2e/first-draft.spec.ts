@@ -90,12 +90,23 @@ test("pressing, moving and letting go throws the ball the way it was moving", as
   const d = await dot(page, 0);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  // The pointer goes a long way off, so the ball is still chasing it, at full carrying speed, for
-  // a good third of a second, however long this machine takes to get to the next line.
-  await page.mouse.move(d.x + 800, d.y - 160, { steps: 5 });
-  await page.waitForTimeout(80); // the ball is still chasing the pointer when it is let go
+  await page.mouse.move(d.x + 20, d.y - 5, { steps: 2 }); // far enough to lift the ball
+  // The pointer goes a long way off, so the ball is still chasing it, at full carrying speed, when it is let go. This is
+  // done in one step in the page, with the physics run by hand, so that no frame can slip in between: on a busy machine
+  // a wait of a fixed time can end after the ball has already reached the pointer and stopped.
+  const thrown = await page.evaluate(
+    ({ id, to }) => {
+      const sandbox = (window as any).__sandbox;
+      const court = document.getElementById("court")!;
+      court.dispatchEvent(new PointerEvent("pointermove", { clientX: to.x, clientY: to.y }));
+      sandbox.advance(20 / 240);
+      court.dispatchEvent(new PointerEvent("pointerup"));
+      sandbox.advance(1 / 240); // one step with the ball free, so that its speed is what it kept, not what it had when held
+      return sandbox.balls().find((b: Ball) => b.id === id) as Ball;
+    },
+    { id: d.id, to: { x: d.x + 800, y: d.y - 160 } },
+  );
   await page.mouse.up();
-  const thrown = await ball(page, d.id);
   expect(thrown.held).toBe(false);
   expect(thrown.vx).toBeGreaterThan(300);
   expect(Math.abs(thrown.vy)).toBeLessThan(thrown.vx);
@@ -112,15 +123,18 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
   const d = await dot(page, 0);
   // Carry the left-hand dot up and across to the right wall, over the top of the other dot, and let
   // it go while it is still moving. It is a long way, so the ball is still chasing the pointer at
-  // full carrying speed for a good third of a second, however long this machine takes to get to the
-  // lines below.
+  // full carrying speed when it is let go. That is done in one step in the page, with the physics run by hand, so
+  // that no frame can slip in between: on a busy machine a wait of a fixed time can end after the ball has already
+  // reached the pointer and stopped.
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(1400, d.y - 150, { steps: 5 });
-  await page.waitForTimeout(60);
-  await page.mouse.up();
-  const seen = await page.evaluate((id) => {
+  await page.mouse.move(d.x + 20, d.y - 5, { steps: 2 }); // far enough to lift the ball
+  const seen = await page.evaluate(({ id, to }) => {
     const s = (window as any).__sandbox;
+    const court = document.getElementById("court")!;
+    court.dispatchEvent(new PointerEvent("pointermove", { clientX: to.x, clientY: to.y }));
+    s.advance(15 / 240);
+    court.dispatchEvent(new PointerEvent("pointerup"));
     const find = () => s.balls().find((b: Ball) => b.id === id) as Ball | undefined;
     let prev = find()!;
     const seen = { lost: false, right: 0, bottom: 0, offWall: false, offFloor: false, width: innerWidth, height: innerHeight };
@@ -138,7 +152,8 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
       prev = b;
     }
     return seen;
-  }, d.id);
+  }, { id: d.id, to: { x: 1400, y: d.y - 150 } });
+  await page.mouse.up();
   expect(seen.lost).toBe(false);
   expect(seen.offWall).toBe(true);
   expect(seen.offFloor).toBe(true);
