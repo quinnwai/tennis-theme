@@ -13,6 +13,24 @@
   --white: #ffffff;
   --quiet: #9fb0c0;
 
+  /*
+   * The bench, the bag, the cans and the notebook: tints of the page's own colors, so that they sit on the navy as part of it
+   * and the name stays the brightest thing on the page. The bench is court blue turned toward the navy, the bag is the quiet
+   * grey-blue turned the same way, the cans are court blue itself, and the notebook is nearly black with white flecks, the way a
+   * composition book is. Plain values, not mixes, because the canvas reads these too.
+   */
+  --bench: #22617f;
+  --bench-top: #2a7a9d;
+  --bench-leg: #1c4961;
+  --bag: #354758;
+  --bag-shade: #27394a;
+  --zip-open: #0b1620;
+  --can: #2e92b9;
+  --can-rim: #77b8d2;
+  --cover: #0b1620;
+  --cover-tape: #03070b;
+  --paper: #f4f1e8;
+
   font-family: "Ubuntu", system-ui, sans-serif;
 }
 
@@ -301,9 +319,11 @@ a {
 /*
  * A dialog that fills the window. Its own backdrop-filter blurs everything behind it (the toy and the corner
  * buttons) and the navy tint dims it, so the white text reads over the name. The numbers come from params.ts.
- * Only an open dialog is shown: display is set on [open], or a closed one would stay on screen.
+ * Only an open dialog is shown: display is set on [open], or a closed one would stay on screen. The notebook's page opens in the
+ * same kind of dialog, and looks the same behind it.
  */
-.credits-overlay {
+.credits-overlay,
+.notebook-overlay {
   position: fixed;
   inset: 0;
   z-index: 5; /* in a modal dialog the browser puts it on top anyway; this is for the ?tune version, which sits under the sliders */
@@ -321,7 +341,8 @@ a {
   backdrop-filter: blur(var(--credits-blur));
 }
 
-.credits-overlay[open] {
+.credits-overlay[open],
+.notebook-overlay[open] {
   display: grid;
   place-items: center;
 }
@@ -332,14 +353,16 @@ a {
  * of its own, and says so: touch-action on the page stops at the nearest one, so that its own value is what a finger on the
  * text gets, rather than the body's "none".
  */
-.credits-overlay {
+.credits-overlay,
+.notebook-overlay {
   overflow: auto;
   overscroll-behavior: contain;
   touch-action: pan-y pinch-zoom;
 }
 
 /* The page behind a modal dialog gets a faint shade of its own by default; the tint above does that job. */
-.credits-overlay::backdrop {
+.credits-overlay::backdrop,
+.notebook-overlay::backdrop {
   background: none;
 }
 
@@ -396,7 +419,8 @@ a {
  * about 260px, so they fit on the phones of today with the overlay's padding. (A window shorter still scrolls, as above.)
  */
 @media (max-height: 480px) {
-  .credits-overlay {
+  .credits-overlay,
+  .notebook-overlay {
     padding: 12px;
   }
 
@@ -424,7 +448,9 @@ a {
 
 /*
  * iOS 26's Safari leaves a phone held sideways a window of only about 265 to 285px, with its two rows of toolbar, and the credits
- * above need 286. A step smaller still brings them to about 240px, so that they fit there too. (Below that they scroll.)
+ * above need 286. A step smaller still brings them to about 240px, so that they fit there too. (Below that they scroll.) With the line
+ * for the notebook added, the gaps between the items are a little smaller too, which keeps them at about 260px, inside the 264px that
+ * a 280px window leaves.
  */
 @media (max-height: 300px) {
   .credits-overlay {
@@ -434,5 +460,86 @@ a {
   .credits-text {
     font-size: 14px;
     line-height: 1.4;
+  }
+
+  .credits-text li + li {
+    margin-top: 0.3rem;
+  }
+}
+
+/* ---- The notebook: a page over the blurred toy ---- */
+
+/*
+ * The notebook that stands out of the bag is drawn on the canvas. This button lies over the part of it that shows (the script sets its
+ * box), so that it can be clicked, tabbed to and read out as a button, and shows a ring when it has the keyboard's focus. It has no
+ * look of its own. Balls cannot be where it is: the part of the notebook that stands out is solid in the toy.
+ */
+.notebook {
+  position: fixed;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.notebook[hidden] {
+  display: none;
+}
+
+.notebook:focus-visible {
+  outline: 1.5px solid var(--white);
+  outline-offset: 3px;
+}
+
+/*
+ * The page: a sheet of paper in the middle of the window with the words on it, ruled like a composition book's (a line to every line of
+ * type, and a margin line), flat like the rest of the toy. The words are real text, so they can be selected and read out, and a window
+ * too small for the page scrolls it. --line is the height of a line of type and of a ruled line, which is what keeps them together.
+ */
+.notebook-page {
+  --line: 32px;
+  --rule: color-mix(in srgb, var(--court-blue) 45%, transparent);
+  box-sizing: border-box;
+  width: min(30rem, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: var(--line) 2rem calc(var(--line) * 0.75) 3.6rem;
+  border-radius: 4px;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(to right, transparent 2.9rem, var(--rule) 2.9rem, var(--rule) calc(2.9rem + 1.5px), transparent calc(2.9rem + 1.5px)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px), var(--rule) var(--line));
+  background-attachment: local;
+  color: var(--navy);
+  font-size: 19px;
+  line-height: var(--line);
+}
+
+.notebook-page p {
+  margin: 0;
+}
+
+/* The blank line after the first line is a whole ruled line, which keeps the type on the rules. */
+.notebook-page p + p {
+  margin-top: var(--line);
+}
+
+/*
+ * A phone held sideways is about 340px tall or less, and the page at its full size would be taller than that. In a window that short
+ * the type is smaller and the page is wider and fills more of it, which brings the whole text to a page of about 230px, so that it
+ * fits with the overlay's padding (a window shorter still scrolls it, as above).
+ */
+@media (max-height: 480px) {
+  .notebook-page {
+    --line: 20px;
+    width: min(46rem, 100%);
+    padding: var(--line) 1.25rem var(--line) 2.9rem;
+    background-image:
+      linear-gradient(to right, transparent 2.2rem, var(--rule) 2.2rem, var(--rule) calc(2.2rem + 1.5px), transparent calc(2.2rem + 1.5px)),
+      repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px), var(--rule) var(--line));
+    font-size: 14px;
   }
 }

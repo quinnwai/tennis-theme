@@ -7,6 +7,18 @@ export function readPalette() {
     ball: get("--ball"),
     ballShade: get("--ball-shade"),
     white: get("--white"),
+    quiet: get("--quiet"),
+    // The bench, the bag, the cans and the notebook.
+    bench: get("--bench"),
+    benchTop: get("--bench-top"),
+    benchLeg: get("--bench-leg"),
+    bag: get("--bag"),
+    bagShade: get("--bag-shade"),
+    zipOpen: get("--zip-open"),
+    can: get("--can"),
+    canRim: get("--can-rim"),
+    cover: get("--cover"),
+    coverTape: get("--cover-tape"),
   };
 }
 

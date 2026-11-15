@@ -1,6 +1,7 @@
 import type { Palette } from "./palette";
 import { params } from "./params";
 import { Poof } from "./poof";
+import type { Props } from "./scenery";
 import { SHAPE_STRIDE, Trail } from "./trail";
 
 const TAU = Math.PI * 2;
@@ -88,6 +89,8 @@ export class Renderer {
   private poofs = new Poof();
   private livePieces = 0;
   private lastDraw = 0;
+  /** The bench, the bag, the notebook and the cans, which stand on the floor behind everything else (see scenery.ts). */
+  private props: Props | null = null;
   /** The last ball radius seen, so chips keep their size while no ball is on the court, as just after Clear. */
   private ballRadius = 12;
   width = 0;
@@ -111,6 +114,10 @@ export class Renderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // A resize rebuilds the court, and its balls start again from number 1: no flight carries over.
     this.trails.endFlights();
+  }
+
+  setProps(props: Props): void {
+    this.props = props;
   }
 
   /** The name, as the same closed outlines the balls bounce off. */
@@ -145,7 +152,9 @@ export class Renderer {
 
     if (balls.length) this.ballRadius = balls[0].r;
     this.lastDraw = now;
+    this.props?.behind(ctx);
     this.drawChips(now);
+    this.props?.front(ctx, (b) => this.drawBall(b));
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
