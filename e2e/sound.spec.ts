@@ -1,0 +1,342 @@
+// The sounds, with the browser's audio replaced by a stand-in that writes down what the page asks it to
+// play. Real audio cannot be heard or measured from a test, and a test must not need a sound card; what
+// these checks look at is what the page decides: which file, how loud, and whether at all.
+
+import { expect, test, type Page } from "@playwright/test";
+
+/** One sound the page asked the audio to start. */
+interface Voice {
+  url: string;
+  volume: number;
+  /** Where in the file it starts and how much of it plays, in seconds. */
+  offset: number;
+  duration: number;
+}
+
+interface AudioLog {
+  /** How many audio contexts the page has made, and how many times one has been woken. */
+  contexts: number;
+  resumes: number;
+  /** How many files have been turned into sound. */
+  decoded: number;
+  fetched: { url: string; status: number }[];
+  voices: Voice[];
+}
+
+/**
+ * Runs in the page before anything else does. Replaces the audio context with one that records, and the
+ * decoder with one that answers at once, so that a click right after the page loads finds every sound ready.
+ * The real decoder is kept as `__RealOfflineAudioContext` for the check that the files really decode.
+ */
+function fakeAudio() {
+  const log: AudioLog = { contexts: 0, resumes: 0, decoded: 0, fetched: [], voices: [] };
+  const w = window as any;
+  w.__audio = log;
+
+  // The fake decoder is only handed bytes, so remember which address each lot of bytes came from.
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await realFetch(...args);
+    log.fetched.push({ url: response.url, status: response.status });
+    const arrayBuffer = response.arrayBuffer.bind(response);
+    response.arrayBuffer = async () => Object.assign(await arrayBuffer(), { url: response.url });
+    return response;
+  };
+
+  // How long each file is, found by a word in its name, so that a sound lasts as long as it really would.
+  const lengthOf = (url: string) => (url.includes("hit") ? 4.032 : url.includes("bounce") ? 0.888 : url.includes("pop") ? 0.189 : 0.708);
+
+  w.__RealOfflineAudioContext = w.OfflineAudioContext;
+  w.OfflineAudioContext = class {
+    decodeAudioData(data: ArrayBuffer & { url: string }) {
+      log.decoded++;
+      return Promise.resolve({ duration: lengthOf(data.url), url: data.url });
+    }
+  };
+
+  // Asleep to begin with, as a browser keeps the audio of a page that nobody has touched yet.
+  w.AudioContext = class {
+    state = "suspended";
+    destination = {};
+    constructor() {
+      log.contexts++;
+    }
+    get currentTime() {
+      return performance.now() / 1000;
+    }
+    resume() {
+      log.resumes++;
+      this.state = "running";
+      return Promise.resolve();
+    }
+    suspend() {
+      this.state = "suspended";
+      return Promise.resolve();
+    }
+    createGain() {
+      return { gain: { value: 1, setTargetAtTime() {} }, connect() {} };
+    }
+    createBufferSource() {
+      let into: { gain: { value: number } };
+      const source = {
+        buffer: null as { url: string } | null,
+        connect(node: typeof into) {
+          into = node;
+        },
+        start(_when: number, offset: number, duration: number) {
+          log.voices.push({ url: source.buffer!.url, volume: into.gain.value, offset, duration });
+        },
+        stop() {},
+      };
+      return source;
+    }
+  };
+}
+
+/** The word that tells each sound's file from the others, so that these checks do not just copy the table in sound.ts. */
+const FILE = { hit: "tennis-ball-hit", bounce: "bounce", rising: "suction-pop", out: "soft-whoosh" };
+
+interface Ball {
+  id: number;
+  pinned: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+}
+
+const sandbox = <T>(page: Page, call: string) => page.evaluate(`window.__sandbox.${call}`) as Promise<T>;
+const balls = (page: Page) => sandbox<Ball[]>(page, "balls()");
+const ball = async (page: Page, id: number) => (await balls(page)).find((b) => b.id === id)!;
+const advance = (page: Page, seconds: number) => sandbox<void>(page, `advance(${seconds})`);
+const voices = (page: Page) => page.evaluate(() => (window as any).__audio.voices as Voice[]);
+const voicesOf = async (page: Page, sound: keyof typeof FILE) => (await voices(page)).filter((v) => v.url.includes(FILE[sound]));
+const volumeOf = (page: Page, name: string) => page.evaluate((key) => (window as any).__sandbox.params[key] as number, name);
+/** The ball currently sitting as the dot of the first or second "i". */
+const dot = (page: Page, index: number) =>
+  page.evaluate((i) => {
+    const s = (window as any).__sandbox;
+    const home = s.layout().dots[i];
+    return s.balls().find((b: Ball) => b.pinned && Math.hypot(b.x - home.x, b.y - home.y) < 2) as Ball;
+  }, index);
+
+/** Open the page with the audio stubbed out, and wait until the sound files are fetched and turned into sound. */
+async function open(page: Page, options: { soundSetting?: string; address?: string } = {}) {
+  await page.addInitScript(fakeAudio);
+  if (options.soundSetting) await page.addInitScript((value) => localStorage.setItem("site:sound", value), options.soundSetting);
+  await page.goto(options.address ?? "./");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  await page.waitForFunction("window.__audio.decoded === 4");
+}
+
+/** Hit the first dot from its left side, which sends it off to the right, clear of the stem it stood over. */
+async function knockOffFirstDot(page: Page) {
+  const d = await dot(page, 0);
+  await page.mouse.click(d.x - d.r * 0.8, d.y + d.r * 0.2);
+  return d;
+}
+
+/**
+ * Pick up the second dot, carry it to `at` by way of the open air above the name, and let go once it is
+ * still, so that it drops straight down from there.
+ */
+async function dropSecondDotFrom(page: Page, at: { x: number; y: number }) {
+  const d = await dot(page, 1);
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(d.x, 60, { steps: 6 });
+  await page.mouse.move(at.x, 60, { steps: 10 });
+  await page.mouse.move(at.x, at.y, { steps: 6 });
+  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - at.x, (await ball(page, d.id)).y - at.y)).toBeLessThan(4);
+  await page.waitForTimeout(150); // let it stop, so that it falls straight down
+  await page.mouse.up();
+  return d;
+}
+
+// Nothing in the toy makes a sound without a gesture, so this cannot show that a sound asked for early would be
+// refused; src/sound.test.ts does that. What it shows is that the page itself wakes the audio on a gesture and not
+// before, and that it makes the audio at the start, before anyone could be in the middle of a press.
+test("the audio is made at the start and left asleep until the visitor does something, and that wakes it", async ({ page }) => {
+  const audio = () => page.evaluate(() => ({ contexts: (window as any).__audio.contexts, resumes: (window as any).__audio.resumes }));
+  await open(page);
+  await advance(page, 3);
+  expect(await audio()).toEqual({ contexts: 1, resumes: 0 });
+  expect(await voices(page)).toEqual([]);
+
+  await page.mouse.click(8, 400); // the empty left edge: a gesture, but not a hit
+  expect(await audio()).toEqual({ contexts: 1, resumes: 1 }); // the same audio, woken
+  expect(await voices(page)).toEqual([]);
+});
+
+test("the four sound files are fetched from addresses relative to the page, and every one is found", async ({ page }) => {
+  await open(page);
+  const fetched = await page.evaluate(() => (window as any).__audio.fetched as AudioLog["fetched"]);
+  expect(fetched).toHaveLength(4);
+  const folder = new URL("./tennis/sounds/", page.url()).href;
+  for (const sound of Object.values(FILE)) {
+    expect(fetched.filter((f) => f.url.startsWith(folder) && f.url.includes(sound) && f.status === 200)).toHaveLength(1);
+  }
+});
+
+test("hitting a ball plays the hit sound once, at the hit volume", async ({ page }) => {
+  await open(page);
+  await knockOffFirstDot(page);
+  const hits = await voicesOf(page, "hit");
+  expect(hits).toHaveLength(1);
+  expect(hits[0].volume).toBeCloseTo(await volumeOf(page, "soundHit"));
+  expect(hits[0].offset).toBeGreaterThan(0.02); // it skips the silence the encoder left in front of it
+});
+
+test("a ball that strikes the floor or a letter plays the bounce sound, and not once it has come to rest", async ({ page }) => {
+  await open(page);
+  await knockOffFirstDot(page);
+  await advance(page, 6);
+  const bounces = await voicesOf(page, "bounce");
+  expect(bounces.length).toBeGreaterThan(2);
+  const full = await volumeOf(page, "soundBounce");
+  for (const bounce of bounces) {
+    expect(bounce.volume).toBeGreaterThan(0);
+    expect(bounce.volume).toBeLessThanOrEqual(full);
+  }
+  // The ball has settled by now, and a settled ball makes no more sound.
+  const heard = (await voices(page)).length;
+  await advance(page, 3);
+  expect((await voices(page)).length).toBe(heard);
+});
+
+test("a ball dropped from higher strikes the floor harder and plays the bounce louder", async ({ page }) => {
+  await open(page);
+  // Two clear stretches of floor to the right of the name. The floor is at 800: a drop from 600 hits at about
+  // 2.4 m/s, a drop from 100 at about 4.7 m/s.
+  await dropSecondDotFrom(page, { x: 1200, y: 600 });
+  await advance(page, 4); // it settles, and a fresh ball rises out of the "i" to be dropped next
+  const lowDrop = (await voicesOf(page, "bounce")).length;
+  expect(lowDrop).toBeGreaterThan(0);
+  await dropSecondDotFrom(page, { x: 1290, y: 100 });
+  await advance(page, 4);
+  const bounces = (await voicesOf(page, "bounce")).map((v) => v.volume);
+  const [soft, hard] = [bounces[0], bounces[lowDrop]]; // the first thing each ball struck was the floor
+  expect(soft).toBeGreaterThan(0);
+  expect(hard).toBeGreaterThan(soft * 1.5);
+  // Each ball's first strike is its hardest, since every bounce after it is softer, which is also how to tell that
+  // these are the two strikes meant and not something else that happened in between.
+  expect(soft).toBe(Math.max(...bounces.slice(0, lowDrop)));
+  expect(hard).toBe(Math.max(...bounces.slice(lowDrop)));
+});
+
+test("a fresh ball rising out of an i plays the rising sound, once for each rise", async ({ page }) => {
+  await open(page);
+  await knockOffFirstDot(page);
+  expect(await voicesOf(page, "rising")).toHaveLength(0); // the dot has only just been knocked off
+  await advance(page, 4);
+  const rising = await voicesOf(page, "rising");
+  expect(rising).toHaveLength(1);
+  expect(rising[0].volume).toBeCloseTo(await volumeOf(page, "soundRising"));
+  expect(await sandbox<boolean[]>(page, "dots()")).toEqual([true, true]); // and the dot really is back
+});
+
+test("a ball that leaves past the side lines above the window plays the ball-out sound", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 12)); // hard enough to clear the top of the window
+  const d = await dot(page, 1);
+  await page.mouse.click(d.x - d.r * 0.35, d.y + d.r * 0.9); // from below and a little to the left: up and to the right
+  expect(await voicesOf(page, "out")).toHaveLength(0); // it has not gone yet
+  await advance(page, 1);
+  expect((await balls(page)).find((b) => b.id === d.id)).toBeUndefined(); // it has
+  const out = await voicesOf(page, "out");
+  expect(out).toHaveLength(1);
+  expect(out[0].volume).toBeCloseTo(await volumeOf(page, "soundOut"));
+});
+
+test("with sound switched off, none of the four sounds plays; switched on again, they do", async ({ page }) => {
+  await open(page, { soundSetting: "off" });
+  await page.mouse.click(8, 400);
+  await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 12));
+  const d = await dot(page, 1);
+  await page.mouse.click(d.x - d.r * 0.35, d.y + d.r * 0.9); // sends it out of the window
+  await knockOffFirstDot(page); // lands, bounces and is replaced
+  await advance(page, 6);
+  // Everything that makes a sound happened: the hit, the bounces, the rising and the ball leaving...
+  expect(await sandbox(page, "lastHit()")).not.toBeNull();
+  expect((await balls(page)).find((b) => b.id === d.id)).toBeUndefined();
+  expect(await sandbox<boolean[]>(page, "dots()")).toEqual([true, true]);
+  // ...and not one of them was heard.
+  expect(await voices(page)).toEqual([]);
+
+  // The setting is read each time, so switching sound on needs no reload.
+  await page.evaluate(() => localStorage.setItem("site:sound", "on"));
+  await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 3));
+  await knockOffFirstDot(page);
+  expect((await voicesOf(page, "hit")).length).toBe(1);
+});
+
+test("no setting stored means sound is on", async ({ page }) => {
+  await open(page);
+  expect(await page.evaluate(() => localStorage.getItem("site:sound"))).toBeNull();
+  await knockOffFirstDot(page);
+  expect((await voicesOf(page, "hit")).length).toBe(1);
+});
+
+test("the files really decode in the browser, and start with the silence the page skips over", async ({ page }) => {
+  await open(page);
+  const decoded = await page.evaluate(async () => {
+    const w = window as any;
+    const decoder = new w.__RealOfflineAudioContext(1, 1, 44100);
+    const out: Record<string, { duration: number; quietUntil: number }> = {};
+    const urls = (w.__audio.fetched as { url: string }[]).map((f) => f.url); // a copy: fetching adds to the list
+    for (const url of urls) {
+      const buffer = await decoder.decodeAudioData(await (await fetch(url)).arrayBuffer());
+      const samples = buffer.getChannelData(0) as Float32Array;
+      let first = 0;
+      while (first < samples.length && Math.abs(samples[first]) < 0.001) first++;
+      out[url.split("/").pop()!] = { duration: buffer.duration, quietUntil: first / buffer.sampleRate };
+    }
+    return out;
+  });
+  const find = (word: string) => Object.entries(decoded).find(([name]) => name.includes(word))![1];
+  expect(find(FILE.hit).duration).toBeCloseTo(4.03, 1);
+  expect(find(FILE.bounce).duration).toBeCloseTo(0.888, 1);
+  expect(find(FILE.rising).duration).toBeCloseTo(0.189, 1);
+  expect(find(FILE.out).duration).toBeCloseTo(0.708, 1);
+  // The offsets in sound.ts are the silence in front of the hit and the bounce: the sound has not started before them...
+  expect(find(FILE.hit).quietUntil).toBeGreaterThan(0.02);
+  expect(find(FILE.bounce).quietUntil).toBeGreaterThan(0.04);
+  // ...and has by a few milliseconds after, so skipping them cuts nothing off.
+  expect(find(FILE.hit).quietUntil).toBeLessThan(0.03);
+  expect(find(FILE.bounce).quietUntil).toBeLessThan(0.055);
+});
+
+test("with ?tune, every sound number has a slider that takes effect on the next sound and leaves the court alone", async ({ page }) => {
+  await open(page, { address: "./?tune" });
+  const sliders = page.locator("label", { hasText: "sound:" }).locator("input[type=range]");
+  const numbers = ["soundHit", "soundBounce", "soundRising", "soundOut", "soundBounceMinSpeed", "soundBounceFullSpeed", "soundMaxVoices"];
+  await expect(sliders).toHaveCount(numbers.length);
+  // Each slider starts at the number in params, which is the one it will change.
+  const start = await page.evaluate(
+    (keys) => keys.map((key) => (window as any).__sandbox.params[key] as number),
+    numbers,
+  );
+  expect(await sliders.evaluateAll((all) => all.map((input) => Number((input as HTMLInputElement).value)))).toEqual(start);
+
+  // The hit volume: move its slider, and the next hit plays at the new volume.
+  await page.getByLabel("sound: hit volume").fill("0.2");
+  expect(await volumeOf(page, "soundHit")).toBeCloseTo(0.2);
+  await knockOffFirstDot(page);
+  expect((await voicesOf(page, "hit"))[0].volume).toBeCloseTo(0.2);
+
+  // Moving a slider must leave the toy alone: a rebuilt court would stop every ball in the air, and makes the
+  // name's layout afresh, so a new layout is how to tell. (Checked in one step, so that no ball moves between.)
+  const untouched = await page.evaluate(() => {
+    const hook = (window as any).__sandbox;
+    const layout = hook.layout();
+    const balls = JSON.stringify(hook.balls());
+    for (const input of document.querySelectorAll<HTMLInputElement>("input[type=range]")) {
+      if (!input.parentElement!.textContent!.startsWith("sound:")) continue;
+      input.value = String(Number(input.value) === Number(input.max) ? Number(input.min) : Number(input.max));
+      input.dispatchEvent(new Event("input"));
+    }
+    return { sameLayout: hook.layout() === layout, sameBalls: JSON.stringify(hook.balls()) === balls };
+  });
+  expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
+});

@@ -45,6 +45,16 @@ export const params = {
   // The poof where a ball is hit: a starburst of the same chips, which flies outward and breaks up.
   poofSize: 0.5, // how far its points reach, in ball widths
   poofLifetime: 0.2, // s; after this long every chip is gone
+
+  // Sound. A volume of 1 plays a file as loud as it is, and the two from Pixabay are already as loud as a file
+  // can be, so theirs only turn it down. The two from freesound are quieter to begin with. All judged by ear.
+  soundHit: 0.5,
+  soundBounce: 0.5, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter
+  soundRising: 0.7, // a fresh ball rising out of an "i"
+  soundOut: 1, // a ball leaving past the side lines
+  soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
+  soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
+  soundMaxVoices: 8, // the most sounds playing at once; past that, the oldest give way
 };
 
 export type Params = typeof params;

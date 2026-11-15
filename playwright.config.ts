@@ -28,7 +28,19 @@ export default defineConfig({
     baseURL: deployed ?? (process.env.E2E_PORT ? `http://127.0.0.1:${process.env.E2E_PORT}/` : undefined),
     viewport: { width: 1440, height: 800 },
   },
-  projects: [{ name: "chromium", use: { browserName: "chromium" } }],
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        browserName: "chromium",
+        // Every page makes an audio context when it starts (see src/sound.ts), and the first one in a browser
+        // blocks the page while the browser starts its audio. That takes 0.2 to 0.4 s when many browsers do it at
+        // once, as in a parallel run, and the timing checks in these tests suffer for it. With the audio inside
+        // the browser's own process it takes about 50 ms.
+        launchOptions: { args: ["--disable-features=AudioServiceOutOfProcess"] },
+      },
+    },
+  ],
   webServer: run
     ? {
         command: `npm run dev -- --host 127.0.0.1 --port ${process.env.E2E_PORT || 0} --strictPort`,
