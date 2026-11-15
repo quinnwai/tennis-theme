@@ -164,7 +164,7 @@ test("each number of the trail and the poof has a slider under ?tune that moves 
   }
 });
 
-test("moving a trail slider leaves a ball in flight alone", async ({ page }) => {
+test("moving a trail or poof slider leaves a ball in flight alone", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   const d = await dot(page, 0);
@@ -178,10 +178,13 @@ test("moving a trail slider leaves a ball in flight alone", async ({ page }) => 
       const b = s.balls().find((ball: Ball) => ball.id === id) as Ball;
       return { x: b.x, y: b.y, vy: b.vy };
     };
-    const slider = [...document.querySelectorAll("label")].find((l) => l.textContent?.startsWith("trail lifetime"))!.querySelector("input")!;
+    const slider = (label: string) => [...document.querySelectorAll("label")].find((l) => l.textContent?.startsWith(label))!.querySelector("input")!;
     const before = read();
-    slider.value = "1.2";
-    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    for (const [label, value] of [["trail lifetime", "1.2"], ["poof size", "1.5"]]) {
+      const input = slider(label);
+      input.value = value;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     return { before, after: read() };
   }, d.id);
   expect(before.vy).toBeLessThan(-300);
