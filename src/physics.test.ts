@@ -127,6 +127,48 @@ describe("Court", () => {
     expect(fastest).toBeLessThan(params.carrySpeed + 0.01);
   });
 
+  it("keeps a carried ball close behind a pointer that moves steadily, but not glued to it", () => {
+    // A drag at 1 m/s. A carried ball trails by speed / followRate: 7 cm when that was 14 a second, 2.8 cm now.
+    const court = new Court(8, 4);
+    const ball = court.addBall(0.5, 2, true);
+    court.grab(ball.id);
+    let pointer = 0.5;
+    let gap = 0;
+    run(court, 1.5, () => {
+      pointer += STEP;
+      court.carryTo(pointer, 2);
+      gap = pointer - ball.x;
+    });
+    expect(gap).toBeGreaterThan(0.015); // it still has some weight
+    expect(gap).toBeLessThan(0.04); // but trails by well under the 7 cm it once did
+    // And once the pointer stops, it has caught up within a tenth of a second.
+    run(court, 0.1, () => (gap = pointer - ball.x));
+    expect(gap).toBeLessThan(0.002);
+  });
+
+  it("lets go of a ball pressed into the floor, or into a wall, without throwing it", () => {
+    // The pointer can be somewhere the ball cannot go. The ball chases it, pressing against the
+    // surface, and must not bounce off it while in the hand: letting go there is not a throw.
+    const cases = [
+      // A ball that has been resting on the floor for a while, so it is already touching it when picked up...
+      { name: "the floor", settle: 1, target: { x: 2, y: -0.06 }, rest: { x: 2, y: RADIUS }, away: (b: { x: number; y: number }) => b.y - RADIUS },
+      // ...and one picked up in mid air that is pushed into a wall.
+      { name: "the right wall", settle: 0, target: { x: 4.06, y: 2 }, rest: { x: 4 - RADIUS, y: 2 }, away: (b: { x: number; y: number }) => 4 - RADIUS - b.x },
+    ];
+    for (const { name, settle, target, rest, away } of cases) {
+      const court = new Court(4, 4);
+      const ball = court.addBall(rest.x, rest.y, false);
+      run(court, settle);
+      court.grab(ball.id);
+      run(court, 1, () => court.carryTo(target.x, target.y));
+      court.release();
+      // How far it moves off the surface it was pressed against, over the next 0.4 s.
+      let farthest = 0;
+      run(court, 0.4, () => (farthest = Math.max(farthest, away(ball))));
+      expect(farthest, name).toBeLessThan(0.01);
+    }
+  });
+
   it("throws a carried ball with the speed it had when let go", () => {
     const court = new Court(4, 4);
     const ball = court.addBall(1, 2.5, true);

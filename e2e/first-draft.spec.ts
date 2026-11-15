@@ -89,7 +89,9 @@ test("pressing, moving and letting go throws the ball the way it was moving", as
   const d = await dot(page, 0);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(d.x + 400, d.y - 100, { steps: 5 });
+  // The pointer goes a long way off, so the ball is still chasing it, at full carrying speed, for
+  // a good third of a second, however long this machine takes to get to the next line.
+  await page.mouse.move(d.x + 800, d.y - 160, { steps: 5 });
   await page.waitForTimeout(80); // the ball is still chasing the pointer when it is let go
   await page.mouse.up();
   const thrown = await ball(page, d.id);
@@ -106,11 +108,14 @@ test("a hit shows a pow, and a ball in flight leaves a trail", async ({ page }) 
 });
 
 test("balls bounce off the floor and the side walls", async ({ page }) => {
-  const d = await dot(page, 1);
-  // Carry the right-hand dot toward the right wall and let it go while it is still moving.
+  const d = await dot(page, 0);
+  // Carry the left-hand dot up and across to the right wall, over the top of the other dot, and let
+  // it go while it is still moving. It is a long way, so the ball is still chasing the pointer at
+  // full carrying speed for a good third of a second, however long this machine takes to get to the
+  // lines below.
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(1400, d.y + 40, { steps: 5 });
+  await page.mouse.move(1400, d.y - 150, { steps: 5 });
   await page.waitForTimeout(60);
   await page.mouse.up();
   const seen = await page.evaluate((id) => {

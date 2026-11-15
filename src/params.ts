@@ -23,7 +23,7 @@ export const params = {
   // thrown as fast as it was actually moving when let go.
   grabReach: 1.4, // a press within this many ball radii picks the ball up
   minGrabReachPx: 14,
-  followRate: 14, // 1/s; how quickly a carried ball closes the gap to the pointer
+  followRate: 36, // 1/s; how quickly a carried ball closes the gap to the pointer. A drag at 1000 px/s trails the pointer by under one ball width; at 14 it was nearly two
   carrySpeed: 5, // m/s; the fastest a carried ball moves, and so the fastest throw
 
   // The credits, which open over the toy: how blurred the toy is behind the text, and how far a coat of
@@ -38,7 +38,11 @@ export const params = {
   trailShrink: 1.5, // how fast chips shrink as they age; higher shrinks them sooner
   trailScatter: 0.8, // how far chips drift off the band over their life
   trailLifetime: 0.4, // s; after this long every chip is gone
-  trailOpacity: 0.75, // how solid the white is; 1 would merge with the white letters where a ball crosses the name
+  trailOpacity: 0.75, // how solid the white of the trail and the poof is; 1 would merge with the white letters where a ball crosses the name
+
+  // The poof where a ball is hit: a starburst of the same chips, which flies outward and breaks up.
+  poofSize: 1, // how far its points reach, in ball widths
+  poofLifetime: 0.3, // s; after this long every chip is gone
 };
 
 export type Params = typeof params;

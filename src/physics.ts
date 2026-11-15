@@ -147,6 +147,10 @@ export class Court {
     ball.held = true;
     this.heldId = id;
     body.setGravityScale(0);
+    // A ball in the hand does not bounce. It chases the pointer at a speed set by the gap, and if the
+    // pointer is somewhere it cannot go, say inside the floor, that speed would be bounced back
+    // as soon as it let go and look like a throw.
+    this.setBounce(body, 0);
     this.target = { x: ball.x, y: ball.y };
   }
 
@@ -163,7 +167,14 @@ export class Court {
     if (!ball || !body) return;
     ball.held = false;
     body.setGravityScale(1);
+    this.setBounce(body, params.restitution);
     body.setAwake(true);
+  }
+
+  /** How bouncy a ball is, including in the contacts it already has, which would otherwise keep the old value. */
+  private setBounce(body: Body, restitution: number): void {
+    body.getFixtureList()!.setRestitution(restitution);
+    for (let edge = body.getContactList(); edge; edge = edge.next) edge.contact.resetRestitution();
   }
 
   /** Advance the world by one `STEP`. Returns the ids of balls that left for good. */

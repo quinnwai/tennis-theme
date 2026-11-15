@@ -1,21 +1,29 @@
 import { params } from "./params";
 
 /**
- * The trail of a ball in flight: a band of white chips about as wide as the ball. Right behind the
- * ball the chips overlap into one solid band; as they age they shrink and drift off at random, so
- * the band breaks into smaller scattered pieces, and then each chip is gone.
+ * The trail of a ball in flight, or in the hand: a band of white chips about as wide as the ball.
+ * Right behind the ball the chips overlap into one solid band; as they age they shrink and drift
+ * off at random, so the band breaks into smaller scattered pieces, and then each chip is gone.
  *
  * This file is only the numbers. It knows nothing about canvases, so it can be tested on its own;
  * `render.ts` draws what `shapes` hands back. Everything per chip lives in typed arrays that are
  * allocated once, so even a crowd of flying balls makes next to no garbage.
  */
 
-/** Slower balls are rolling or resting, not flying, and leave no trail. m/s */
-const TRAIL_MIN_SPEED = 1;
+/** A loose ball slower than this is rolling or resting, not flying, and leaves no trail. m/s */
+const MIN_FLIGHT_SPEED = 1;
 
-/** Whether a ball leaves a trail right now: loose (not a dot, not in the hand) and moving faster than a roll. */
+/** A ball in the hand leaves a trail from a much gentler pace, but not while it only trembles. m/s */
+const MIN_CARRY_SPEED = 0.2;
+
+/**
+ * Whether a ball leaves a trail right now: a loose ball in flight, or one being carried and
+ * moving. Never a dot still waiting in its stem.
+ */
 export function leavesTrail(ball: { pinned: boolean; held: boolean; vx: number; vy: number }): boolean {
-  return !ball.pinned && !ball.held && ball.vx * ball.vx + ball.vy * ball.vy > TRAIL_MIN_SPEED * TRAIL_MIN_SPEED;
+  if (ball.pinned) return false;
+  const least = ball.held ? MIN_CARRY_SPEED : MIN_FLIGHT_SPEED;
+  return ball.vx * ball.vx + ball.vy * ball.vy > least * least;
 }
 
 /**
@@ -68,7 +76,7 @@ const STRIDE = 12;
 export const SHAPE_STRIDE = 6;
 
 /** A fixed pseudo-random number in [0, 1) for each chip and each question asked about it. The same chip always gets the same answers. */
-function noise(chip: number, question: number): number {
+export function noise(chip: number, question: number): number {
   let h = Math.imul(chip ^ Math.imul(question + 1, 0x9e3779b1), 0x85ebca6b);
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35);

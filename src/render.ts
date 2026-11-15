@@ -1,8 +1,8 @@
 import type { Palette } from "./palette";
 import { params } from "./params";
+import { Poof } from "./poof";
 import { SHAPE_STRIDE, Trail } from "./trail";
 
-const BURST_MS = 220;
 const TAU = Math.PI * 2;
 
 /**
@@ -80,19 +80,16 @@ interface Point {
   y: number;
 }
 
-interface Timed extends Point {
-  t: number;
-}
-
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private letters = new Path2D();
   private seam = seamRibbon();
   private trails = new Trail();
+  private poofs = new Poof();
   private livePieces = 0;
+  private lastDraw = 0;
   /** The last ball radius seen, so chips keep their size while no ball is on the court, as just after Clear. */
   private ballRadius = 12;
-  private bursts: Timed[] = [];
   width = 0;
   height = 0;
 
@@ -125,19 +122,19 @@ export class Renderer {
     }
   }
 
-  /** The "pow" where a tap landed. */
+  /** The poof where a tap landed. */
   burst(x: number, y: number, now: number): void {
-    this.bursts.push({ x, y, t: now });
+    this.poofs.add(x, y, now);
   }
 
-  /** Start or extend a ball's trail. Call only while the ball is in flight. */
+  /** Start or extend a ball's trail. Call only while the ball is in flight or being carried. */
   trail(ball: BallSprite, now: number): void {
     this.trails.follow(ball.id, ball.x, ball.y, ball.r, now);
   }
 
   /** How many bursts and trail chips are on screen right now. For automated checks. */
   effects(): { bursts: number; trailPoints: number } {
-    return { bursts: this.bursts.length, trailPoints: this.livePieces };
+    return { bursts: this.poofs.live(this.lastDraw), trailPoints: this.livePieces };
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
@@ -146,29 +143,38 @@ export class Renderer {
     ctx.fillStyle = this.palette.navy;
     ctx.fillRect(0, 0, this.width, this.height);
 
-    const radius = balls[0]?.r ?? rising[0]?.r ?? 12;
     if (balls.length) this.ballRadius = balls[0].r;
-    this.drawTrails(now, this.ballRadius);
+    this.lastDraw = now;
+    this.drawChips(now);
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
     for (const b of balls) this.drawBall(b);
-    this.drawBursts(now, radius);
   }
 
   /**
-   * Every living chip as a flat white rectangle, all in one path and filled once, so chips that
-   * overlap make one solid shape rather than a darker patch.
+   * Every living chip of the trails and the poofs as a flat white rectangle, all in one path and
+   * filled once, so chips that overlap make one solid shape rather than a darker patch. They are
+   * drawn behind the balls and the name.
    */
-  private drawTrails(now: number, radius: number): void {
-    const count = this.trails.shapes(now, radius);
-    this.livePieces = count;
-    if (!count) return;
+  private drawChips(now: number): void {
+    const trailCount = this.trails.shapes(now, this.ballRadius);
+    const poofCount = this.poofs.shapes(now, this.ballRadius);
+    this.livePieces = trailCount;
+    if (!trailCount && !poofCount) return;
     const ctx = this.ctx;
-    const shapes = this.trails.out;
     ctx.fillStyle = this.palette.white;
     ctx.globalAlpha = params.trailOpacity;
     ctx.beginPath();
+    this.addChips(this.trails.out, trailCount);
+    this.addChips(this.poofs.out, poofCount);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  /** Add the first `count` chips of `shapes` to the current path, each as a rectangle. */
+  private addChips(shapes: Float32Array, count: number): void {
+    const ctx = this.ctx;
     for (let i = 0; i < count; i++) {
       const o = i * SHAPE_STRIDE;
       const x = shapes[o];
@@ -183,8 +189,6 @@ export class Renderer {
       ctx.lineTo(x - lx - tx, y - ly - ty);
       ctx.lineTo(x + lx - tx, y + ly - ty);
     }
-    ctx.fill();
-    ctx.globalAlpha = 1;
   }
 
   /**
@@ -210,29 +214,5 @@ export class Renderer {
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.seam);
     ctx.restore();
-  }
-
-  /** Eight short spikes flying outward from the point of contact. */
-  private drawBursts(now: number, radius: number): void {
-    const ctx = this.ctx;
-    this.bursts = this.bursts.filter((b) => now - b.t < BURST_MS);
-    ctx.strokeStyle = this.palette.white;
-    ctx.lineCap = "round";
-    ctx.lineWidth = Math.max(1.25, radius * 0.1);
-    for (const b of this.bursts) {
-      const p = (now - b.t) / BURST_MS;
-      const eased = 1 - (1 - p) * (1 - p);
-      const inner = radius * (0.5 + 1.1 * eased);
-      const outer = inner + radius * 0.9 * (1 - p);
-      ctx.globalAlpha = 1 - p;
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * TAU + Math.PI / 8;
-        ctx.beginPath();
-        ctx.moveTo(b.x + Math.cos(a) * inner, b.y + Math.sin(a) * inner);
-        ctx.lineTo(b.x + Math.cos(a) * outer, b.y + Math.sin(a) * outer);
-        ctx.stroke();
-      }
-    }
-    ctx.globalAlpha = 1;
   }
 }

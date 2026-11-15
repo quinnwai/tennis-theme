@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { params } from "./params";
 import { Court } from "./physics";
-import { CAPACITY, SHAPE_STRIDE, Trail, leavesTrail } from "./trail";
+import { area, chipsOf, covers, type Chip } from "./test-chips";
+import { CAPACITY, Trail, leavesTrail } from "./trail";
 import { FIELDS } from "./tune";
 
 const defaults = { ...params };
@@ -14,39 +15,11 @@ const FRAME_MS = 1000 / 60;
 /** The row of pixels the test balls fly along. */
 const LINE = 200;
 
-/** One chip as drawn: where it is, its two half sizes, and which way its long side points. */
-interface Chip {
-  x: number;
-  y: number;
-  halfLength: number;
-  halfThickness: number;
-  cx: number;
-  cy: number;
-}
-
 /** What is on screen at `now`, oldest chip first. Ask for times in order: chips that have gone are forgotten. */
-function chipsAt(trail: Trail, now: number, r = R): Chip[] {
-  const n = trail.shapes(now, r);
-  const s = trail.out;
-  const list: Chip[] = [];
-  for (let i = 0; i < n; i++) {
-    const o = i * SHAPE_STRIDE;
-    list.push({ x: s[o], y: s[o + 1], halfLength: s[o + 2], halfThickness: s[o + 3], cx: s[o + 4], cy: s[o + 5] });
-  }
-  return list;
-}
-
-const area = (c: Chip) => 4 * c.halfLength * c.halfThickness;
+const chipsAt = (trail: Trail, now: number, r = R): Chip[] => chipsOf(trail, now, r);
 
 /** How far a chip reaches from the line the ball flew along, straight across. */
 const reach = (c: Chip) => Math.abs(c.y - LINE) + c.halfLength * Math.abs(c.cy) + c.halfThickness * Math.abs(c.cx);
-
-/** Whether a point lies inside a chip. */
-function covers(c: Chip, x: number, y: number): boolean {
-  const dx = x - c.x;
-  const dy = y - c.y;
-  return Math.abs(dx * c.cx + dy * c.cy) <= c.halfLength && Math.abs(-dx * c.cy + dy * c.cx) <= c.halfThickness;
-}
 
 /** Fly a ball along the line, reporting it every frame, as the page does. Returns where it ended up, and the time in ms. */
 function fly(trail: Trail, id: number, pxPerSecond: number, seconds: number, radius = R): { x: number; t: number } {
@@ -304,9 +277,21 @@ describe("which balls leave a trail", () => {
     expect(leavesTrail({ pinned: false, held: false, vx: 0.4, vy: 0 })).toBe(false);
   });
 
-  it("is not a dot waiting in its stem, nor a ball in the hand, however it moves", () => {
+  it("is not a dot waiting in its stem, however it moves", () => {
     expect(leavesTrail({ pinned: true, held: false, vx: 4, vy: 0 })).toBe(false);
-    expect(leavesTrail({ pinned: false, held: true, vx: 4, vy: 0 })).toBe(false);
+    expect(leavesTrail({ pinned: true, held: true, vx: 4, vy: 0 })).toBe(false);
+  });
+
+  it("is a ball being carried, from a much gentler pace than a loose ball needs", () => {
+    // 0.5 m/s is a slow roll for a loose ball, which leaves nothing, but a drag with the pointer.
+    expect(leavesTrail({ pinned: false, held: false, vx: 0.5, vy: 0 })).toBe(false);
+    expect(leavesTrail({ pinned: false, held: true, vx: 0.5, vy: 0 })).toBe(true);
+    expect(leavesTrail({ pinned: false, held: true, vx: 3, vy: -2 })).toBe(true);
+  });
+
+  it("is not a ball in the hand that is held still, or only trembling", () => {
+    expect(leavesTrail({ pinned: false, held: true, vx: 0, vy: 0 })).toBe(false);
+    expect(leavesTrail({ pinned: false, held: true, vx: 0.03, vy: 0.02 })).toBe(false);
   });
 
   it("leaves no trail once a real ball has come to rest: nothing is left on screen a lifetime after its last flight", () => {
@@ -340,16 +325,51 @@ describe("which balls leave a trail", () => {
   });
 });
 
+describe("the trail of a carried ball", () => {
+  it("follows a ball dragged around by the pointer, and is gone a lifetime after the drag stops", () => {
+    // Drive the real physics the way the page does: every frame, report each ball that leaves a trail.
+    const court = new Court(8, 4);
+    const ball = court.addBall(1, 2, true);
+    court.grab(ball.id);
+    const trail = new Trail();
+    const pxPerMeter = 600;
+    const log: { t: number; chips: number; moving: boolean }[] = [];
+    let t = 0;
+    let pointer = 1;
+    let lastDrag = 0;
+    for (let frame = 0; frame < 60 * 4; frame++) {
+      const dragging = frame < 60; // one second of dragging at 1 m/s, then the pointer stays still
+      for (let k = 0; k < 4; k++) {
+        if (dragging) pointer += 1 / 240;
+        court.carryTo(pointer, 2);
+        court.step();
+      }
+      t += FRAME_MS;
+      if (dragging) lastDrag = t;
+      expect(ball.held).toBe(true);
+      if (leavesTrail(ball)) trail.follow(ball.id, ball.x * pxPerMeter, (4 - ball.y) * pxPerMeter, R, t);
+      log.push({ t, chips: trail.shapes(t, R), moving: Math.hypot(ball.vx, ball.vy) > 0.2 });
+    }
+    // While it was being dragged, it left chips behind it.
+    expect(Math.max(...log.filter((e) => e.t <= lastDrag).map((e) => e.chips))).toBeGreaterThan(30);
+    // Once the pointer stopped, the ball caught up, stopped, and what it had left was gone a lifetime later.
+    expect(log[log.length - 1].moving).toBe(false);
+    const quiet = log.filter((e) => e.t > lastDrag + 200 + params.trailLifetime * 1000);
+    expect(quiet.length).toBeGreaterThan(60);
+    expect(quiet.every((e) => e.chips === 0)).toBe(true);
+  });
+});
+
 describe("the trail's numbers", () => {
   it("are all there", () => {
     expect(Object.keys(params)).toEqual(
-      expect.arrayContaining(["trailWidth", "trailPiece", "trailShrink", "trailScatter", "trailLifetime", "trailOpacity"]),
+      expect.arrayContaining(["trailWidth", "trailPiece", "trailShrink", "trailScatter", "trailLifetime", "trailOpacity", "poofSize", "poofLifetime"]),
     );
   });
 
   it("each have a slider that leaves the world alone, with the default inside its range", () => {
-    const keys = Object.keys(defaults).filter((key) => key.startsWith("trail")) as (keyof typeof defaults)[];
-    expect(keys.length).toBeGreaterThanOrEqual(6);
+    const keys = Object.keys(defaults).filter((key) => key.startsWith("trail") || key.startsWith("poof")) as (keyof typeof defaults)[];
+    expect(keys.length).toBeGreaterThanOrEqual(8);
     for (const key of keys) {
       const field = FIELDS.find(([name]) => name === key);
       expect(field, `a slider for ${key}`).toBeDefined();
