@@ -495,26 +495,55 @@ a {
 }
 
 /*
- * The page: a sheet of paper in the middle of the window with the words on it, ruled like a composition book's (a line to every line of
- * type, and a margin line), flat like the rest of the toy. The words are real text, so they can be selected and read out, and a window
- * too small for the page scrolls it. --line is the height of a line of type and of a ruled line, which is what keeps them together.
+ * The notebook, open: a composition book lying open in the middle of the window, two facing pages in a dark cover, flat like the rest of
+ * the toy. The words are real text, one block of it, which runs from the left page onto the right (the page is set in two columns, one
+ * to each page), so it can be selected and read out in order. The pages are ruled, a line to every line of type, with a margin line
+ * on each. A window too small for the book scrolls it, and a narrow one shows a single page. --line is the height of a line of type
+ * and of a ruled line, which is what keeps them together; the page's padding, left and right, is what the column gap is made of, so
+ * that the text of the right page starts the same distance from the gutter as the text of the left page does from its edge. The cover
+ * has the white flecks of a composition book's, a few of them, where the cover shows round the pages.
  */
-.notebook-page {
-  --line: 32px;
+.notebook-book {
+  --line: 34px;
+  --cover-edge: 18px;
+  --pad-left: 3.4rem;
+  --pad-right: 2rem;
   --rule: color-mix(in srgb, var(--court-blue) 45%, transparent);
+  --gutter: color-mix(in srgb, var(--paper) 78%, var(--navy));
+  --fleck: rgba(255, 255, 255, 0.7);
   box-sizing: border-box;
-  width: min(30rem, 100%);
+  width: min(46rem, 100%);
   max-height: 100%;
   overflow: auto;
-  padding: var(--line) 2rem calc(var(--line) * 0.75) 3.6rem;
-  border-radius: 4px;
+  padding: var(--cover-edge);
+  border-radius: 8px;
+  background-color: var(--cover);
+  background-image:
+    radial-gradient(ellipse 3px 2px at 9px 6px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 2px 3px at 41px 12px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 2px 2px at 17px 31px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 3px 2px at 6px 14px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 2px 3px at 23px 5px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 2px 2px at 12px 40px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 3px 2px at 35px 9px, var(--fleck) 85%, transparent),
+    radial-gradient(ellipse 2px 3px at 8px 27px, var(--fleck) 85%, transparent);
+  background-size: 83px 71px, 83px 71px, 83px 71px, 97px 89px, 97px 89px, 61px 53px, 61px 53px, 47px 43px;
+}
+
+.notebook-page {
+  box-sizing: border-box;
+  columns: 2;
+  column-gap: calc(var(--pad-left) + var(--pad-right));
+  padding: var(--line) var(--pad-right) calc(var(--line) * 0.75) var(--pad-left);
+  border-radius: 3px;
   background-color: var(--paper);
   background-image:
-    linear-gradient(to right, transparent 2.9rem, var(--rule) 2.9rem, var(--rule) calc(2.9rem + 1.5px), transparent calc(2.9rem + 1.5px)),
+    linear-gradient(to right, transparent calc(var(--pad-left) - 0.7rem), var(--rule) calc(var(--pad-left) - 0.7rem), var(--rule) calc(var(--pad-left) - 0.7rem + 1.5px), transparent calc(var(--pad-left) - 0.7rem + 1.5px)),
+    linear-gradient(to right, transparent calc(50% + var(--pad-left) - 0.7rem), var(--rule) calc(50% + var(--pad-left) - 0.7rem), var(--rule) calc(50% + var(--pad-left) - 0.7rem + 1.5px), transparent calc(50% + var(--pad-left) - 0.7rem + 1.5px)),
+    linear-gradient(to right, transparent calc(50% - 1px), var(--gutter) calc(50% - 1px), var(--gutter) calc(50% + 1px), transparent calc(50% + 1px)),
     repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px), var(--rule) var(--line));
-  background-attachment: local;
   color: var(--navy);
-  font-size: 19px;
+  font-size: 20px;
   line-height: var(--line);
 }
 
@@ -527,19 +556,59 @@ a {
   margin-top: var(--line);
 }
 
+/* A window not so tall, a laptop with its toolbars: smaller type, so that the book still fits. */
+@media (max-height: 700px) {
+  .notebook-book {
+    --line: 28px;
+    --cover-edge: 14px;
+    width: min(50rem, 100%);
+  }
+
+  .notebook-page {
+    font-size: 17px;
+  }
+}
+
+/* A narrow window, such as a phone held upright, shows one page: the margin line is the left one only, and there is no gutter. */
+@media (max-width: 640px) {
+  .notebook-book {
+    --line: 24px;
+    --cover-edge: 12px;
+    --pad-left: 2.8rem;
+    --pad-right: 1.1rem;
+  }
+
+  .notebook-page {
+    columns: 1;
+    background-image:
+      linear-gradient(to right, transparent calc(var(--pad-left) - 0.7rem), var(--rule) calc(var(--pad-left) - 0.7rem), var(--rule) calc(var(--pad-left) - 0.7rem + 1.5px), transparent calc(var(--pad-left) - 0.7rem + 1.5px)),
+      repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px), var(--rule) var(--line));
+    font-size: 15px;
+  }
+}
+
 /*
- * A phone held sideways is about 340px tall or less, and the page at its full size would be taller than that. In a window that short
- * the type is smaller and the page is wider and fills more of it, which brings the whole text to a page of about 230px, so that it
- * fits with the overlay's padding (a window shorter still scrolls it, as above).
+ * A phone held sideways is about 340px tall or less, and the book at its full size would be taller than that. In a window that short the
+ * type is smaller, the cover is thinner and the book fills the width, which brings the whole text to a book of about 215px; it sits below
+ * the row where the close button is, so that nothing is under it, and fits with the overlay's padding (a window shorter still scrolls it, as above).
  */
 @media (max-height: 480px) {
-  .notebook-page {
+  .notebook-overlay {
+    padding-top: 56px;
+  }
+
+  .notebook-book {
     --line: 20px;
-    width: min(46rem, 100%);
-    padding: var(--line) 1.25rem var(--line) 2.9rem;
-    background-image:
-      linear-gradient(to right, transparent 2.2rem, var(--rule) 2.2rem, var(--rule) calc(2.2rem + 1.5px), transparent calc(2.2rem + 1.5px)),
-      repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--line) - 1px), var(--rule) calc(var(--line) - 1px), var(--rule) var(--line));
+    --cover-edge: 8px;
+    --pad-left: 2.6rem;
+    --pad-right: 1.1rem;
+    width: min(60rem, 100%);
+    border-radius: 6px;
+    background-image: none; /* the cover shows only 8px round the pages here, too thin for flecks to look like anything but a dashed edge */
+  }
+
+  .notebook-page {
+    padding-bottom: calc(var(--line) * 0.5);
     font-size: 14px;
   }
 }

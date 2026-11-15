@@ -337,6 +337,108 @@ test("the whole text is readable on the page, with nothing cut off, at this wind
   expect(fit.fontPx, "type small enough to fit is still readable").toBeGreaterThanOrEqual(13);
 });
 
+/**
+ * Where the open notebook's book and its text are: whether it needs scrolling, whether the words and the book are inside the window, and
+ * how many pages (columns) the words are set in. The words' lines are told apart by which half of the page they are in.
+ */
+const bookFit = (page: Page) =>
+  page.evaluate(() => {
+    const book = document.querySelector<HTMLElement>(".notebook-book")!;
+    const sheet = document.querySelector<HTMLElement>(".notebook-page")!;
+    const close = document.querySelector<HTMLElement>(".notebook-overlay .close")!.getBoundingClientRect();
+    const b = book.getBoundingClientRect();
+    const p = sheet.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(sheet);
+    const text = range.getBoundingClientRect();
+    const middle = p.left + p.width / 2;
+    const lines = [...range.getClientRects()].filter((r) => r.width > 1);
+    const slack = 0.5;
+    return {
+      pages: getComputedStyle(sheet).columnCount,
+      scrolls: book.scrollHeight > book.clientHeight + 1 || sheet.scrollHeight > sheet.clientHeight + 1 || sheet.scrollWidth > sheet.clientWidth + 1,
+      textInsidePage: text.left >= p.left - slack && text.right <= p.right + slack && text.top >= p.top - slack && text.bottom <= p.bottom + slack,
+      bookInsideWindow: b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight,
+      clearOfClose: b.top >= close.bottom - slack || b.left >= close.right || b.right <= close.left,
+      onLeftPage: lines.filter((r) => r.right <= middle + slack).length,
+      onRightPage: lines.filter((r) => r.left >= middle - slack).length,
+      acrossBoth: lines.filter((r) => r.left < middle - slack && r.right > middle + slack).length,
+      fontPx: parseFloat(getComputedStyle(sheet).fontSize),
+    };
+  });
+
+test("the notebook lies open like a book: the words run from the left page onto the right on a wide window, and fill one page on a narrow one", async ({ page }) => {
+  await unzip(page);
+  await notebookButton(page).click();
+  await expect(notebookPage(page)).toBeVisible();
+  // On the windows of this project (all wider than 640 px) there are two facing pages, and the one text runs over both of them: lines on the
+  // left page, lines on the right, and none across the gutter. It is still one block of real text, in order (the exact-text check below).
+  const wide = await bookFit(page);
+  expect(wide.pages).toBe("2");
+  expect(wide.onLeftPage).toBeGreaterThan(3);
+  expect(wide.onRightPage).toBeGreaterThan(3);
+  expect(wide.acrossBoth).toBe(0);
+  const where = await notebookPage(page).locator(".notebook-page").evaluate((sheet) => {
+    const middle = sheet.getBoundingClientRect().left + sheet.getBoundingClientRect().width / 2;
+    const centreOf = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return r.left + r.width / 2;
+    };
+    const [first, second] = [...sheet.querySelectorAll("p")];
+    // The first line starts the left page; the last words of the second paragraph end up on the right one.
+    const last = document.createRange();
+    last.selectNodeContents(second);
+    last.setStart(second.firstChild!, second.textContent!.length - "doubles together!".length);
+    return { firstOnLeft: first.getBoundingClientRect().right <= middle, endsOnRight: last.getBoundingClientRect().left >= middle, centre: centreOf(sheet) };
+  });
+  expect(where.firstOnLeft).toBe(true);
+  expect(where.endsOnRight).toBe(true);
+
+  // A narrow window, a phone held upright, has room for one page, and the whole text is on it.
+  await page.setViewportSize({ width: 600, height: 700 });
+  await expect.poll(async () => (await bookFit(page)).pages).toBe("1");
+  const narrow = await bookFit(page);
+  expect(narrow.scrolls).toBe(false);
+  expect(narrow.textInsidePage).toBe(true);
+  expect(narrow.onRightPage, "one page: nothing is on a second one").toBe(0);
+});
+
+/** Windows that the page has to be readable in, width by height: laptops, then the phones held sideways that phone.test.ts lists, iOS 26's Safari's, and a phone held upright. */
+const WINDOWS_FOR_THE_BOOK: [number, number][] = [
+  [1440, 800],
+  [1280, 600],
+  [1024, 600],
+  [750, 280],
+  [802, 293],
+  [734, 343],
+  [712, 325],
+  [863, 360],
+  [740, 360],
+  [667, 375],
+  [568, 320],
+  [390, 664],
+  [412, 839],
+];
+
+test("the whole text fits on the open notebook, with nothing cut off and nothing under the close button, in every window that matters", async ({ page }) => {
+  await unzip(page);
+  await notebookButton(page).click();
+  await expect(notebookPage(page)).toBeVisible();
+  for (const [width, height] of WINDOWS_FOR_THE_BOOK) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(async () => page.evaluate(() => innerWidth)).toBe(width);
+    const fit = await bookFit(page);
+    const where = `${width} by ${height}`;
+    expect(fit.scrolls, `${where}: needs no scrolling`).toBe(false);
+    expect(fit.textInsidePage, `${where}: every word is on the page`).toBe(true);
+    expect(fit.bookInsideWindow, `${where}: the book is inside the window`).toBe(true);
+    expect(fit.clearOfClose, `${where}: the close button is not over the book`).toBe(true);
+    expect(fit.fontPx, `${where}: the type is readable`).toBeGreaterThanOrEqual(14);
+    if (fit.pages === "2") expect(fit.acrossBoth, `${where}: no line runs across the gutter`).toBe(0);
+    expect(fit.pages, `${where}: two pages where there is room for two, one where there is not`).toBe(width > 640 ? "2" : "1");
+  }
+});
+
 test("Escape closes the notebook", async ({ page }) => {
   await unzip(page);
   await notebookButton(page).click();

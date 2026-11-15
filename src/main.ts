@@ -55,6 +55,7 @@ function main(): void {
   const soundChip = document.querySelector<HTMLButtonElement>(".chip.sound")!;
   const notebookButton = document.querySelector<HTMLButtonElement>(".notebook")!;
   const notebook = document.querySelector<HTMLDialogElement>(".notebook-overlay")!;
+  const notebookBook = notebook.querySelector<HTMLElement>(".notebook-book")!;
   const notebookPage = notebook.querySelector<HTMLElement>(".notebook-page")!;
   const notebookClose = notebook.querySelector<HTMLButtonElement>(".close")!;
   for (const text of NOTEBOOK_PARAGRAPHS) notebookPage.append(Object.assign(document.createElement("p"), { textContent: text }));
@@ -458,7 +459,7 @@ function main(): void {
   // Clicking the notebook, like picking up a can or dragging the zip, is playing with the toy, and counts for the analytics.
   const creditsOverlay = wireOverlay(credits, creditsText, creditsClose, query.has("tune"));
   creditsChip.addEventListener("click", creditsOverlay.open);
-  const notebookOverlay = wireOverlay(notebook, notebookPage, notebookClose, query.has("tune"));
+  const notebookOverlay = wireOverlay(notebook, notebookBook, notebookClose, query.has("tune"));
   notebookButton.addEventListener("click", () => {
     noteInteraction();
     notebookOverlay.open();

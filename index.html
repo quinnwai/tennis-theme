@@ -100,14 +100,17 @@
       </div>
     </dialog>
 
-    <!-- The notebook's page, over the toy like the credits. Its words are made from src/notebook-text.ts by the script. -->
+    <!-- The notebook, open over the toy like the credits: two facing pages in a dark cover. Its words are made from src/notebook-text.ts by the
+         script, as one text that runs from the left page onto the right. -->
     <dialog class="notebook-overlay" aria-label="Notebook">
       <button class="chip close" type="button" aria-label="Close" title="Close">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
           <path d="M6 6l12 12M18 6 6 18" />
         </svg>
       </button>
-      <div class="notebook-page"></div>
+      <div class="notebook-book">
+        <div class="notebook-page"></div>
+      </div>
     </dialog>
 
     <script type="module" src="/src/main.ts"></script>
