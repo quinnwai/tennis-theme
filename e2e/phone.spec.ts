@@ -569,9 +569,10 @@ test.describe("a phone held sideways", () => {
   });
 
   // The bottom edge of the screen is where a phone's own swipe-up lives (the home bar on an iPhone), and a press that starts there is
-  // taken for it: a ball lying on a floor at the edge cannot be picked up. Lifting the floor is what keeps balls out of that strip. It is
-  // off until Quinn-Wai has tried it on a phone, so this switches it on with the slider.
-  test("with ?tune, a lifted floor keeps resting balls clear of the screen's bottom edge, and a finger can pick one up", async ({ page }) => {
+  // taken for it: a ball lying on a floor at the edge cannot be picked up. So on a touch screen the floor is lifted (params.floorLiftPx,
+  // 30 px, which Quinn-Wai chose on QWW-83) and balls rest above that strip. A laptop keeps its floor at the edge: first-draft.spec.ts.
+  test("balls rest clear of the screen's bottom edge, where a press is taken for the home swipe, and a finger can pick one up; ?tune moves the floor", async ({ page }) => {
+    expect(params.floorLiftPx, "the floor is lifted by default on a touch screen").toBeGreaterThan(0);
     await page.goto("./?tune");
     await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
     const fingers = await Fingers.on(page);
@@ -594,25 +595,32 @@ test.describe("a phone held sideways", () => {
       expect(loose, "the one ball that was let go").toHaveLength(1);
       return loose[0];
     };
-    expect(Math.hypot((await lying()).vx, (await lying()).vy), "at rest").toBeLessThan(1);
-    // With the floor where it is by default, the ball lies on the window's very edge.
-    expect(height - ((await lying()).y + d.r), "its underside from the bottom of the window").toBeLessThan(2);
+    /** How far the ball's underside is from the bottom edge of the window, once it has come to rest. */
+    const underside = async () => {
+      const b = await lying();
+      expect(Math.hypot(b.vx, b.vy), "at rest").toBeLessThan(1);
+      return height - (b.y + b.r);
+    };
 
-    // Lift the floor 30 px, about what an iPhone's home bar asks for.
-    await page.getByLabel("floor lift on a touch screen").fill("30");
-    expect(await sandbox<number>(page, "params.floorLiftPx")).toBe(30);
-    await advance(page, 3);
-    const lifted = await lying();
-    expect(Math.hypot(lifted.vx, lifted.vy), "at rest again").toBeLessThan(1);
-    expect(height - (lifted.y + d.r), "its underside is now 30 px from the bottom edge").toBeGreaterThan(28);
-    expect(height - (lifted.y + d.r)).toBeLessThan(32);
-    expect(height - lifted.y, "so a press on the middle of the ball is clear of the strip").toBeGreaterThan(30 + d.r - 2);
+    const lift = params.floorLiftPx;
+    expect(Math.abs((await underside()) - lift), "the ball lies params.floorLiftPx up from the bottom edge").toBeLessThan(2);
+    const resting = await lying();
+    expect(height - resting.y, "so a press on the middle of the ball is clear of the strip").toBeGreaterThan(lift + d.r - 2);
 
-    // And a finger on the ball picks it up.
-    await fingers.press(1, lifted);
-    await fingers.move(1, { x: lifted.x - 30, y: lifted.y - 20 }, 3);
-    await expect.poll(async () => (await lying()).held).toBe(true);
+    // A finger held on the ball picks it up, and lifting it again leaves the ball where it was.
+    await fingers.press(1, resting);
+    await expect.poll(async () => (await lying()).held, { timeout: 5000 }).toBe(true);
     await fingers.lift(1);
+    await expect.poll(async () => (await lying()).held).toBe(false);
+
+    // The slider moves the floor: 0 puts it back at the edge, and 50 lifts it higher. (Each makes the court again.)
+    await page.getByLabel("floor lift on a touch screen").fill("0");
+    expect(await sandbox<number>(page, "params.floorLiftPx")).toBe(0);
+    await advance(page, 3);
+    expect(await underside(), "with no lift the ball lies on the very edge").toBeLessThan(2);
+    await page.getByLabel("floor lift on a touch screen").fill("50");
+    await advance(page, 3);
+    expect(Math.abs((await underside()) - 50), "and with 50 it lies 50 px up").toBeLessThan(2);
   });
 
   test("the credits open and close with a finger, and fit a phone held sideways without scrolling", async ({ page }) => {

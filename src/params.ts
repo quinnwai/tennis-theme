@@ -36,9 +36,9 @@ export const params = {
 
   // The bottom edge of a phone's screen is where the system's own swipe-up lives (the home bar): a press there is taken for it,
   // so a ball lying on a floor at the edge cannot be picked up. On a touch screen the floor is lifted by this many px, to keep
-  // balls clear of that strip; about 30 clears an iPhone's. 0 leaves the floor at the window's edge, as on a laptop, and is
-  // how it is until Quinn-Wai has tried it on a phone. Judged by feel, on a phone.
-  floorLiftPx: 0,
+  // balls clear of that strip; about 30 clears an iPhone's, and Quinn-Wai chose that on seeing it (QWW-83). A laptop has no such
+  // strip and is not lifted, whatever this says. Judged by feel, on a phone.
+  floorLiftPx: 30,
 
   // The credits, which open over the toy: how blurred the toy is behind the text, and how far a coat of
   // navy dims it so the white text reads. Both are judged by eye; the browser tests insist the white text

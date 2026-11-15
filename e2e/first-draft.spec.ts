@@ -151,10 +151,14 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
   // full carrying speed when it is let go. That is done in one step in the page, with the physics run by hand, so
   // that no frame can slip in between: on a busy machine a wait of a fixed time can end after the ball has already
   // reached the pointer and stopped.
+  // In a window as short as a phone's held sideways (about 280 px) the right wall cannot be reached: the other dot, the
+  // stem under it, the row of buttons and the "?" fill the way, and a ball that meets them bounces off them, which is not
+  // the wall. The left side is empty at any size (both left corners are), so there it is thrown at the left wall.
+  const side = (await page.evaluate(() => innerHeight)) < 500 ? -1 : 1; // 1 for the right wall, -1 for the left
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
   await page.mouse.move(d.x + 20, d.y - 5, { steps: 2 }); // far enough to lift the ball
-  const seen = await page.evaluate(({ id, to }) => {
+  const seen = await page.evaluate(({ id, to, side }) => {
     const s = (window as any).__sandbox;
     const court = document.getElementById("court")!;
     court.dispatchEvent(new PointerEvent("pointermove", { clientX: to.x, clientY: to.y }));
@@ -162,7 +166,7 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
     court.dispatchEvent(new PointerEvent("pointerup"));
     const find = () => s.balls().find((b: Ball) => b.id === id) as Ball | undefined;
     let prev = find()!;
-    const seen = { lost: false, right: 0, bottom: 0, offWall: false, offFloor: false, width: innerWidth, height: innerHeight };
+    const seen = { lost: false, left: Infinity, right: 0, bottom: 0, offWall: false, offFloor: false, width: innerWidth, height: innerHeight };
     for (let i = 0; i < 720; i++) {
       s.advance(1 / 120);
       const b = find();
@@ -170,20 +174,49 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
         seen.lost = true;
         break;
       }
+      seen.left = Math.min(seen.left, b.x - b.r);
       seen.right = Math.max(seen.right, b.x + b.r);
       seen.bottom = Math.max(seen.bottom, b.y + b.r);
-      if (prev.vx > 60 && b.vx < -60) seen.offWall = true;
+      if (prev.vx * side > 60 && b.vx * side < -60) seen.offWall = true; // it was going at the wall, and now it is coming away
       if (prev.vy > 60 && b.vy < -60) seen.offFloor = true;
       prev = b;
     }
     return seen;
-  }, { id: d.id, to: { x: 1400, y: d.y - 150 } });
+  }, { id: d.id, to: { x: side === 1 ? 1400 : -600, y: d.y - 150 }, side });
   await page.mouse.up();
   expect(seen.lost).toBe(false);
   expect(seen.offWall).toBe(true);
   expect(seen.offFloor).toBe(true);
+  expect(seen.left).toBeGreaterThan(-2);
   expect(seen.right).toBeLessThan(seen.width + 2);
   expect(seen.bottom).toBeLessThan(seen.height + 2);
+});
+
+// A phone's bottom edge is where its own swipe-up lives (the home bar on an iPhone), and a press that starts there is taken for it, so
+// on a touch screen the floor is lifted by params.floorLiftPx and balls rest above that strip. A laptop has no such strip: its floor is
+// the window's bottom edge. The sideways phones run this too, which is how the same check sees both.
+test("a ball comes to rest on the floor: on the window's bottom edge on a laptop, and lifted clear of it on a touch screen", async ({ page }) => {
+  const d = await dot(page, 0);
+  const { height } = page.viewportSize()!;
+  const lift = (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) ? params.floorLiftPx : 0;
+  const nameLeft = await page.evaluate(() =>
+    Math.min(...(window as any).__sandbox.layout().letters.flatMap((l: { loops: Point[][] }) => l.loops.flat()).map((p: Point) => p.x)),
+  );
+  // Carry the left-hand dot up, across to the empty floor left of the name, and down to just above the floor, and let it go there.
+  const over = d.y - 4 * d.r;
+  const spot = { x: Math.max(d.r + 4, nameLeft / 2), y: height - lift - 3 * d.r };
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(d.x, over, { steps: 6 });
+  await page.mouse.move(spot.x, over, { steps: 10 });
+  await page.mouse.move(spot.x, spot.y, { steps: 6 });
+  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - spot.x, (await ball(page, d.id)).y - spot.y)).toBeLessThan(6);
+  await page.waitForTimeout(120); // let it stop, so that it drops straight down
+  await page.mouse.up();
+  await advance(page, 5);
+  const rested = await ball(page, d.id);
+  expect(Math.hypot(rested.vx, rested.vy), "at rest").toBeLessThan(1);
+  expect(Math.abs(height - (rested.y + rested.r) - lift), "its underside from the bottom of the window").toBeLessThan(2);
 });
 
 test("balls bounce off the letters and each other", async ({ page }) => {
