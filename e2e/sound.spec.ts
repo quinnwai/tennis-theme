@@ -130,11 +130,44 @@ async function open(page: Page, options: { soundSetting?: string; address?: stri
   await page.waitForFunction("window.__audio.decoded === 4");
 }
 
-/** Hit the first dot from its left side, which sends it off to the right, clear of the stem it stood over. */
-async function knockOffFirstDot(page: Page) {
-  const d = await dot(page, 0);
+/**
+ * Hit a dot from its left side, which sends it off to the right, clear of the stem it stood over. The first dot, unless
+ * told otherwise: with ?tune the panel of sliders covers the left of a window as narrow as a phone's, the first dot with it.
+ */
+async function knockOffDot(page: Page, index = 0) {
+  const d = await dot(page, index);
   await page.mouse.click(d.x - d.r * 0.8, d.y + d.r * 0.2);
   return d;
+}
+const knockOffFirstDot = (page: Page) => knockOffDot(page, 0);
+
+/**
+ * The window the toy is in, as a drop needs to know it. How hard a ball lands depends on how far it falls in meters and
+ * not in pixels, and a window is 800px tall on a laptop and about 340 on a phone held sideways, so spots for a drop are
+ * worked out from the floor, the ball's radius and the pixels in a meter. The bare floor to the left of the name has the
+ * corner buttons nowhere near it, however narrow the window.
+ */
+async function dropGround(page: Page) {
+  const { nameLeft, floor, perMeter, r } = await page.evaluate(() => {
+    const s = (window as any).__sandbox;
+    const letters = s.layout().letters as { loops: { x: number; y: number }[][] }[];
+    return {
+      nameLeft: Math.min(...letters.flatMap((l) => l.loops.flat()).map((p) => p.x)),
+      floor: innerHeight,
+      perMeter: s.pxPerMeter() as number,
+      r: (s.balls()[0] as Ball).r,
+    };
+  });
+  const near = r + 2; // a ball's middle can be this close to the wall...
+  const far = nameLeft - r - 6; // ...and this close to the name's first letter
+  /**
+   * A spot for the ball's middle, `share` of the way across that floor (0 to 1), from which it falls `fall` meters. No
+   * higher than the window's top, so the most it can fall is a little less than the window is tall.
+   */
+  return (share: number, fall: number) => ({
+    x: near + share * (far - near),
+    y: Math.max(r + 8, floor - r - fall * perMeter),
+  });
 }
 
 /**
@@ -143,10 +176,12 @@ async function knockOffFirstDot(page: Page) {
  */
 async function dropSecondDotFrom(page: Page, at: { x: number; y: number }) {
   const d = await dot(page, 1);
+  // Four radii above the dots is clear of the first dot, the name and the buttons at the top right, in a window of any size.
+  const over = d.y - 4 * d.r;
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(d.x, 60, { steps: 6 });
-  await page.mouse.move(at.x, 60, { steps: 10 });
+  await page.mouse.move(d.x, over, { steps: 6 });
+  await page.mouse.move(at.x, over, { steps: 10 });
   await page.mouse.move(at.x, at.y, { steps: 6 });
   await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - at.x, (await ball(page, d.id)).y - at.y)).toBeLessThan(4);
   await page.waitForTimeout(150); // let it stop, so that it falls straight down
@@ -164,7 +199,7 @@ test("the audio is made at the start and left asleep until the visitor does some
   expect(await audio()).toEqual({ contexts: 1, resumes: 0 });
   expect(await voices(page)).toEqual([]);
 
-  await page.mouse.click(8, 400); // the empty left edge: a gesture, but not a hit
+  await page.mouse.click(8, page.viewportSize()!.height / 2); // the empty left edge: a gesture, but not a hit
   expect(await audio()).toEqual({ contexts: 1, resumes: 1 }); // the same audio, woken
   expect(await voices(page)).toEqual([]);
 });
@@ -207,13 +242,15 @@ test("a ball that strikes the floor or a letter plays the bounce sound, and not 
 
 test("a ball dropped from higher strikes the floor harder and plays the bounce louder", async ({ page }) => {
   await open(page);
-  // Two clear stretches of floor to the right of the name. The floor is at 800: a drop from 600 hits at about
-  // 2.4 m/s, a drop from 100 at about 4.7 m/s.
-  await dropSecondDotFrom(page, { x: 1200, y: 600 });
+  // Two clear stretches of floor to the left of the name, one for each ball. A fall of 0.3 m lands at about 2.4 m/s, and
+  // the highest the window allows at about 4.4 to 4.7 (on a laptop that is a fall of 1.14 m; a phone held sideways is not
+  // quite a meter tall).
+  const spot = await dropGround(page);
+  await dropSecondDotFrom(page, spot(0.25, 0.3));
   await advance(page, 4); // it settles, and a fresh ball rises out of the "i" to be dropped next
   const lowDrop = (await voicesOf(page, "bounce")).length;
   expect(lowDrop).toBeGreaterThan(0);
-  await dropSecondDotFrom(page, { x: 1290, y: 100 });
+  await dropSecondDotFrom(page, spot(0.75, 1.14));
   await advance(page, 4);
   const bounces = (await voicesOf(page, "bounce")).map((v) => v.volume);
   const [soft, hard] = [bounces[0], bounces[lowDrop]]; // the first thing each ball struck was the floor
@@ -240,7 +277,9 @@ test("a ball that leaves past the side lines above the window plays the ball-out
   await open(page);
   await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 12)); // hard enough to clear the top of the window
   const d = await dot(page, 1);
-  await page.mouse.click(d.x - d.r * 0.35, d.y + d.r * 0.9); // from below and a little to the left: up and to the right
+  // From below and a little to the right: up and to the left. Not to the right, where the buttons at the top right are: in a
+  // window as short as a phone's held sideways a ball sent up and to the right meets them, and bounces back into the court.
+  await page.mouse.click(d.x + d.r * 0.35, d.y + d.r * 0.9);
   expect(await voicesOf(page, "out")).toHaveLength(0); // it has not gone yet
   await advance(page, 1);
   expect((await balls(page)).find((b) => b.id === d.id)).toBeUndefined(); // it has
@@ -251,10 +290,14 @@ test("a ball that leaves past the side lines above the window plays the ball-out
 
 test("with sound switched off, none of the four sounds plays; switched on again, they do", async ({ page }) => {
   await open(page, { soundSetting: "off" });
-  await page.mouse.click(8, 400);
+  await page.mouse.click(8, page.viewportSize()!.height / 2); // the empty left edge: a gesture, but not a hit
   await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 12));
   const d = await dot(page, 1);
-  await page.mouse.click(d.x - d.r * 0.35, d.y + d.r * 0.9); // sends it out of the window
+  await page.mouse.click(d.x + d.r * 0.35, d.y + d.r * 0.9); // sends it up and to the left, out of the window (see the check above)
+  // The next hit is an ordinary one. At 12 m/s the ball is sent against the right wall and back, and in a window as short as
+  // a phone's it can come to rest on the "a" beside the last "i", where it keeps that dot from coming back (a fresh ball only
+  // rises when nothing sits by the stem). An ordinary hit lands the ball on the floor, bounces it and lets the dot be replaced.
+  await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 3));
   await knockOffFirstDot(page); // lands, bounces and is replaced
   await advance(page, 6);
   // Everything that makes a sound happened: the hit, the bounces, the rising and the ball leaving...
@@ -343,10 +386,11 @@ test("with ?tune, every sound number has a slider that takes effect on the next 
   );
   expect(await sliders.evaluateAll((all) => all.map((input) => Number((input as HTMLInputElement).value)))).toEqual(start);
 
-  // The hit volume: move its slider, and the next hit plays at the new volume.
+  // The hit volume: move its slider, and the next hit plays at the new volume. The second dot is the one to hit: the panel
+  // of sliders sits at the left of the window, and in a window as narrow as a phone's it covers the first dot.
   await page.getByLabel("sound: hit volume").fill("0.2");
   expect(await volumeOf(page, "soundHit")).toBeCloseTo(0.2);
-  await knockOffFirstDot(page);
+  await knockOffDot(page, 1);
   expect((await voicesOf(page, "hit"))[0].volume).toBeCloseTo(0.2);
 
   // Moving a slider must leave the toy alone: a rebuilt court would stop every ball in the air, and makes the

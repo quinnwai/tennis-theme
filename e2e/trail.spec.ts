@@ -168,9 +168,17 @@ test("each number of the trail and the poof has a slider under ?tune that moves 
 test("moving a trail or poof slider leaves a ball in flight alone", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
-  const d = await dot(page, 0);
+  // The second dot, because the panel of sliders sits at the left of the window, and in a window as narrow as a phone's it
+  // covers the first dot.
+  const d = await dot(page, 1);
   await page.mouse.click(d.x, d.y + d.r * 0.8);
-  await expect.poll(async () => (await balls(page)).find((b) => b.id === d.id)?.vy ?? 0).toBeLessThan(-300);
+  // In flight: rising faster than half a meter a second, which is 300px/s on a laptop and about 160 on a phone held sideways,
+  // where a ball is drawn smaller. The hit sends it up at 3 m/s, and it is still rising at that pace for only a quarter of a
+  // second, so the ball is looked at every 10 ms: at the default pace of checking, a busy machine can let that quarter second go by.
+  const inFlight = -0.5 * (await sandbox<number>(page, "pxPerMeter()"));
+  await expect
+    .poll(async () => (await balls(page)).find((b) => b.id === d.id)?.vy ?? 0, { intervals: [10] })
+    .toBeLessThan(inFlight);
   // Read the ball, move the slider and read the ball again without letting a single step of the
   // simulation run in between. Rebuilding the court would leave the ball standing still in mid air.
   const { before, after } = await page.evaluate((id) => {
@@ -188,6 +196,6 @@ test("moving a trail or poof slider leaves a ball in flight alone", async ({ pag
     }
     return { before, after: read() };
   }, d.id);
-  expect(before.vy).toBeLessThan(-300);
+  expect(before.vy).toBeLessThan(inFlight);
   expect(after).toEqual(before);
 });
