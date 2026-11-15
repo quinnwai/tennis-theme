@@ -126,7 +126,7 @@ describe("the poof where a ball is hit", () => {
   it("lasts as long as the lifetime number says", () => {
     params.poofLifetime = 1;
     const longer = bornAt(0);
-    expect(longer.shapes(600, R)).toBeGreaterThan(0); // already gone at the default 0.3 s
+    expect(longer.shapes(600, R)).toBeGreaterThan(0); // already gone at the default 0.2 s
     expect(longer.shapes(1000, R)).toBe(0);
     params.poofLifetime = 0.1;
     const shorter = bornAt(0);
@@ -139,7 +139,7 @@ describe("the poof where a ball is hit", () => {
     expect(poof.live(100)).toBe(3);
     expect(poof.shapes(100, R)).toBe(3 * CHIPS_PER_BURST);
     // The first has finished, the others are still going.
-    expect(poof.live(0.3 * 1000 + 10)).toBe(2);
+    expect(poof.live(params.poofLifetime * 1000 + 10)).toBe(2);
   });
 
   it("looks different each time, and the same burst always looks the same", () => {
