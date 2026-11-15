@@ -31,12 +31,32 @@
   --gap: 4px; /* between neighbouring buttons */
 }
 
+/*
+ * On a touch screen a button is never smaller than 44 by 44 px, whatever size the icon is tuned to: that is what a fingertip
+ * needs to be sure of it. At the icon size in params.ts a button is 44 already, so nothing changes there. The solid disc a
+ * button makes in the toy follows the button's box, so it grows with it.
+ */
+@media (pointer: coarse) {
+  :root {
+    --chip: max(44px, calc(var(--icon-size) + 8px));
+  }
+}
+
 html,
 body {
   margin: 0;
   min-height: 100%;
   background: var(--navy);
   color: var(--white);
+  /*
+   * A push past the edge of the page does nothing: no pull to refresh, no bounce, and no history swipe that starts from an
+   * overscroll (Chrome). Safari's own swipe in from the very edge of the screen belongs to the browser, and a page cannot turn it off.
+   */
+  overscroll-behavior: none;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent; /* no grey flash where a finger lands */
 }
 
 a {
@@ -45,16 +65,33 @@ a {
 
 /* ---- The homepage: one screen, all canvas ---- */
 
+/*
+ * The page never scrolls or zooms under a finger: a drag is the toy's. touch-action is what tells a phone's browser to
+ * keep its own gestures (scroll, pull to refresh, pinch, double-tap zoom) out of it; it combines down the page, so it is
+ * on the body as well as the canvas, which also covers a finger that starts on a button.
+ */
 .play {
   height: 100%;
   overflow: hidden;
+  touch-action: none;
 }
 
+/*
+ * The canvas is as big as the window that is on screen. On a phone, 100vh is the window with the browser's bars folded
+ * away, which is taller than what is showing while they are not: the floor and the bottom corner would sit under the
+ * bar. A fixed box that fills the window follows what is really there.
+ */
 .play canvas {
   display: block;
-  width: 100vw;
-  height: 100vh;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   touch-action: none;
+  /* A long press is carrying a ball, not selecting or saving anything. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The name is drawn on the canvas; this copy is for screen readers and search engines. */
@@ -67,6 +104,10 @@ a {
   white-space: nowrap;
 }
 
+/*
+ * The rotate prompt: for a phone held upright, where the name is too small to play with. It sits below the row of buttons,
+ * and the toy stays under it, still working, so a screenshot of an upright phone still shows the name. Taps pass through.
+ */
 .rotate-note {
   display: none;
   position: fixed;
@@ -74,15 +115,47 @@ a {
   left: 0;
   right: 0;
   margin: 0;
+  padding: 0 24px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   text-align: center;
   color: var(--quiet);
   font-size: 13px;
   pointer-events: none;
 }
 
+.rotate-note svg {
+  width: 36px;
+  height: 36px;
+  animation: tip 3s ease-in-out infinite;
+}
+
+/* The phone stands, tips onto its side, rests there, and stands again. */
+@keyframes tip {
+  0%,
+  20% {
+    transform: rotate(0deg);
+  }
+  45%,
+  75% {
+    transform: rotate(-90deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rotate-note svg {
+    animation: none;
+    transform: rotate(-90deg); /* already on its side: that is the message */
+  }
+}
+
 @media (orientation: portrait) and (max-width: 700px) {
   .rotate-note {
-    display: block;
+    display: flex;
   }
 }
 
@@ -186,23 +259,40 @@ a {
   pointer-events: none;
 }
 
-/* Bridge the gap under each link so the pointer can travel between chips without the menu closing. */
+/*
+ * Bridge the gap under each link so the pointer can travel between chips without the menu closing. It is exactly the gap and
+ * no taller: any more would lie over the top of the button below, and a finger on that part of the button would land on the
+ * link above it instead (the "?" would lose the top of itself to the lowest link while the links are open).
+ */
 .contact a.chip::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
   top: 100%;
-  height: 10px;
+  height: var(--gap);
 }
 
-.contact:hover a.chip,
-.contact:focus-within a.chip,
+/*
+ * The links open for a keyboard (focus-visible, which a tap or a click does not set) and for a click or tap, which pins them
+ * open (.open, see main.ts). Hovering opens them too, but only where there is a mouse to hover with: a finger leaves its hover
+ * behind, and on a phone that would keep the links open after the second tap on the "?" had closed them.
+ */
+.contact:has(:focus-visible) a.chip,
 .contact.open a.chip {
   opacity: 1;
   transform: none;
   visibility: visible;
   pointer-events: auto;
+}
+
+@media (hover: hover) {
+  .contact:hover a.chip {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+    pointer-events: auto;
+  }
 }
 
 /* ---- The credits: text over the blurred toy ---- */
@@ -233,6 +323,18 @@ a {
 .credits-overlay[open] {
   display: grid;
   place-items: center;
+}
+
+/*
+ * When the text is taller than the window, as on a phone held sideways, a finger scrolls the overlay and nothing behind it
+ * (the page itself is locked against touch, see .play), and a pinch still zooms the text. The overlay is a scroll container
+ * of its own, and says so: touch-action on the page stops at the nearest one, so that its own value is what a finger on the
+ * text gets, rather than the body's "none".
+ */
+.credits-overlay {
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
 }
 
 /* The page behind a modal dialog gets a faint shade of its own by default; the tint above does that job. */
@@ -285,4 +387,36 @@ a {
   position: absolute;
   top: var(--edge);
   right: calc(var(--edge) + 2 * (var(--chip) + var(--gap)));
+}
+
+/*
+ * A phone held sideways is about 340px tall, and the credits at their full size are about 460: only the first few lines would
+ * show, the rest a scroll away. In a window that short the type is smaller and the lines are closer, which brings the credits to
+ * about 260px, so they fit on the phones of today with the overlay's padding. (A window shorter still scrolls, as above.)
+ */
+@media (max-height: 480px) {
+  .credits-overlay {
+    padding: 12px;
+  }
+
+  .credits-text {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .credits-text p {
+    margin-bottom: 0.4rem;
+  }
+
+  .credits-text li + li {
+    margin-top: 0.4rem;
+  }
+
+  .credits-text li ul {
+    margin-top: 0.2rem;
+  }
+
+  .credits-text li li + li {
+    margin-top: 0.2rem;
+  }
 }
