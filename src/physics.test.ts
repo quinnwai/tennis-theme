@@ -231,3 +231,182 @@ describe("Court", () => {
     expect(dot.x).toBeGreaterThan(2.05);
   });
 });
+
+describe("Court impacts", () => {
+  /** Every impact the court reports over `seconds`, with the moment of the step that reported it. */
+  function collect(court: Court, seconds: number): { at: number; speed: number }[] {
+    const log: { at: number; speed: number }[] = [];
+    let steps = 0;
+    run(court, seconds, () => {
+      steps++;
+      for (const impact of court.impacts) log.push({ at: steps * STEP, speed: impact.speed });
+    });
+    return log;
+  }
+
+  it("reports how fast a dropped ball hits the floor", () => {
+    const court = new Court(4, 4);
+    court.addBall(2, 1 + RADIUS, false);
+    const [first] = collect(court, 1);
+    const falling = Math.sqrt(2 * params.gravity * 1); // 4.43 m/s; air drag takes a little off
+    expect(first.speed).toBeGreaterThan(falling * 0.97);
+    expect(first.speed).toBeLessThan(falling);
+  });
+
+  it("reports each bounce of a dropped ball, each gentler than the last, until it comes to rest", () => {
+    const court = new Court(4, 4);
+    court.addBall(2, 1 + RADIUS, false);
+    const log = collect(court, 6);
+    expect(log.length).toBeGreaterThan(8);
+    log.slice(1).forEach((impact, i) => {
+      expect(impact.speed).toBeLessThan(log[i].speed);
+      // Each bounce keeps about the share of the speed that the ball's bounciness says. Below 1 m/s a step of
+      // gravity is a big part of the speed, and the share creeps up.
+      if (impact.speed > 1) expect(impact.speed / log[i].speed).toBeCloseTo(params.restitution, 1);
+    });
+    expect(collect(court, 2)).toEqual([]); // and a ball at rest strikes nothing
+  });
+
+  it("reports nothing for a ball rolling along the floor", () => {
+    const court = new Court(8, 4);
+    const ball = court.addBall(0.5, RADIUS, false);
+    launch(court, ball.id, 2, 0);
+    expect(collect(court, 4)).toEqual([]);
+  });
+
+  it("reports a ball striking another ball once, at the speed they closed", () => {
+    const court = new Court(8, 4);
+    const mover = court.addBall(1, 2, false);
+    court.addBall(2, 2, false);
+    court.balls[1].y = 2; // both float level with each other, a long way up
+    launch(court, mover.id, 3, 0);
+    // Gravity pulls both down at the same rate, so what matters is how fast they close along the x axis.
+    let closing = 0;
+    let strikes = 0;
+    for (let i = 0; i < 2 / STEP && strikes === 0; i++) {
+      closing = mover.vx;
+      court.step();
+      strikes = court.impacts.length;
+      if (strikes > 0) expect(court.impacts).toHaveLength(1); // one impact for the pair, not one for each ball
+    }
+    expect(strikes).toBe(1);
+    expect(court.impacts[0].speed).toBeGreaterThan(closing * 0.9);
+    expect(court.impacts[0].speed).toBeLessThan(closing * 1.1);
+  });
+
+  it("reports a ball striking a peg head on at the speed it flew", () => {
+    params.gravity = 0; // so that the ball flies level and meets the peg's middle, not a spot below it
+    const peg = { x: 3.8, y: 0.2, radius: 0.055 };
+    const court = new Court(4, 4, [], [peg]);
+    const ball = court.addBall(3, 0.2, false);
+    launch(court, ball.id, 8, 0);
+    let flying = 0;
+    let reported = 0;
+    for (let i = 0; i < 0.3 / STEP && reported === 0; i++) {
+      flying = ball.vx;
+      court.step();
+      reported = court.impacts[0]?.speed ?? 0;
+    }
+    expect(flying).toBeGreaterThan(7.5);
+    expect(reported).toBeGreaterThan(flying * 0.98);
+    expect(reported).toBeLessThan(flying * 1.02);
+  });
+
+  it("counts a ball that meets two walls in the very same step once", () => {
+    params.gravity = 0; // so that it runs along the diagonal and reaches both walls in the same step
+    const court = new Court(4, 4);
+    const ball = court.addBall(0.3, 0.3, false);
+    launch(court, ball.id, -3, -3); // straight into the bottom left corner
+    expect(collect(court, 0.15)).toHaveLength(1);
+  });
+
+  it.each([
+    ["the wall harder than the floor", { vx: -3, vy: -2.2 }],
+    ["the floor harder than the wall", { vx: -2.2, vy: -3 }],
+  ])("counts a ball that meets two walls in the very same step once, at the speed of the harder: %s", (_, shot) => {
+    params.gravity = 0;
+    const court = new Court(4, 4);
+    // Set down overlapping both the wall and the floor, so that both contacts begin in the first step.
+    const ball = court.addBall(RADIUS - 0.001, RADIUS - 0.001, false);
+    launch(court, ball.id, shot.vx, shot.vy);
+    court.step();
+    expect(court.impacts).toHaveLength(1);
+    expect(court.impacts[0].speed).toBeGreaterThan(2.9);
+  });
+
+  it("counts a hard impact that follows a soft one within the quiet period, at its own speed", () => {
+    params.gravity = 0;
+    // The ball grazes the floor at 0.6 m/s and meets the wall at about 5 m/s two steps (8 ms) later: a letter's
+    // corner does this. The knock must not be swallowed by the graze that came just before it.
+    const court = new Court(4, 4);
+    const ball = court.addBall(0.6815, 0.0935, false);
+    launch(court, ball.id, -6, -0.6);
+    const log = collect(court, 0.3);
+    expect(log.length).toBeGreaterThanOrEqual(2);
+    expect(log[0].speed).toBeLessThan(1); // the graze, which came first
+    expect(log[1].at - log[0].at).toBeLessThan(0.03); // and the knock came soon enough to have been swallowed
+    expect(log[1].speed).toBeGreaterThan(5);
+  });
+
+  it("counts a push into a wall again only if it gets much harder: a little harder is still the same push", () => {
+    params.gravity = 0;
+    const court = new Court(4, 4);
+    const ball = court.addBall(3.9, 1, true);
+    court.grab(ball.id);
+    court.carryTo(4.1, 1); // the pointer is beyond the wall, so the ball is pushed into it at about 1.9 m/s
+    expect(collect(court, 0.3)).toHaveLength(1);
+    court.carryTo(4.16, 1); // a harder push, but not by half again
+    expect(collect(court, 0.3)).toHaveLength(0);
+    court.carryTo(4.5, 1); // a much harder one: the fastest a ball is carried
+    const [slam, ...rest] = collect(court, 0.3);
+    expect(rest).toEqual([]);
+    expect(slam.speed).toBeGreaterThan(4.5);
+  });
+
+  it("counts a ball that meets a wall and then the floor a moment later once", () => {
+    const court = new Court(4, 4);
+    const ball = court.addBall(0.3, 0.3, false);
+    launch(court, ball.id, -3, -3); // gravity has it reach the floor first, and the wall within a few steps
+    expect(collect(court, 0.15)).toHaveLength(1);
+  });
+
+  it("counts a ball striking one that is resting, even if the striker has only just bounced off the floor", () => {
+    // A ball lands just short of a resting one. For a landing spot in a narrow band it touches the floor and then,
+    // within a few milliseconds, the resting ball, and both are impacts: the resting ball has been free of
+    // contacts, and the striker has not. Which spot does that depends on the numbers, so scan for one.
+    params.hitSpeed = 0.8;
+    const spots: number[] = [];
+    for (let offset = 0.2; offset <= 0.34; offset += 0.002) {
+      const court = new Court(4, 4);
+      court.addBall(2, RADIUS, false);
+      run(court, 1); // the resting ball settles
+      const striker = court.addBall(2 - offset, 0.3 + RADIUS, false);
+      court.hit(striker.id, 1, 0);
+      const log = collect(court, 0.5);
+      if (log.some((impact, i) => i > 0 && impact.at - log[i - 1].at < 0.03)) spots.push(offset);
+    }
+    expect(spots.length).toBeGreaterThan(0);
+  });
+
+  it("counts a carried ball held against a wall once, not at every step it is pushed into it", () => {
+    const court = new Court(4, 4);
+    const ball = court.addBall(1, 1, true);
+    court.grab(ball.id);
+    court.carryTo(6, 1); // the pointer is on the far side of the right wall
+    const log = collect(court, 2);
+    expect(log).toHaveLength(1);
+    expect(log[0].speed).toBeCloseTo(params.carrySpeed, 0);
+  });
+
+  it("clears the report at the start of every step", () => {
+    const court = new Court(4, 4);
+    court.addBall(2, 1 + RADIUS, false);
+    let reported = false;
+    while (!reported) {
+      court.step();
+      reported = court.impacts.length > 0;
+    }
+    court.step();
+    expect(court.impacts).toEqual([]);
+  });
+});
