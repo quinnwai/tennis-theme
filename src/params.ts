@@ -26,6 +26,14 @@ export const params = {
   followRate: 36, // 1/s; how quickly a carried ball closes the gap to the pointer. A drag at 1000 px/s trails the pointer by under one ball width; at 14 it was nearly two
   carrySpeed: 5, // m/s; the fastest a carried ball moves, and so the fastest throw
 
+  // A finger is blunter than a pointer: it covers the ball it presses and cannot say which pixel it means. So a touch
+  // gets bigger floors than the mouse's two above (a phone held sideways draws a ball only about 21 px across, which
+  // puts the mouse's floors in charge). A tap within touchMinHitReachPx of a ball's middle hits it, and a press within
+  // touchMinGrabReachPx picks it up. 22 is half of the 44 px a fingertip needs to be sure of a target. Both are judged
+  // by feel, on a real phone.
+  touchMinHitReachPx: 32,
+  touchMinGrabReachPx: 22,
+
   // The credits, which open over the toy: how blurred the toy is behind the text, and how far a coat of
   // navy dims it so the white text reads. Both are judged by eye; the browser tests insist the white text
   // keeps a contrast of 4.5 against the brightest thing behind it (the blurred name), which is why 0.65.
