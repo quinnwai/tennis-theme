@@ -680,6 +680,21 @@ interface Flight {
 }
 
 /**
+ * Make the court again with none of the bench showing (`benchReach` 0), in the same window. The bench runs over the bottom right corner and,
+ * in a short window, into the column under the buttons at the top right, so a ball cannot be carried or dropped to the buttons from above
+ * with it there. The checks about the buttons are about the buttons; the bench has checks of its own (e2e/bench-bag.spec.ts).
+ */
+async function takeTheBenchAway(page: Page) {
+  await page.evaluate(() => {
+    const sandbox = (window as any).__sandbox;
+    (window as any).__layoutBefore = sandbox.layout();
+    sandbox.params.benchReach = 0;
+    window.dispatchEvent(new Event("resize"));
+  });
+  await page.waitForFunction(() => (window as any).__sandbox.layout() !== (window as any).__layoutBefore);
+}
+
+/**
  * Throw a ball at a button and see what the button does to it. The real mouse picks up the right-hand dot and carries
  * it to a spot straight below the button (sideways first, clear of the letters), where it settles. Then, in one in-page
  * step so that no frame can slip in between and move the ball unseen, the pointer is put on the button's middle so that
@@ -696,6 +711,7 @@ interface Flight {
  * right-hand end).
  */
 async function throwAt(page: Page, button: Locator): Promise<Flight> {
+  await takeTheBenchAway(page);
   const box = (await button.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const d = await dot(page, 1);
@@ -910,6 +926,10 @@ for (const [name, button] of [
 }
 
 test("a ball dropped on the ? bounces off it instead of falling through", async ({ page }) => {
+  // The bench's seat runs over the bottom right corner, and its left leg shuts the space under the seat in, so with the bench there no
+  // ball can get to the "?" at all. This is about the button, so the bench is taken away: the same window, the same "?", and a ball that
+  // can be dropped on it.
+  await takeTheBenchAway(page);
   const box = (await contactButton(page).boundingBox())!;
   const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const above = { x: centre.x, y: centre.y - 160 };

@@ -577,6 +577,16 @@ test.describe("a phone held sideways", () => {
     const fingers = await Fingers.on(page);
     const { width, height } = size(page);
 
+    // The floor between the name and the buttons is where the bench and the bag stand (QWW-85), so they are moved out of it first: the bench out
+    // of view, the bag short and well to the left, under the name. The court is made again with them there, which is what a slider does too.
+    await page.evaluate(() => {
+      const sandbox = (window as any).__sandbox;
+      (window as any).__layoutBefore = sandbox.layout();
+      Object.assign(sandbox.params, { benchReach: 0, bagLength: 0.4, bagGap: 0.6 });
+      window.dispatchEvent(new Event("resize"));
+    });
+    await page.waitForFunction(() => (window as any).__sandbox.layout() !== (window as any).__layoutBefore);
+
     // Carry the right-hand ball to the clear floor between the name and the buttons, and let it go there.
     const d = await dot(page, 1);
     const nameRight = await page.evaluate(() => Math.max(...(window as any).__sandbox.layout().letters.flatMap((l: { loops: Point[][] }) => l.loops.flat()).map((p: Point) => p.x)));

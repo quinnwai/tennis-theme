@@ -76,6 +76,22 @@ async function carry(page: Page, index: number, holdMs: number) {
   await page.mouse.up();
 }
 
+/** Drag the bag's pull to the end of the zip, which opens the bag, and give the notebook and the cans the time to come out. */
+async function unzipBag(page: Page) {
+  const s = (await page.evaluate("window.__sandbox.scenery()")) as { pull: { x: number; y: number }; zip: { x1: number } };
+  await page.mouse.move(s.pull.x, s.pull.y);
+  await page.mouse.down();
+  await page.mouse.move(s.zip.x1 + 8, s.pull.y, { steps: 10 });
+  await page.mouse.up();
+  await page.evaluate("window.__sandbox.advance(2)");
+}
+
+interface TestCan {
+  x: number;
+  y: number;
+  height: number;
+}
+
 const loaded = async (page: Page) => {
   await page.goto("./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
@@ -142,6 +158,57 @@ test.describe("a visitor's browser", () => {
     expect(sent[0].body.properties).not.toHaveProperty("first_interaction_s");
     expect(sent[0].body.properties.play_s).toBe(0);
     expect(sent[0].body.properties.skin).toBe("tennis");
+  });
+
+  // Playing with the bag, the notebook and the cans is playing with the toy, like hitting and carrying a ball (QWW-85).
+
+  test("unzipping the bag is the first interaction: it ends the look around and starts the play", async ({ page }) => {
+    await loaded(page);
+    await page.waitForTimeout(1500); // looking around first
+    await unzipBag(page);
+    await setVisibility(page, "hidden");
+    await expect.poll(() => sent.length).toBe(1);
+    const { first_interaction_s: first } = sent[0].body.properties as { first_interaction_s: number };
+    expect(first, "the zip is the first thing done, after the look around").toBeGreaterThanOrEqual(1.5);
+    expect(first).toBeLessThan(10);
+  });
+
+  test("a plain click on the bag is not an interaction: the visit has none", async ({ page }) => {
+    await loaded(page);
+    const s = (await page.evaluate("window.__sandbox.scenery()")) as { bag: { left: number; right: number; top: number; bottom: number }; pull: { x: number; y: number } };
+    await page.mouse.click((s.bag.left + s.bag.right) / 2, (s.bag.top + s.bag.bottom) / 2 + 10);
+    await page.mouse.click(s.pull.x, s.pull.y); // on the pull, without moving it
+    await setVisibility(page, "hidden");
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0].body.properties).not.toHaveProperty("first_interaction_s");
+    expect(sent[0].body.properties.play_s).toBe(0);
+  });
+
+  test("opening the notebook is play: it carries the end of the visit's play on to that moment", async ({ page }) => {
+    await loaded(page);
+    await unzipBag(page);
+    await page.waitForTimeout(1600); // nothing touched for a while after the zip
+    await page.getByRole("button", { name: "Notebook" }).click();
+    await setVisibility(page, "hidden");
+    await expect.poll(() => sent.length).toBe(1);
+    // From the unzip to the click on the notebook. With only the unzip counted, play would be a fraction of a second.
+    expect(sent[0].body.properties.play_s as number).toBeGreaterThanOrEqual(1.5);
+    expect(sent[0].body.properties.play_s as number).toBeLessThan(15);
+  });
+
+  test("picking up a can is play too", async ({ page }) => {
+    await loaded(page);
+    await unzipBag(page);
+    await page.waitForTimeout(1600);
+    const can = ((await page.evaluate("window.__sandbox.cans()")) as TestCan[])[2];
+    await page.mouse.move(can.x, can.y - can.height * 0.2);
+    await page.mouse.down();
+    await page.mouse.move(can.x - 20, can.y - can.height * 0.4, { steps: 6 });
+    await page.mouse.up();
+    await setVisibility(page, "hidden");
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0].body.properties.play_s as number).toBeGreaterThanOrEqual(1.5);
+    expect(sent[0].body.properties.play_s as number).toBeLessThan(15);
   });
 
   test("a visit is sent once, however many times the page says it is being left", async ({ page }) => {
