@@ -14,7 +14,13 @@
 
     <!-- The buttons at the top right, left to right: credits, clear and sound. -->
     <div class="tools">
-      <button class="chip credits" type="button" aria-label="Credits" title="Credits" aria-haspopup="dialog">i</button>
+      <!-- An open book, for the inspo the credits list. -->
+      <button class="chip credits" type="button" aria-label="Credits" title="Credits" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 7.2C10.3 5.7 7.3 5 3 5v13.2c4.3 0 7.3.7 9 2.3 1.7-1.6 4.7-2.3 9-2.3V5c-4.3 0-7.3.7-9 2.2z" />
+          <path d="M12 7.2v13.3" />
+        </svg>
+      </button>
       <button class="chip clear" type="button" aria-label="Clear the balls" title="Clear">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
@@ -24,9 +30,9 @@
       <!-- On or off, remembered under "site:sound" (see src/sound-setting.ts). The icon shows the state: waves when on, a cross when off. -->
       <button class="chip sound" type="button" role="switch" aria-checked="true" aria-label="Sound" title="Sound">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />
-          <path class="on" d="M15.5 9.2a4 4 0 0 1 0 5.6M18.2 6.6a7.6 7.6 0 0 1 0 10.8" />
-          <path class="off" d="m16 9.5 5 5m0-5-5 5" />
+          <path d="M2.4 9h4.2L12 4.2v15.6L6.6 15H2.4z" />
+          <path class="on" d="M16.2 8.6a4.8 4.8 0 0 1 0 6.8M19.4 5.5a9.1 9.1 0 0 1 0 13" />
+          <path class="off" d="m16.3 9.1 5.7 5.8m0-5.8-5.7 5.8" />
         </svg>
       </button>
     </div>

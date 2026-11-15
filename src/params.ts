@@ -56,7 +56,7 @@ export const params = {
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
   soundMaxVoices: 8, // the most sounds playing at once; past that, the oldest give way
 
-  // The buttons in the corners are bare icons: no circle, all one tone and one size. The tone runs from the page's navy
+  // The buttons in the corners are icons with no circle (but for the "?"), all one tone and one size. The tone runs from the page's navy
   // (0, which fades them away) to white (1); a button turns fully white under the pointer. The size is the icon's width
   // and height in px: the first draft's were 18, so 36 is twice that. Both are judged by eye. The stylesheet starts from
   // the same two numbers, so the buttons are right before the script runs (a unit test checks that they agree).

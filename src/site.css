@@ -17,14 +17,15 @@
 }
 
 /*
- * The buttons are bare icons: no circle, all one tone and one size (iconTone and iconSize in params.ts). The script
- * writes those two numbers over the ones here, which are the same, so the buttons are right before it runs (a unit
- * test checks that they agree). A button's box is its icon with 4px to spare all round, and that box is also its
- * solid disc in the toy.
+ * The buttons are icons with no circle (but for the "?"), all one tone and one size (iconTone and iconSize in
+ * params.ts). The script writes those two numbers over the ones here, which are the same, so the buttons are right
+ * before it runs (a unit test checks that they agree). A button's box is its icon with 4px to spare all round, and
+ * that box is also its solid disc in the toy.
  */
 :root {
   --icon-size: 36px;
   --icon-tone: 0.25; /* from the page's navy (0) to white (1) */
+  --stroke: calc(var(--icon-size) * 0.075); /* the icons' line weight, 1.8 of their 24 units; the "?" circle is as thick */
   --chip: calc(var(--icon-size) + 8px);
   --edge: 12px; /* how far the corner buttons sit from the window's edges */
   --gap: 4px; /* between neighbouring buttons */
@@ -101,9 +102,9 @@ a {
 }
 
 /*
- * The other corner: a row of three buttons at the top right. Left to right they are credits (the "i"), clear (the
+ * The other corner: a row of three buttons at the top right. Left to right they are credits (the book), clear (the
  * restart arrow) and the sound toggle, which sits in the corner itself. Like the "?", each is a solid object in
- * the toy. The close button that replaces the "i" while the credits are open takes exactly the same spot.
+ * the toy. The close button that replaces the book while the credits are open takes exactly the same spot.
  */
 .tools {
   position: fixed;
@@ -124,7 +125,7 @@ a {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 50%; /* no circle is drawn; this only rounds the area that takes a click, and the keyboard focus ring */
+  border-radius: 50%; /* only the "?" draws a circle (below); for the rest this rounds the area that takes a click, and the focus ring */
   background: none;
   color: color-mix(in srgb, var(--white) calc(var(--icon-tone) * 100%), var(--navy));
   font: inherit;
@@ -147,6 +148,19 @@ a {
 /* With no circle to turn white, keyboard focus gets a ring of its own. */
 .chip:focus-visible {
   outline: 1.5px solid var(--white);
+}
+
+/*
+ * The "?" is the one button that keeps its circle, in the same tone as its glyph and as thick as the icons' lines.
+ * It opens the contact links, and the circle says it is a button. The circle turns white with the glyph, which is
+ * also how it shows keyboard focus.
+ */
+.chip.toggle {
+  border: var(--stroke) solid currentColor;
+}
+
+.chip.toggle:focus-visible {
+  outline: none;
 }
 
 .chip svg {
@@ -266,7 +280,7 @@ a {
   color: var(--ball);
 }
 
-/* The close button sits exactly where the credits button does (the left one of the three at the top right), so the "i" turns into an "x" in place. */
+/* The close button sits exactly where the credits button does (the left one of the three at the top right), so the book turns into an "x" in place. */
 .chip.close {
   position: absolute;
   top: var(--edge);
