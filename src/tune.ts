@@ -24,7 +24,9 @@ export const FIELDS: Field[] = [
   ["trailShrink", "trail shrink speed", 0.3, 5, 0.1, true],
   ["trailScatter", "trail scatter (× ball)", 0, 3, 0.05, true],
   ["trailLifetime", "trail lifetime (s)", 0.1, 2, 0.05, true],
-  ["trailOpacity", "trail opacity", 0.2, 1, 0.05, true],
+  ["trailOpacity", "trail and poof opacity", 0.2, 1, 0.05, true],
+  ["poofSize", "poof size (× ball)", 0.4, 2.5, 0.05, true],
+  ["poofLifetime", "poof lifetime (s)", 0.1, 1, 0.05, true],
 ];
 
 /**

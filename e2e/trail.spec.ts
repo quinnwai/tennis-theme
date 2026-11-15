@@ -1,5 +1,5 @@
-// The trail of a ball in flight, checked in a real browser: what is actually painted behind a ball,
-// that it goes away, and that its numbers can be tuned live. Runs against the dev server or, with
+// The trail of a ball in flight or in the hand, checked in a real browser: what is actually painted
+// behind a ball, that it goes away, and that its numbers can be tuned live. Runs against the dev server or, with
 // BASE_URL set, against a deployed copy; both only use the page's test hook, window.__sandbox.
 
 import { expect, test, type Page } from "@playwright/test";
@@ -120,7 +120,27 @@ test("once the ball has come to rest its trail is gone within a second, and a re
   expect(await sandbox<number>(page, "effects().trailPoints")).toBe(0);
 });
 
-test("each number of the trail has a slider under ?tune that moves it", async ({ page }) => {
+test("a ball being dragged leaves a trail too, and none once it is held still", async ({ page }) => {
+  const d = await dot(page, 0);
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  // Drag it up and to the right over clear space above the name, in big steps so that even if
+  // this machine is busy and each step is slow, the ball is still moving well above a crawl.
+  let most = 0;
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(d.x + i * 36, d.y - i * 16);
+    await page.waitForTimeout(10);
+    most = Math.max(most, await sandbox<number>(page, "effects().trailPoints"));
+  }
+  expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
+  expect(most).toBeGreaterThan(10);
+  // Hold it still: it catches up with the pointer and stops, and its trail is gone within a second.
+  await expect.poll(() => sandbox<number>(page, "effects().trailPoints"), { timeout: 2000, intervals: [50] }).toBe(0);
+  expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
+  await page.mouse.up();
+});
+
+test("each number of the trail and the poof has a slider under ?tune that moves it", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   const sliders: [key: string, label: string, value: number][] = [
@@ -129,7 +149,9 @@ test("each number of the trail has a slider under ?tune that moves it", async ({
     ["trailShrink", "trail shrink", 2.5],
     ["trailScatter", "trail scatter", 1.5],
     ["trailLifetime", "trail lifetime", 0.9],
-    ["trailOpacity", "trail opacity", 0.5],
+    ["trailOpacity", "trail and poof opacity", 0.5],
+    ["poofSize", "poof size", 1.5],
+    ["poofLifetime", "poof lifetime", 0.5],
   ];
   for (const [key, label, value] of sliders) {
     const slider = page.getByLabel(label);
