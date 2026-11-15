@@ -1,12 +1,10 @@
 import { params, type Params } from "./params";
+import { SOUND_KEY } from "./sound-setting"; // where the browser keeps whether the visitor has sound on, which the sound toggle writes
 
 /** The four things that make a sound. */
 export type SoundName = "hit" | "bounce" | "rising" | "out";
 
 const NAMES: SoundName[] = ["hit", "bounce", "rising", "out"];
-
-/** Where the browser keeps whether the visitor has sound on. Shared by every skin of the homepage; the sound toggle writes it. */
-export const SOUND_KEY = "site:sound";
 
 /**
  * The files, and the stretch of each that is worth playing, in seconds. Addresses are relative to the page so
