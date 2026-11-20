@@ -120,6 +120,17 @@ async function canTop(page: Page, n: number) {
   return { x: box.left + box.width / 2, y: box.top + 8 };
 }
 
+/**
+ * Move the pointer from one point to another the way a hand does: in many small moves, each followed by a frame's worth of time
+ * (a single mouse.move with `steps` sends every step before the court has run once, which the court takes as a violent shake).
+ */
+async function carry(page: Page, from: Pt, to: Pt, moves = 30) {
+  for (let i = 1; i <= moves; i++) {
+    await page.mouse.move(from[0] + ((to[0] - from[0]) * i) / moves, from[1] + ((to[1] - from[1]) * i) / moves);
+    await advance(page, 1 / 60);
+  }
+}
+
 /** The windows the scene is laid out for: a laptop, a big monitor, a tablet, a phone held sideways in two browsers and a short desktop window. */
 const WINDOWS = [
   { width: 1440, height: 800 },
@@ -294,19 +305,23 @@ test.describe("the cans", () => {
     const top = await canTop(page, 0);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
-    await page.mouse.move(top.x - 80, top.y - 120, { steps: 8 });
+    await carry(page, [top.x, top.y], [top.x - 80, top.y - 120], 8);
     const held = await cans(page);
     expect(held).toHaveLength(1);
     expect(held[0].held).toBe(true);
-    // Carry it left, off the bench, to the open floor, and let it go there.
+    // Carry it to the open floor left of the name, clear of the bench and of the letters (on a short window they fill the floor
+    // between the bench and the edge), hang it a little above the floor (it is held by its top, so its foot is a can's height below
+    // the pointer, and a touch screen's floor is lifted), and let it go there once it has stopped swinging.
     const L = await scene(page);
-    await page.mouse.move(Math.max(60, L.benchX - 70), L.height - held[0].height * 1.2, { steps: 20 });
+    const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
+    await carry(page, [top.x - 80, top.y - 120], [100, L.height - lift - held[0].height - 10]);
+    await advance(page, 1.5);
     await page.mouse.up();
     await advance(page, 4);
     const [can] = await cans(page);
     expect(can.held).toBe(false);
     expect(can.ballsLeft, "full: nothing came out of it").toBe(3);
-    expect(Math.abs(can.angle) % 360, "standing upright").toBeLessThan(5);
+    expect(Math.abs(can.angle), "standing upright (the angle is in radians)").toBeLessThan(0.1);
   });
 
   test("a can let go before it is clear of the bag drops back into its place, and can be taken again", async ({ page }) => {
@@ -323,34 +338,43 @@ test.describe("the cans", () => {
     await page.mouse.up();
   });
 
-  test("a can that is turned over pours its balls out, one after another", async ({ page }) => {
+  test("a can that is shaken hard by its base is turned over and pours its balls out", async ({ page }) => {
     await unzip(page);
     const top = await canTop(page, 0);
     const L = await scene(page);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
-    await page.mouse.move(top.x - 40, top.y - 60, { steps: 6 });
+    await carry(page, [top.x, top.y], [top.x - 40, top.y - 60], 6);
     const height = (await cans(page))[0].height;
-    // Carry it to the open floor, set it down just above it, and let it hang there a moment: it stands.
-    const floorX = Math.max(60, L.benchX - 70);
-    await page.mouse.move(floorX, L.height - height - 40, { steps: 20 });
-    await advance(page, 1);
+    // Set it down on the open floor left of the name, as a visitor would, and let it settle: it stands, full.
+    const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
+    await carry(page, [top.x - 40, top.y - 60], [100, L.height - lift - height - 10]);
+    await advance(page, 1.5);
     await page.mouse.up();
     await advance(page, 3);
     const [can] = await cans(page);
     expect(can.ballsLeft).toBe(3);
-    expect(Math.abs(can.angle) % 360, "it stands upright").toBeLessThan(10);
-    // Take it by its base and lift, with no hand keeping it upright: it hangs from there, mouth down.
-    await page.evaluate(() => ((window as any).__sandbox.params.canGrip = 0));
-    await page.mouse.move(can.x, can.y + can.height * 0.4);
+    expect(Math.abs(can.angle), "it stands upright (the angle is in radians)").toBeLessThan(0.1);
+    // Take it by its base, lift it, and shake it from side to side, as hard as a hand does: the hand's grip keeps a can upright through
+    // a gentle carry, not through this. Each swing is paced in small moves, a frame apart.
+    const before = (await balls(page)).length;
+    const base: Pt = [can.x, can.y + can.height * 0.4];
+    await page.mouse.move(base[0], base[1]);
     await page.mouse.down();
-    await page.mouse.move(can.x, can.y - can.height * 0.8, { steps: 10 });
-    await advance(page, 1.5);
+    const lifted: Pt = [base[0], base[1] - can.height * 1.5];
+    await carry(page, base, lifted, 15);
+    let at = lifted;
+    for (let swing = 0; swing < 10 && (await cans(page))[0].ballsLeft > 0; swing++) {
+      for (const to of [[lifted[0] + can.height * 0.5, lifted[1]], [lifted[0] - can.height * 0.5, lifted[1]]] as Pt[]) {
+        await carry(page, at, to, 6);
+        at = to;
+      }
+    }
     await page.mouse.up();
-    await advance(page, 2);
+    await advance(page, 3);
     const [after] = await cans(page);
     expect(after.ballsLeft, "emptied").toBe(0);
-    expect(await balls(page), "its three balls are on the court").toHaveLength(5);
+    expect((await balls(page)).length, "its three balls are on the court").toBeGreaterThanOrEqual(before + 3);
   });
 });
 
