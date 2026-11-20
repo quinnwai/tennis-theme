@@ -2,31 +2,41 @@
 // deliberate change to the words and to this file together can match, and checks that they live in one place.
 
 import { describe, expect, it } from "vitest";
-import { NOTEBOOK_PARAGRAPHS, NOTEBOOK_TEXT } from "./notebook-text";
+import { NOTEBOOK_BODY, notebookText } from "./notebook-text";
 
-/** The notebook text as given on the ticket (QWW-85), including its curly apostrophes (U+2019) and the blank line after the first line. */
-const GIVEN =
-  "You found the secret message! As your reward, some brief context:\n" +
-  "\n" +
-  "I took inspo of the color scheme from the Aussie Open 2013 when I went, I was big into tennis as a kid! In my big tennis bag, which was nearly the same height as me, was always a notebook detailing important things like my breakthroughs from a practice session or reflecting on my strategy when I [often] lost my matches. My book-ish analytical ways in school couldn’t help but follow me to the tennis court as well! Enjoy playing around on my makeshift training grounds, and hit me up if you’d like to partner up for a game of doubles together!";
+/** The notebook's words as given on the ticket (QWW-85, 2026-11-20): five paragraphs, with a blank line between them. */
+const GIVEN = [
+  "Tennis has always been a big part of my life: the endless inside out forehand drills, the challenging mental battle from matches, and the awesome friends I've met through that time. So I wanted to honor that time of my life",
+  "The color scheme is largely inspired from Aussie Open in 2014, I saw Djoko warming up and got a towel just like this one as souvenir! During that time, I would always insist on carrying a big tennis bag like the one here, which was nearly my height at the time.",
+  "As high school started, I switched from being a Babolat kid  to a Wilson one, and started using the Wilson Blade (green design not pictured in frame). In my tennis bag was always a notebook where I'd write my notes from a practice session or reflect on my tournament tactics. My book-ish analytical mind couldn’t help but light up in my sports pursuits as well.",
+  "My competitive journey peaked in college playing club tennis and roadtripping around the country, and it was right around the time I started my journey as a software engineer too!",
+  "Enjoy playing around on my makeshift training grounds and   hit me up if you wanna hit the courts together!",
+].join("\n\n");
 
 describe("the notebook's text", () => {
   it("is word for word what Quinn-Wai wrote", () => {
-    expect(NOTEBOOK_TEXT).toBe(GIVEN);
+    expect(NOTEBOOK_BODY).toBe(GIVEN);
   });
 
-  it("is two paragraphs: the first line, then a blank line, then the rest", () => {
-    expect(NOTEBOOK_PARAGRAPHS).toHaveLength(2);
-    expect(NOTEBOOK_PARAGRAPHS[0]).toBe("You found the secret message! As your reward, some brief context:");
-    expect(NOTEBOOK_TEXT.split("\n")).toHaveLength(3);
-    expect(NOTEBOOK_TEXT.split("\n")[1]).toBe("");
+  it("is five paragraphs with a blank line between them, and the old words are gone", () => {
+    expect(NOTEBOOK_BODY.split("\n\n")).toHaveLength(5);
+    expect(NOTEBOOK_BODY).not.toContain("[often]");
+    expect(NOTEBOOK_BODY).not.toContain("You found the secret message");
   });
 
-  it('keeps "[often]" in its brackets, and the curly apostrophes as they were written', () => {
-    expect(NOTEBOOK_TEXT).toContain("when I [often] lost my matches");
-    expect(NOTEBOOK_TEXT).toContain("couldn’t");
-    expect(NOTEBOOK_TEXT).toContain("you’d");
-    expect(NOTEBOOK_TEXT).not.toContain("'");
+  it("keeps the curly apostrophe where it was written", () => {
+    expect(NOTEBOOK_BODY).toContain("couldn’t");
+  });
+
+  it("starts with the date it is read on, in long US form, and a blank line, then the words", () => {
+    expect(notebookText(new Date(2026, 10, 20))).toBe(`November 20, 2026\n\n${GIVEN}`);
+    expect(notebookText(new Date(2027, 0, 5)).split("\n")[0]).toBe("January 5, 2027");
+    expect(notebookText(new Date(2027, 0, 5)).split("\n")[1]).toBe("");
+  });
+
+  it("is dated on each reading: today's date when no day is given", () => {
+    const first = notebookText().split("\n")[0];
+    expect(first).toBe(new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }));
   });
 });
 
@@ -40,7 +50,7 @@ describe("where the notebook's text lives", () => {
 
   it("is in one file only, which the page's script reads it from", () => {
     expect(shipped.length).toBeGreaterThan(10); // the glob found the site's files
-    for (const phrase of ["You found the secret message", "makeshift training grounds", "partner up for a game of doubles"]) {
+    for (const phrase of ["endless inside out forehand drills", "makeshift training grounds", "roadtripping around the country"]) {
       const files = shipped.filter(([, text]) => text.includes(phrase)).map(([file]) => file);
       expect(files, phrase).toEqual(["./notebook-text.ts"]);
     }

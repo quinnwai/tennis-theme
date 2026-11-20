@@ -104,6 +104,7 @@ export const params = {
   notebookSpreadMs: 250, // ms for it to open out into its two pages
   notebookBlur: 5, // px; how blurred the toy is behind the open notebook (the credits' are 10)
   notebookVeil: 0.3, // how far a navy veil dims the toy behind the open notebook, 0 to 1 (the credits' is 0.65)
+  benchEndRestitution: 0.1, // how much of its speed a ball keeps off the bench's ends (its seat keeps the usual bounce, `restitution`)
   ballShadows: 1, // 1 draws each ball's shadow on the bench and the bag; 0 leaves them out (they cost a little at every frame)
 };
 

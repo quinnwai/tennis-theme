@@ -240,8 +240,59 @@ describe("a can", () => {
   });
 });
 
+describe("the bench's ends", () => {
+  /** A ball thrown at `speed` m/s into the bench's left end, half way up its face: the fastest it comes back off it, m/s, in 1 s. */
+  function comeBack(speed: number): number {
+    const { court, solids, toM } = courtWithScene();
+    const left = solids.bench[4]; // the outline's front left corner, page px: its face runs straight down from here
+    const face = toM([left[0], (left[1] + solids.bench[3][1]) / 2]);
+    const ball = court.addBall(face.x - RADIUS - 0.15, face.y, false, speed, 0);
+    let back = 0;
+    run(court, 1, () => (back = Math.max(back, -ball.vx)));
+    return back;
+  }
+
+  it("is only 10 percent as lively as the seat: a ball thrown into the left end barely comes back", () => {
+    expect(params.benchEndRestitution).toBe(0.1);
+    const back = comeBack(3);
+    expect(back).toBeLessThan(0.1 * 3 + 0.3); // 0.1 of its speed, with a little for the sweep of the spin
+    expect(back).toBeLessThan(0.78 * 3 * 0.5); // where the usual bounce would send it back at over half its speed
+  });
+
+  it("is as lively as the usual bounce when benchEndRestitution is raised to it", () => {
+    params.benchEndRestitution = params.restitution;
+    expect(comeBack(3)).toBeGreaterThan(0.78 * 3 * 0.5);
+  });
+
+  it("leaves the seat's bounce alone: a ball dropped on it comes back up at more than half its speed", () => {
+    const { L, court, toM } = courtWithScene();
+    const at = toM([L.benchX + 400 * L.k, L.benchSurfaceY - 400]);
+    const ball = court.addBall(at.x, at.y, false);
+    let down = 0;
+    let up = 0;
+    run(court, 1, () => {
+      down = Math.max(down, -ball.vy);
+      if (ball.vy > 0 && down > 1) up = Math.max(up, ball.vy);
+    });
+    expect(up).toBeGreaterThan(down * 0.5);
+  });
+
+  it("stops a ball beside the left end 150 mm back: the outline's left side runs from the seat line forward to there, then straight down", () => {
+    const { L, solids } = courtWithScene();
+    const [seat, , , bottomLeft, corner] = solids.bench;
+    expect(corner[0]).toBeCloseTo(L.benchX + 150 * Math.cos(deg(40)) * 0.35 * L.k, 0); // 150 mm back, drawn at 0.35 of its length, 40 degrees
+    expect(corner[1]).toBeCloseTo(L.benchFrontTop - 150 * Math.sin(deg(40)) * 0.35 * L.k, 0);
+    expect(corner[0]).toBeLessThan(seat[0]); // short of the seat's half way line, so a ball can come nearer the front
+    expect(bottomLeft[0]).toBe(corner[0]); // straight down from the corner
+  });
+});
+
 describe("balls from the cans and the limit on balls", () => {
-  /** Sixty loose balls in a grid, oldest first, well clear of each other, and a tall room to pour in. */
+  it("is at most 20 balls", () => {
+    expect(MAX_BALLS).toBe(20);
+  });
+
+  /** MAX_BALLS loose balls in a grid, oldest first, well clear of each other, and a tall room to pour in. */
   function fullCourt() {
     const court = new Court(WIDTH, 20);
     for (let i = 0; i < MAX_BALLS; i++) court.addBall(0.1 + (i % 20) * 0.1, 0.1 + Math.floor(i / 20) * 0.1, false);
