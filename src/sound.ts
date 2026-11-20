@@ -92,12 +92,28 @@ export interface SoundEnv {
   muted(): boolean;
 }
 
+/**
+ * On an iPhone, Web Audio counts as "ambient" sound by default and is silenced by the ring/silent switch, which
+ * is how a toy can be perfectly quiet on a phone that is otherwise fine. Safari 16.4 and later let a page say
+ * its audio is "playback", which the switch does not mute. Other browsers have no `audioSession`, and ignore this.
+ */
+export function playThroughSilentSwitch(nav: { audioSession?: { type: string } }): void {
+  try {
+    if (nav.audioSession) nav.audioSession.type = "playback";
+  } catch {
+    // An older or stricter browser: the switch keeps its say.
+  }
+}
+
 export function browserEnv(): SoundEnv {
   // Decoded by a context that only decodes: unlike the one that plays, it is allowed to exist before the
   // visitor has done anything, and what it makes plays through any context.
   let decoder: OfflineAudioContext | undefined;
   return {
-    createContext: () => new AudioContext(),
+    createContext: () => {
+      playThroughSilentSwitch(navigator as unknown as { audioSession?: { type: string } });
+      return new AudioContext();
+    },
     load: async (url) => {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`${url} answered ${response.status}`);
