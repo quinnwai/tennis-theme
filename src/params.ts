@@ -63,7 +63,7 @@ export const params = {
   // Sound. A volume of 1 plays a file as loud as it is, and the two from Pixabay are already as loud as a file
   // can be, so theirs only turn it down. The two from freesound are quieter to begin with. All judged by ear.
   soundHit: 0.5,
-  soundBounce: 0.5, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter
+  soundBounce: 0.25, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter. Half of hit, as bounces are far more frequent
   soundRising: 0.7, // a fresh ball rising out of an "i"
   soundOut: 1, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
