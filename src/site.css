@@ -1,4 +1,5 @@
 @import "@fontsource/ubuntu/latin-400.css";
+@import "@fontsource/caveat/latin-500.css";
 
 :root {
   /*
@@ -435,5 +436,10 @@ a {
   .credits-text {
     font-size: 14px;
     line-height: 1.4;
+  }
+
+  /* With the line for the notebook added, tighter gaps between the items keep the list inside the 264px a 280px window leaves. */
+  .credits-text li + li {
+    margin-top: 0.3rem;
   }
 }

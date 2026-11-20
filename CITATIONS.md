@@ -6,6 +6,7 @@ inspo…
 - color palette: 2013 Australian Open merch
 - typeface: [Ubuntu](https://design.ubuntu.com/font) (Dalton Maag)
 - ball animations: [Combo Pool](https://nusan.itch.io/combo-pool) (nusan)
+- the notebook: Carmen Sandiego's Great Chase Through Time
 - sfx: Pixabay and freesound
    - hit: ([Jurij](https://pixabay.com/users/soundreality-31074404/) from Pixabay)
    - bounce: ([freesound_community](https://pixabay.com/users/freesound_community-46691455/) from Pixabay)
