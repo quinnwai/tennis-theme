@@ -397,22 +397,51 @@ describe("a can in the hand", () => {
 });
 
 describe("the cost of all of it", () => {
-  it("steps a court with the bench and the bag, 60 balls and all three cans poured out much faster than real time, so that 60 frames a second is easy", () => {
-    // At 60 frames a second there are 16.7 ms to a frame, in which the court steps 4 times (240 steps a second). This runs one simulated
-    // second, 240 steps, which at the pace of a frame takes 1 s of real time; it is given 250 ms, which is 4 times faster than that and still
-    // far above what it takes (a few tens of ms), so that a busy machine does not fail it, and a step that has become slow does.
+  // At 60 frames a second there are 16.7 ms to a frame, in which the court steps 4 times (240 steps a second), so one simulated second
+  // is 240 steps and, at the pace of a frame, 1 s of real time. What those steps cost was measured, not guessed: 60 balls falling and
+  // bouncing, all moving, take about 20 ms in a court that is bare (the court of the first draft). With the bench and the bag in it
+  // they take about 75 ms, and with the three cans pouring as well about 90 ms. The bench and the bag cost the same whatever their
+  // outline (a 4-point bench as much as the bag's 141 points): what grows is the continuous-collision work (planck's TimeOfImpact and
+  // Distance) of balls meeting more shapes while they are all moving. That is under 2 ms of a frame's 16.7, so it is left as it is.
+  const FALL = 1.0; // m; the balls start above everything standing on the floor, so none of them starts inside the bench or the bag
+
+  function fullCourt(solidsAndCans: boolean) {
     const { solids, toM } = courtWithScene();
-    const court = new Court(WIDTH, 5, [], [], 0, [solids.bench.map(toM)]); // tall, so that the cans pour in the air
-    court.setBag([solids.bag.map(toM)]);
-    for (let i = 0; i < MAX_BALLS - CAN_COUNT * CAN_BALLS; i++) court.addBall(0.1 + (i % 12) * 0.1, 0.3 + Math.floor(i / 12) * 0.1, false);
-    for (let i = 0; i < CAN_COUNT; i++) court.addCan(0.5 + i * 0.3, 4.5, deg(130));
+    const court = solidsAndCans
+      ? new Court(WIDTH, 5, [], [], 0, [solids.bench.map(toM)]) // tall, so that the cans pour in the air
+      : new Court(WIDTH, 5);
+    if (solidsAndCans) court.setBag([solids.bag.map(toM)]);
+    const loose = solidsAndCans ? MAX_BALLS - CAN_COUNT * CAN_BALLS : MAX_BALLS;
+    for (let i = 0; i < loose; i++) court.addBall(0.1 + (i % 12) * 0.1, FALL + Math.floor(i / 12) * 0.1, false);
+    if (solidsAndCans) for (let i = 0; i < CAN_COUNT; i++) court.addCan(0.5 + i * 0.3, 4.5, deg(130));
     run(court, 1); // pour all nine, each making room for itself in a court that is full
+    return court;
+  }
+
+  /** How long one simulated second takes, in ms: the best of several, so that a busy machine (the other tests run alongside) does not count. */
+  function secondTakes(solidsAndCans: boolean): number {
+    let best = Infinity;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const court = fullCourt(solidsAndCans);
+      const started = performance.now();
+      run(court, 1);
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  }
+
+  it("steps a court with the bench and the bag, 60 balls and all three cans poured out much faster than real time, so that 60 frames a second is easy", () => {
+    const court = fullCourt(true);
     expect(court.cans.reduce((sum, can) => sum + can.ballsLeft, 0)).toBe(0);
     expect(court.balls).toHaveLength(MAX_BALLS);
-    const started = performance.now();
-    run(court, 1);
-    const took = performance.now() - started;
-    expect(took, `one simulated second took ${took.toFixed(0)} ms`).toBeLessThan(250);
+    const took = secondTakes(true);
+    expect(took, `one simulated second took ${took.toFixed(0)} ms`).toBeLessThan(250); // 4 times faster than real time
+  });
+
+  it("costs no more than a few times what the same balls cost in a bare court, so that a step that has become slow is seen on any machine", () => {
+    const bare = secondTakes(false);
+    const full = secondTakes(true);
+    expect(full, `${full.toFixed(0)} ms against ${bare.toFixed(0)} ms bare`).toBeLessThan(bare * 8); // about 4.5 times when measured
   });
 });
 

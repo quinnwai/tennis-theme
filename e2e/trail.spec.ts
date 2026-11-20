@@ -45,8 +45,14 @@ test("a ball flying up is followed by a solid white band about as wide as the ba
       const canvas = document.getElementById("court") as HTMLCanvasElement;
       const ctx = canvas.getContext("2d")!;
       const dpr = canvas.width / canvas.clientWidth;
-      const pixel = (x: number, y: number) => [...ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data.slice(0, 3)];
-      const background = pixel(canvas.clientWidth / 2, 40);
+      // The canvas is clear where nothing is drawn (the scene behind it shows through), so the navy is the page's own, and a pixel is
+      // read as it looks on screen: its color blended over that navy by its alpha.
+      const navy = (getComputedStyle(document.body).backgroundColor.match(/\d+/g) ?? []).slice(0, 3).map(Number);
+      const pixel = (x: number, y: number) => {
+        const [r, g, b, a] = ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data;
+        return [r, g, b].map((v, i) => (v * a + navy[i] * (255 - a)) / 255);
+      };
+      const background = navy;
       // "Light" is anything clearly brighter than the navy in every color: the trail, not navy or the green ball.
       const light = (p: number[]) => p.every((v, i) => v > background[i] + 50);
       // White at the trail's opacity over the navy: what every pixel inside the band should be, wherever chips overlap.
