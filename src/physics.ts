@@ -19,7 +19,7 @@ const U = UNITS_PER_METER;
 export const STEP = 1 / 240;
 
 /** Past this many balls on the court, the oldest loose one makes way for each new one (see `Court.makeRoom`). */
-export const MAX_BALLS = 60;
+export const MAX_BALLS = 20;
 
 /**
  * The slowest impact that still bounces, in m/s.
@@ -146,6 +146,8 @@ export class Court {
   readonly cans: Can[] = [];
   /** The bag's outline, which a can being lifted out of the bag passes through until it is clear (see `setBag`). */
   private bagFixtures = new Set<Fixture>();
+  /** The bench's, whose ends are dead: a ball that meets one comes back off it at `params.benchEndRestitution`. */
+  private benchFixtures = new Set<Fixture>();
   private bagLoops: Point[][] = [];
   private emerging = new Set<Body>();
   /** What stands in the open bag, which comes and goes while the toy runs (see `setSolids`). */
@@ -213,7 +215,7 @@ export class Court {
     for (const peg of pegs) {
       walls.createFixture(new Circle({ x: peg.x * U, y: peg.y * U }, peg.radius * U), surface);
     }
-    for (const solid of solids) this.addSolid(solid);
+    for (const solid of solids) this.benchFixtures.add(this.addSolid(solid));
     this.world.on("begin-contact", (contact) => this.noteMeeting(contact));
     // A can lifted out of the bag starts inside the bag's outline, and passes through it until it is clear.
     this.world.on("pre-solve", (contact) => {
@@ -221,6 +223,13 @@ export class Court {
       const b = contact.getFixtureB();
       if ((this.bagFixtures.has(a) && this.emerging.has(b.getBody())) || (this.bagFixtures.has(b) && this.emerging.has(a.getBody()))) {
         contact.setEnabled(false);
+      }
+      // The bench's ends are dead next to its seat. A contact that pushes mostly sideways is an end: the ball comes back off it
+      // at benchEndRestitution, however hard it was pushed or thrown in. The seat keeps the usual bounce.
+      if (this.benchFixtures.has(a) || this.benchFixtures.has(b)) {
+        const normal = contact.getWorldManifold(null)?.normal;
+        if (normal && Math.abs(normal.x) > 0.7) contact.setRestitution(params.benchEndRestitution);
+        else contact.resetRestitution();
       }
     });
   }

@@ -4,7 +4,7 @@
 // Everything goes through the page's test hook, window.__sandbox. The court's own rules are in src/cans.test.ts.
 
 import { expect, test, type Page } from "@playwright/test";
-import { NOTEBOOK_TEXT } from "../src/notebook-text";
+import { notebookText } from "../src/notebook-text";
 
 type Pt = [number, number];
 
@@ -179,6 +179,136 @@ test.describe("the bench", () => {
         const overlaps = b.left < bench.right && b.right > bench.left && b.top < bench.bottom && b.bottom > bench.top;
         expect(overlaps, `the bench is not under the ${b.name} button at ${size.width}x${size.height}`).toBe(false);
       }
+    }
+  });
+});
+
+const LEFT_END_WINDOWS = [
+  { width: 1280, height: 800 },
+  { width: 1920, height: 1080 },
+  { width: 844, height: 390 },
+];
+
+/** The cover's clip, as the page sets it: the polygon in page px, and what the cover is in the page's layers. */
+async function coverClip(page: Page) {
+  const cover = await page.evaluate(() => {
+    const el = document.querySelector(".v6-cover") as HTMLElement;
+    const order = [...el.parentElement!.children];
+    return {
+      clip: el.style.clipPath,
+      art: el.querySelectorAll(".v6-art").length,
+      overCanvas: order.indexOf(el) > order.indexOf(document.querySelector("canvas")!),
+      underRacquet: order.indexOf(el) < order.indexOf(document.querySelector(".v6-front")!),
+      pointerEvents: getComputedStyle(el).pointerEvents,
+    };
+  });
+  const polygon = [...cover.clip.matchAll(/(-?[\d.]+)px (-?[\d.]+)px/g)].map((m): Pt => [Number(m[1]), Number(m[2])]);
+  return { ...cover, polygon };
+}
+
+/** Open the page at `size` and give back its scene, a ball's radius, and the floor a ball rests on (a touch screen's is lifted). */
+async function leftEndPage(page: Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  await page.goto("./");
+  await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  const L = await scene(page);
+  const r = (await balls(page))[0].r;
+  const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
+  return { L, r, floor: L.height - lift };
+}
+
+test.describe("the bench's left end", () => {
+  test("the cover repeats the bench and the towel over the canvas and under the racquet, clipped to the front left corner", async ({ page }) => {
+    for (const size of LEFT_END_WINDOWS) {
+      const at = `${size.width}x${size.height}`;
+      const { L } = await leftEndPage(page, size);
+      const cover = await coverClip(page);
+      expect(cover.art, `the cover holds the bench and the towel at ${at}`).toBe(2);
+      expect(cover.overCanvas && cover.underRacquet, `the cover is over the canvas and under the racquet at ${at}`).toBe(true);
+      expect(cover.pointerEvents, `a press goes through it at ${at}`).toBe("none");
+      expect(cover.polygon, `its clip has four corners at ${at}`).toHaveLength(4);
+      expect(cover.polygon[0][0], `it starts at the bench's left end at ${at}`).toBeCloseTo(L.benchX, 0);
+      expect(cover.polygon[0][1], `at its front top at ${at}`).toBeCloseTo(L.benchFrontTop, 0);
+      expect(cover.polygon[1][0], `it runs forward along the top's left edge to the 150 mm point, then straight down at ${at}`).toBeGreaterThan(L.benchX);
+      expect(cover.polygon[1][1]).toBeLessThan(L.benchFrontTop);
+      expect(cover.polygon[2][0]).toBe(cover.polygon[1][0]);
+      expect(cover.polygon[3][0]).toBeCloseTo(L.benchX, 0);
+    }
+  });
+
+  // On a touch screen the floor is 30 px higher (QWW-83), which lifts a ball above the end's short face and onto its sloping top edge:
+  // these two are about a mouse, on the desktop windows the design was settled on.
+  test("a ball carried into the end comes off it slowly and stops beside it, not 270 px away", async ({ page }) => {
+    test.skip(!!test.info().project.use.hasTouch, "the floor is lifted on a touch screen");
+    test.setTimeout(120_000);
+    for (const size of LEFT_END_WINDOWS) {
+      const at = `${size.width}x${size.height}`;
+      const { r, floor } = await leftEndPage(page, size);
+      const corner = (await coverClip(page)).polygon[1][0]; // where the end face stands: 150 mm back
+      const id = await sandbox<number>(page, `drop(${corner - 5 * r}, ${floor - 3 * r})`);
+      await advance(page, 1.5);
+      let ball = (await balls(page)).find((b) => b.id === id)!;
+      await page.mouse.move(ball.x, ball.y - r * 0.3);
+      await page.mouse.down();
+      await carry(page, [ball.x, ball.y - r * 0.3], [corner - r * 0.4, ball.y - r * 0.3], 20);
+      await page.mouse.up();
+      await advance(page, 2);
+      ball = (await balls(page)).find((b) => b.id === id)!;
+      expect(Math.hypot(ball.vx, ball.vy), `it is at rest at ${at}`).toBeLessThan(2);
+      // (it comes off the dead end at a few tens of px/s and stops within a fraction of its width of the face)
+      expect(ball.x + ball.r, `it stopped beside the end face, 150 mm back, at ${at}`).toBeGreaterThan(corner - 0.8 * ball.r);
+      expect(ball.x + ball.r).toBeLessThan(corner + 3);
+    }
+  });
+
+  test("a ball resting against the end has about two fifths of it in view, and a press on that part takes it", async ({ page }) => {
+    test.skip(!!test.info().project.use.hasTouch, "the floor is lifted on a touch screen");
+    test.setTimeout(120_000);
+    for (const size of LEFT_END_WINDOWS) {
+      const at = `${size.width}x${size.height}`;
+      const { r, floor } = await leftEndPage(page, size);
+      const { polygon } = await coverClip(page);
+      const corner = polygon[1][0];
+      const id = await sandbox<number>(page, `drop(${corner - r - 1}, ${floor - r - 1})`);
+      await advance(page, 1.5);
+      const ball = (await balls(page)).find((b) => b.id === id)!;
+      expect(ball.x + ball.r, `it stays against the end at ${at}`).toBeGreaterThan(corner - 3);
+      expect(ball.x + ball.r).toBeLessThan(corner + 3);
+
+      // How much of it is in view: the share of its disc that is outside the cover's clip.
+      const shown = await page.evaluate(
+        ({ b, polygon }) => {
+          const inside = (x: number, y: number) => {
+            let c = false;
+            for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+              const [xi, yi] = polygon[i];
+              const [xj, yj] = polygon[j];
+              if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+            }
+            return c;
+          };
+          let all = 0;
+          let seen = 0;
+          for (let dx = -b.r; dx <= b.r; dx += b.r / 40)
+            for (let dy = -b.r; dy <= b.r; dy += b.r / 40)
+              if (dx * dx + dy * dy <= b.r * b.r) {
+                all++;
+                if (!inside(b.x + dx, b.y + dy)) seen++;
+              }
+          return seen / all;
+        },
+        { b: ball, polygon },
+      );
+      expect(shown, `about two fifths of the ball is in view at ${at}`).toBeGreaterThan(0.3);
+      expect(shown).toBeLessThan(0.55);
+
+      // A press on the part in view takes it.
+      await page.mouse.move(ball.x - ball.r * 0.6, ball.y);
+      await page.mouse.down();
+      await page.mouse.move(ball.x - ball.r * 0.6 - 30, ball.y - 40, { steps: 4 });
+      const held = (await balls(page)).find((b) => b.id === id)!;
+      expect(held.held, `a press on the ball's visible part takes it at ${at}`).toBe(true);
+      await page.mouse.up();
     }
   });
 });
@@ -386,7 +516,7 @@ test.describe("the notebook", () => {
     await expect.poll(async () => (await bag(page)).notebookOut).toBe(true);
     // Its words: the same text the unit test pins (src/notebook-text.test.ts), as one text, in order.
     const words = await notebookDialog(page).locator(".v6-nb-text").textContent();
-    expect(words?.replace(/\s+/g, " ").trim()).toBe(NOTEBOOK_TEXT.replace(/\s+/g, " ").trim());
+    expect(words?.replace(/\s+/g, " ").trim()).toBe(notebookText().replace(/\s+/g, " ").trim());
     await page.keyboard.press("Escape");
     await expect(notebookDialog(page)).toBeHidden();
     await expect.poll(async () => (await bag(page)).notebookOut).toBe(false);
@@ -402,11 +532,11 @@ test.describe("the notebook", () => {
     await openNotebook(page);
     await expect(notebookDialog(page)).toBeVisible();
     await page.waitForTimeout(1200); // it has finished opening
-    await page.mouse.click(8, 8);
+    await page.mouse.click(3, 3); // the corner of the window, outside the spread (which keeps 8 px clear of the edge in a short window)
     await expect(notebookDialog(page)).toBeHidden();
   });
 
-  test("its type is at least 14 px and all its words are on the pages, in every window", async ({ page }) => {
+  test("its type is at least 14 px (11 px in a window under 340 px tall) and all its words are on the pages, in every window", async ({ page }) => {
     test.setTimeout(120_000); // six windows, each with an unzip and a notebook
     for (const size of WINDOWS) {
       await page.setViewportSize(size);
@@ -417,7 +547,9 @@ test.describe("the notebook", () => {
       await expect(notebookDialog(page), `the notebook opens at ${size.width}x${size.height}`).toBeVisible();
       await page.waitForTimeout(1200);
       const type = await sandbox<{ px: number; fits: boolean }>(page, "notebook()");
-      expect(type.px, `type size at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(14);
+      // The words fill a whole spread, and the shortest window (a phone held sideways, 280 px) has room for about 22 lines of them: there
+      // the type steps down toward 11 px on closer rules; everywhere else it is 14 px or more.
+      expect(type.px, `type size at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(size.height < 340 ? 11 : 14);
       expect(type.fits, `every line on a page at ${size.width}x${size.height}`).toBe(true);
     }
   });
