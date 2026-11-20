@@ -5,6 +5,7 @@ import {
   SOUNDS,
   bounceLoudness,
   isMuted,
+  playThroughSilentSwitch,
   wakeOnGesture,
   type AudioContextLike,
   type AudioNodeLike,
@@ -481,5 +482,28 @@ describe("wakeOnGesture", () => {
     expect(audio.state.resumes).toBe(0);
     target.dispatchEvent(new Event("pointerup"));
     expect(audio.state.resumes).toBe(1);
+  });
+});
+
+describe("playThroughSilentSwitch", () => {
+  it("asks Safari to treat the page's audio as playback, which the iPhone's silent switch does not mute", () => {
+    const nav = { audioSession: { type: "auto" } };
+    playThroughSilentSwitch(nav);
+    expect(nav.audioSession.type).toBe("playback");
+  });
+
+  it("does nothing in a browser without an audio session, or one that refuses", () => {
+    expect(() => playThroughSilentSwitch({})).not.toThrow();
+    const strict = {
+      audioSession: {
+        set type(_: string) {
+          throw new Error("no");
+        },
+        get type() {
+          return "auto";
+        },
+      },
+    };
+    expect(() => playThroughSilentSwitch(strict)).not.toThrow();
   });
 });
