@@ -3,7 +3,7 @@
 
 :root {
   /*
-   * Navy and court blue are sampled from the 2013 Australian Open towel in the reference photos,
+   * Navy and court blue are sampled from the 2014 Australian Open towel in the reference photos,
    * the green from its edge band and from the photo of a real ball, each nudged to hold up on a
    * screen. The canvas reads these same values, so the page and the toy cannot drift apart.
    */
@@ -395,7 +395,7 @@ a {
 /*
  * A phone held sideways is about 340px tall, and the credits at their full size are about 460: only the first few lines would
  * show, the rest a scroll away. In a window that short the type is smaller and the lines are closer, which brings the credits to
- * about 260px, so they fit on the phones of today with the overlay's padding. (A window shorter still scrolls, as above.)
+ * about 260px (about 300 with the lines for the bag, the racquet and the towel, hence the smaller type), so they fit on the phones of today with the overlay's padding. (A window shorter still scrolls, as above.)
  */
 @media (max-height: 480px) {
   .credits-overlay {
@@ -403,16 +403,16 @@ a {
   }
 
   .credits-text {
-    font-size: 15px;
-    line-height: 1.45;
+    font-size: 14px;
+    line-height: 1.35;
   }
 
   .credits-text p {
-    margin-bottom: 0.4rem;
+    margin-bottom: 0.3rem;
   }
 
   .credits-text li + li {
-    margin-top: 0.4rem;
+    margin-top: 0.25rem;
   }
 
   .credits-text li ul {
@@ -434,12 +434,16 @@ a {
   }
 
   .credits-text {
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.25;
   }
 
-  /* With the line for the notebook added, tighter gaps between the items keep the list inside the 264px a 280px window leaves. */
+  /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves. */
   .credits-text li + li {
-    margin-top: 0.3rem;
+    margin-top: 0.15rem;
+  }
+
+  .credits-text li li + li {
+    margin-top: 0.1rem;
   }
 }
