@@ -557,14 +557,20 @@ test("the credit lines read as Quinn-Wai asked: lowercase labels, the palette as
         return copy.textContent!.replace(/\s+/g, " ").trim();
       }),
     );
-  expect(lines).toContain("color palette: 2013 Australian Open merch");
+  expect(lines).toContain("color palette: 2014 Australian Open merch");
   expect(lines).toContain("ball animations: Combo Pool (nusan)");
+  expect(lines.slice(lines.indexOf("the notebook: Carmen Sandiego's Great Chase Through Time")).slice(0, 4)).toEqual([
+    "the notebook: Carmen Sandiego's Great Chase Through Time",
+    "the bag: Wilson racquet bags",
+    "the racquet: Wilson Blade",
+    "the towel: 2014 Australian Open towel",
+  ]);
   // The sounds follow the pattern of the other lines, a label and then the maker in brackets, and say no more than that.
   const sounds = ["hit", "bounce", "ball rising", "ball out"].map((label) => lines.find((line) => line.startsWith(`${label}:`)));
   expect(sounds).toHaveLength(4);
   for (const line of sounds) expect(line).toMatch(/^[a-z ]+: \([^()]+ from (Pixabay|freesound)\)$/);
   expect(sounds[0]).toBe("hit: (Jurij from Pixabay)");
-  expect(lines.filter((line) => /sound effect|towel/i.test(line) || line.includes("Ball animations"))).toEqual([]); // none of the old wording is left
+  expect(lines.filter((line) => /sound effect|palette.*towel/i.test(line) || line.includes("Ball animations"))).toEqual([]); // none of the old wording is left
 });
 
 test("with ?tune, the blur and the dimming have sliders that work while the credits are open", async ({ page }) => {
