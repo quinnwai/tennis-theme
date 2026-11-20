@@ -8,7 +8,7 @@
  * columns that sit on the two pages' rules, so they can be selected and are read in order.
  */
 import "./notebook.css";
-import { NOTEBOOK_TEXT } from "../notebook-text";
+import { notebookText } from "../notebook-text";
 import { params } from "../params";
 
 /** The closed notebook's box as drawn in the bag, page px: its middle, its size, and its tilt in degrees. */
@@ -90,11 +90,16 @@ interface Geo {
   RULE_GAP: number;
   TEXT_TOP: number;
 }
-const DESIGN: Geo = { PW: 308, PH: 437, GUTTER: 24, SIDE: 7, OVER: 6, UNDER: 14, FS: 20, RULE_GAP: 30, TEXT_TOP: 34 };
+const DESIGN: Geo = { PW: 308, PH: 437, GUTTER: 24, SIDE: 7, OVER: 6, UNDER: 14, FS: 15, RULE_GAP: 19, TEXT_TOP: 34 };
 /** The smallest type, px, that the spread is shrunk to before it is given a shape of its own, and that the phone shape sets. */
 const PHONE_TYPE = 14;
 /** The air round the spread in the phone shape, px (the design shape's is MARGIN). */
 const PHONE_MARGIN = 8;
+/** A window shorter than this, px, cannot hold the words on one spread at PHONE_TYPE; its type is SHORT_TYPE. */
+const SHORT_WINDOW = 340;
+const SHORT_TYPE = 12;
+/** The widest a page gets in the phone shape, px: a held-sideways phone is wide, and wider pages hold more words on each rule. */
+const PHONE_PAGE_MAX = 440;
 
 // What follows is set by setGeometry from a Geo (and is read by everything below, so a change of shape reaches all of it).
 let PW = 0; // a page, in the closed notebook's 148 by 210
@@ -136,8 +141,8 @@ function setGeometry(g: Geo): void {
   RULES = Array.from({ length: 20 }, (_, n) => ruleY(n)).filter((y) => y < PT + PH - 14);
   HOLES = Array.from({ length: NB.rings }, (_, i) => PT + 25 + (i * (PH - 50)) / (NB.rings - 1));
   COL_GAP = RP - LP - TEXT_W;
-  TEXT_H = RULES.length * RULE_GAP;
-  SIZES = [FS, FS - 1, FS - 2];
+  TEXT_H = (RULES.length - 1) * RULE_GAP;
+  SIZES = [FS, FS - 0.5, FS - 1];
 }
 setGeometry(DESIGN);
 
@@ -208,7 +213,10 @@ const veil = (blur: number, dim: number): Keyframe => ({ backdropFilter: `blur($
 
 // ---- the fit ----
 const MARGIN = 24;
-const MAX_SCALE = 1.3;
+/** The spread's size on a 1280 x 800 page, times its design size: its writing is small (15 px on 19 px rules, to hold all the words
+ * on one spread), so it is shown bigger and reads at about the old size. */
+const BASE_SCALE = 1.4;
+const MAX_SCALE = 1.3 * BASE_SCALE;
 /** The close chip's corner of the window, with a little room around it: 12 px in, 44 px across, 8 px clear. */
 const CHIP_ZONE = 12 + 44 + 8;
 
@@ -219,13 +227,13 @@ interface Fit {
 }
 
 /**
- * Where the spread goes in a `w` by `h` window: its scale and its top left corner, px. The stills show it at its design
- * size on a 1280 x 800 page; a bigger window grows it with the window, up to 1.3x, and a smaller one shrinks it to fit
+ * Where the spread goes in a `w` by `h` window: its scale and its top left corner, px. It shows at BASE_SCALE times its
+ * design size on a 1280 x 800 page; a bigger window grows it with the window, up to 1.3x that, and a smaller one shrinks it to fit
  * with 24 px margins. It keeps clear of the close chip: if centred it would run under the chip, it moves below the chip's
  * row or left of its column, whichever leaves it bigger.
  */
 function place(w: number, h: number, margin = MARGIN): Fit {
-  const cap = Math.min(MAX_SCALE, Math.max(1, Math.min(w / 1280, h / 800)));
+  const cap = Math.min(MAX_SCALE, BASE_SCALE * Math.max(1, Math.min(w / 1280, h / 800)));
   const boxes = [
     [margin, margin, w - margin, h - margin],
     [margin, CHIP_ZONE, w - margin, h - margin],
@@ -253,10 +261,23 @@ function geometryFor(w: number, h: number): Geo {
   const SIDE = 3;
   const OVER = 3;
   const UNDER = 6;
-  const GUTTER = 16;
+  const GUTTER = 12;
   const PW = Math.floor((w - CHIP_ZONE - PHONE_MARGIN - 2 * SIDE - GUTTER) / 2);
   const PH = Math.floor(h - 2 * PHONE_MARGIN - OVER - UNDER);
-  return { PW: Math.min(PW, DESIGN.PW), PH: Math.min(PH, DESIGN.PH), GUTTER, SIDE, OVER, UNDER, FS: PHONE_TYPE, RULE_GAP: 21, TEXT_TOP: 24 };
+  // The words are long (about 35 lines at this width), and a window as short as 280 px has room for about 22 lines at 14 px: there the
+  // type is smaller on closer rules, as small as it has to be to keep all of the words on the one spread.
+  const short = h < SHORT_WINDOW;
+  return {
+    PW: Math.min(PW, PHONE_PAGE_MAX),
+    PH: Math.min(PH, DESIGN.PH),
+    GUTTER,
+    SIDE,
+    OVER,
+    UNDER,
+    FS: short ? SHORT_TYPE : PHONE_TYPE,
+    RULE_GAP: short ? SHORT_TYPE + 3.5 : 19,
+    TEXT_TOP: short ? 16 : 20,
+  };
 }
 
 export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reducedMotion: boolean }): Notebook {
@@ -281,7 +302,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     spreadBox.innerHTML = `${spread()}<p class="v6-nb-text"></p>`;
     doodleBox = spreadBox.querySelector<SVGGElement>(".v6-nb-doodle")!;
     text = spreadBox.querySelector<HTMLElement>(".v6-nb-text")!;
-    text.textContent = NOTEBOOK_TEXT;
+    text.textContent = notebookText();
     Object.assign(fitBox.style, { width: `${SW}px`, height: `${SH}px` });
     // the spread opens out of the closed notebook, its right page where the cover was: it turns and grows about that page
     spreadBox.style.transformOrigin = `${RP + PW / 2}px ${PT + PH / 2}px`;
@@ -310,7 +331,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     fontPx = px;
     text.style.fontSize = `${px}px`;
     // Caveat's baseline sits KB of a size below the middle of its line: keep it on the rule at any size
-    text.style.top = `${PT + TEXT_TOP + KB * (FS - px)}px`;
+    text.style.top = `${PT + TEXT_TOP + RULE_GAP + KB * (FS - px)}px`;
   }
   render(DESIGN);
 
@@ -343,10 +364,15 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     }
     const lines = lineBoxes();
     const last = lines[lines.length - 1];
-    const line = last ? Math.floor((last.y0 + last.y1) / 2 / RULE_GAP) : RULES.length;
+    // the rule the last line sits on (the words start on rule 1; rule 0, the header line, stays empty)
+    const line = last ? Math.floor((last.y0 + last.y1) / 2 / RULE_GAP) + 1 : RULES.length;
     const onRight = !!last && last.x0 >= TEXT_W + COL_GAP / 2;
-    // as in the stills: the last line on rule n, the ball sits on rule n + 3, which has to be on the page
-    doodleBox.innerHTML = fitsNow && onRight && line + 3 < RULES.length ? doodle(RP + 150, ruleY(line + 3) - 23) : "";
+    // The ball sits on the third rule under the last line, or on the page's last rule if that comes first. It is as big as the
+    // room under the words allows, up to radius 16 (22 in the stills' bigger scale), and left out if that is under 11.
+    const sit = Math.min(line + 3, RULES.length - 1);
+    const r = Math.min(16, (ruleY(sit) - ruleY(line) - 8) / 2);
+    doodleBox.innerHTML =
+      fitsNow && onRight && r >= 11 ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` : "";
   }
 
   function layout(): void {
@@ -448,6 +474,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     state = "opening";
     pressedOutside = false;
     if (!dialog.open) dialog.showModal();
+    text.textContent = notebookText(); // dated today, even on a page left open overnight
     askForFont();
     layout();
     measure();
@@ -521,7 +548,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   function askForFont(): void {
     if (fontAsked) return;
     fontAsked = true;
-    document.fonts.load(`500 ${FS}px Caveat`, NOTEBOOK_TEXT).then(
+    document.fonts.load(`500 ${FS}px Caveat`, notebookText()).then(
       () => {
         if (state === "opening" || state === "open") measure();
       },

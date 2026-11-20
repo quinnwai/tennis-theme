@@ -54,6 +54,7 @@ export const FIELDS: Field[] = [
   ["notebookSpreadMs", "notebook: opening out (ms)", 0, 1000, 10],
   ["notebookBlur", "notebook: blur behind it (px)", 0, 20, 1],
   ["notebookVeil", "notebook: veil behind it (0 to 1)", 0, 1, 0.05],
+  ["benchEndRestitution", "bench: bounce off its ends", 0, 0.8, 0.01],
   ["ballShadows", "scene: ball shadows (1 on, 0 off)", 0, 1, 1],
 ];
 

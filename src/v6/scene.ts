@@ -44,6 +44,11 @@ import {
 // ---- Where things go, in real millimeters (the scene is at the toy's scale: a ball is 67 mm) ----
 /** How much of the bench's 42 cm front shows above the bottom of the window. */
 const BENCH_SHOWS = 165;
+/**
+ * How far back (mm) a ball beside the bench's left end stops. Half way back, where the balls on the seat are, would put
+ * nine tenths of it behind the bench's front left corner; at 150 about two fifths of it shows, enough to find and take.
+ */
+const LEFT_END_DEPTH = 150;
 /** The bag's right end stands this far past the right end of the name's outline (at 1280 x 800, as on the v6 canvas). */
 const BAG_PAST_NAME = 54;
 /** The bag stands toward the front of the seat: its front this share of the way back across the seat. */
@@ -191,15 +196,29 @@ function bagToPage(L: SceneLayout, p: P): P {
  * below the window) and the bag's outline.
  */
 export function sceneSolids(L: SceneLayout): { bench: P[]; bag: P[] } {
+  return { bench: benchOutline(L).loop, bag: bagOutline().map((p) => bagToPage(L, p)) };
+}
+
+/**
+ * The bench's outline, page px: its top half way back across the seat, standing on the floor below the window. Beside its left
+ * end a ball stops LEFT_END_DEPTH back: from the top's half way line the outline follows the top's left edge forward to that
+ * depth, then goes straight down. `left` is that point, which the cover's clip uses too.
+ */
+function benchOutline(L: SceneLayout): { loop: P[]; left: P } {
   const x0 = L.benchX + depth(BENCH.Dmm / 2)[0] * L.k;
   const x1 = x0 + BENCH.L * L.k;
-  const bench: P[] = [
-    [x0, L.benchSurfaceY],
-    [x1, L.benchSurfaceY],
-    [x1, L.height + 400],
-    [x0, L.height + 400],
-  ];
-  return { bench, bag: bagOutline().map((p) => bagToPage(L, p)) };
+  const left: P = [L.benchX + depth(LEFT_END_DEPTH)[0] * L.k, L.benchFrontTop + depth(LEFT_END_DEPTH)[1] * L.k];
+  const bottom = L.height + 400;
+  return {
+    loop: [
+      [x0, L.benchSurfaceY],
+      [x1, L.benchSurfaceY],
+      [x1, bottom],
+      [left[0], bottom],
+      left,
+    ],
+    left,
+  };
 }
 
 /** An item's outline standing in the bag, bag mm: its box turned by its tilt about its foot, `sink` mm lower along its
@@ -275,6 +294,10 @@ export class Scene {
   private taken = new Set<number>();
 
   private back: HTMLElement;
+  /** Over the canvas: the bench's front left corner and the towel on it, in front of a ball beside the bench's left end. */
+  private cover: HTMLElement;
+  private benchCoverSvg: SVGSVGElement;
+  private towelCoverSvg: SVGSVGElement;
   private front: HTMLElement;
   private hit: HTMLElement;
   private benchSvg: SVGSVGElement;
@@ -299,6 +322,8 @@ export class Scene {
   ) {
     this.back = document.createElement("div");
     this.back.className = "v6-back";
+    this.cover = document.createElement("div");
+    this.cover.className = "v6-cover";
     this.front = document.createElement("div");
     this.front.className = "v6-front";
     this.hit = document.createElement("div");
@@ -309,6 +334,9 @@ export class Scene {
     const racquetArt = racquet();
     this.benchSvg = svgEl(benchArt, "v6-art");
     this.towelSvg = svgEl(towelArt, "v6-art");
+    this.benchCoverSvg = svgEl(benchArt, "v6-art");
+    this.towelCoverSvg = svgEl(towelArt, "v6-art");
+    this.cover.append(this.benchCoverSvg, this.towelCoverSvg);
     this.shadowsSvg = svgEl(null, "v6-art");
     this.bagSvg = svgEl(null, "v6-art");
     this.bagSvg.setAttribute("viewBox", BAG_VB.join(" "));
@@ -338,7 +366,7 @@ export class Scene {
     this.hit.append(this.pullButton, this.notebookButton);
 
     canvas.before(this.back);
-    canvas.after(this.front, this.hit);
+    canvas.after(this.cover, this.front, this.hit);
 
     this.wirePull();
     this.notebookButton.addEventListener("click", () => this.takeNotebook());
@@ -352,6 +380,19 @@ export class Scene {
     const { k } = L;
     put(this.benchSvg, bench().vb, [0, 0], [L.benchX, L.floorFrontY], k);
     put(this.towelSvg, towel().vb, [0, 0], L.towelAt, k);
+    // A ball beside the bench's left end is LEFT_END_DEPTH back, so the bench's front left corner (and the towel on it) stand in
+    // front of it: the cover repeats them over the canvas, clipped to the part of the bench in front of that depth. (On the right
+    // the bench's end faces the camera, and a ball beside it is in front of it.)
+    put(this.benchCoverSvg, bench().vb, [0, 0], [L.benchX, L.floorFrontY], k);
+    put(this.towelCoverSvg, towel().vb, [0, 0], L.towelAt, k);
+    const left = benchOutline(L).left;
+    const corner: P[] = [
+      [L.benchX, L.benchFrontTop],
+      left,
+      [left[0], L.height + 400],
+      [L.benchX, L.height + 400],
+    ];
+    this.cover.style.clipPath = `polygon(${corner.map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px`).join(", ")})`;
     put(this.bagSvg, BAG_VB, BAG_ANCHOR, L.bagAt, k);
     put(this.racquetSvg, racquet().vb, [0, 0], L.racquetAt, k, RACQUET_TILT);
     this.drawShadows();
