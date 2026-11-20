@@ -39,6 +39,21 @@ export const FIELDS: Field[] = [
   ["iconTone", "button tone (0 to 1)", 0, 1, 0.05],
   ["iconSize", "button icon size (px, at most)", 12, 72, 1],
   ["iconShare", "icon share of the short side", 0.04, 0.2, 0.005],
+  ["canPourAngle", "can: pours past (degrees)", 40, 170, 1],
+  ["canPourInterval", "can: time between balls (s)", 0.03, 0.6, 0.01],
+  ["canPourSpeed", "can: speed a ball leaves at (m/s)", 0, 2, 0.05],
+  ["canGrip", "can: grip on a carried can", 0, 150, 1],
+  ["zipMs", "bag: zip runs all the way in (ms)", 0, 1500, 20],
+  ["zipSnap", "bag: zip runs on past this far (0 to 1)", 0.3, 1, 0.01],
+  ["riseMs", "bag: what is in it rises in (ms)", 0, 1500, 20],
+  ["riseStaggerMs", "bag: gap between cans rising (ms)", 0, 400, 10],
+  ["riseNotebookMs", "bag: notebook starts rising after (ms)", 0, 800, 10],
+  ["sinkMs", "bag: what is in it sinks in (ms)", 0, 1000, 20],
+  ["notebookLiftMs", "notebook: lift out of the bag (ms)", 0, 1500, 20],
+  ["notebookSpreadMs", "notebook: opening out (ms)", 0, 1000, 10],
+  ["notebookBlur", "notebook: blur behind it (px)", 0, 20, 1],
+  ["notebookVeil", "notebook: veil behind it (0 to 1)", 0, 1, 0.05],
+  ["ballShadows", "scene: ball shadows (1 on, 0 off)", 0, 1, 1],
 ];
 
 /**
