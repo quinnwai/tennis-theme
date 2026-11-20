@@ -448,6 +448,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     state = "opening";
     pressedOutside = false;
     if (!dialog.open) dialog.showModal();
+    askForFont();
     layout();
     measure();
     anims = build(from);
@@ -514,13 +515,19 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     layout();
     measure();
   });
-  // Caveat loads when something first uses it; ask for it now so the words are measured in it
-  document.fonts.load(`500 ${FS}px Caveat`, NOTEBOOK_TEXT).then(
-    () => {
-      if (state === "open") measure();
-    },
-    () => {},
-  );
+  // Caveat is only fetched when the notebook is first opened (it is 50 kB the page does not otherwise need): ask for it then, and measure
+  // the words again once it is there.
+  let fontAsked = false;
+  function askForFont(): void {
+    if (fontAsked) return;
+    fontAsked = true;
+    document.fonts.load(`500 ${FS}px Caveat`, NOTEBOOK_TEXT).then(
+      () => {
+        if (state === "opening" || state === "open") measure();
+      },
+      () => {},
+    );
+  }
 
   const type = () => ({ px: fontPx, fits: state === "open" ? textFits() : fitsNow });
 
