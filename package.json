@@ -21,6 +21,7 @@
     "vitest": "^4.1.12"
   },
   "dependencies": {
+    "@fontsource/caveat": "^5.3.0",
     "planck": "^1.5.1"
   }
 }
