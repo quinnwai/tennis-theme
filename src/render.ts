@@ -80,6 +80,29 @@ interface Point {
   y: number;
 }
 
+/** A picture turned about a point, such as a can of balls out of the bag. */
+export interface ImageSprite {
+  img: CanvasImageSource;
+  /** The point it turns about, page px, and its turn, radians clockwise. */
+  x: number;
+  y: number;
+  angle: number;
+  /** Its size, px, and where in it the point (x, y) is, px from its top left. */
+  w: number;
+  h: number;
+  ox: number;
+  oy: number;
+}
+
+/** A ball's shadow on the surface under it: a flat ellipse seen at the scene camera's angle. */
+export interface ShadowSprite {
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+  alpha: number;
+}
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private letters = new Path2D();
@@ -92,6 +115,11 @@ export class Renderer {
   private ballRadius = 12;
   width = 0;
   height = 0;
+  /** Leave the background clear, so the scene drawn behind the canvas (the bench and the bag) shows through. */
+  clearBackground = false;
+  /** How the balls' shadows are drawn: their color, and the camera's shear (degrees, as skewX). */
+  shadowColor = "#000";
+  shadowSkew = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -138,18 +166,48 @@ export class Renderer {
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
-  draw(now: number, balls: BallSprite[], rising: BallSprite[]): void {
+  draw(now: number, balls: BallSprite[], rising: BallSprite[], shadows: ShadowSprite[] = [], props: ImageSprite[] = []): void {
     const ctx = this.ctx;
-    ctx.fillStyle = this.palette.navy;
-    ctx.fillRect(0, 0, this.width, this.height);
+    if (this.clearBackground) {
+      ctx.clearRect(0, 0, this.width, this.height);
+    } else {
+      ctx.fillStyle = this.palette.navy;
+      ctx.fillRect(0, 0, this.width, this.height);
+    }
 
     if (balls.length) this.ballRadius = balls[0].r;
     this.lastDraw = now;
+    this.drawShadows(shadows);
     this.drawChips(now);
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
+    for (const p of props) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.drawImage(p.img, -p.ox, -p.oy, p.w, p.h);
+      ctx.restore();
+    }
     for (const b of balls) this.drawBall(b);
+  }
+
+  private drawShadows(shadows: ShadowSprite[]): void {
+    if (!shadows.length) return;
+    const ctx = this.ctx;
+    const shear = Math.tan((this.shadowSkew * Math.PI) / 180);
+    ctx.fillStyle = this.shadowColor;
+    for (const s of shadows) {
+      if (s.alpha <= 0) continue;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.transform(1, 0, shear, 1, 0, 0);
+      ctx.globalAlpha = s.alpha;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s.rx, s.ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   /**
