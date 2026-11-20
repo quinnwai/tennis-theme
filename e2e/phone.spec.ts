@@ -529,7 +529,7 @@ test.describe("a phone held sideways", () => {
   // big enough for a laptop crowd it. How big they are is the window's shorter side times params.iconShare, up to params.iconSize.
   const iconsInWindow = (page: Page) =>
     page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>(".chip:not(.close)")].map((chip) => {
+      [...document.querySelectorAll<HTMLElement>(".chip:not(.close):not(.v6-nb-close)")].map((chip) => {
         const svg = chip.querySelector("svg");
         return {
           name: chip.getAttribute("aria-label"),
