@@ -462,7 +462,7 @@ test("the files really decode in the browser, and start with the silence the pag
   expect(find(FILE.hit).quietUntil).toBeGreaterThan(0.02);
   expect(find(FILE.bounce).quietUntil).toBeGreaterThan(0.04);
   // ...and has by a few milliseconds after, so skipping them cuts nothing off.
-  expect(find(FILE.hit).quietUntil).toBeLessThan(0.03);
+  expect(find(FILE.hit).quietUntil).toBeLessThan(0.035); // the softened hit fades in over 8 ms, so it is audible a little later
   expect(find(FILE.bounce).quietUntil).toBeLessThan(0.055);
 });
 
