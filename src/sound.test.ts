@@ -6,7 +6,7 @@ import {
   SOUNDS,
   bounceLoudness,
   isMuted,
-  playThroughSilentSwitch,
+  mixWithOtherAudio,
   wakeOnGesture,
   type AudioContextLike,
   type AudioNodeLike,
@@ -611,15 +611,15 @@ describe("wakeOnGesture", () => {
   });
 });
 
-describe("playThroughSilentSwitch", () => {
-  it("asks Safari to treat the page's audio as playback, which the iPhone's silent switch does not mute", () => {
+describe("mixWithOtherAudio", () => {
+  it("asks Safari to treat the page's audio as ambient, which mixes with a visitor's music and does not pause it", () => {
     const nav = { audioSession: { type: "auto" } };
-    playThroughSilentSwitch(nav);
-    expect(nav.audioSession.type).toBe("playback");
+    mixWithOtherAudio(nav);
+    expect(nav.audioSession.type).toBe("ambient");
   });
 
   it("does nothing in a browser without an audio session, or one that refuses", () => {
-    expect(() => playThroughSilentSwitch({})).not.toThrow();
+    expect(() => mixWithOtherAudio({})).not.toThrow();
     const strict = {
       audioSession: {
         set type(_: string) {
@@ -630,6 +630,6 @@ describe("playThroughSilentSwitch", () => {
         },
       },
     };
-    expect(() => playThroughSilentSwitch(strict)).not.toThrow();
+    expect(() => mixWithOtherAudio(strict)).not.toThrow();
   });
 });
