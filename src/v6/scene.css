@@ -1,0 +1,59 @@
+/* The v6 scene. Its back layer sits under the toy's canvas (which draws on a clear background in v6), its front layer
+   (the racquet) over it; neither takes pointer events. The buttons over the zip pull and the notebook do. */
+.v6-back,
+.v6-cover,
+.v6-front,
+.v6-hit {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.v6-back {
+  z-index: -1;
+}
+
+/* The cover (over the canvas, under the racquet) repeats the bench and towel, clipped to the bench's front left corner:
+   a ball beside the bench's left end is LEFT_END_DEPTH back, so that corner stands in front of it. Its clip is set from script. */
+
+/* The page's navy stays on the root; the body goes clear so the back layer shows between it and the canvas. */
+body.v6 {
+  background: none;
+}
+
+.v6-art {
+  position: absolute;
+  display: block;
+  overflow: visible;
+}
+
+.v6-hit button {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 10px;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.v6-pull {
+  cursor: grab;
+}
+
+.v6-pull.is-dragging {
+  cursor: grabbing;
+}
+
+.v6-notebook-hit {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.v6-hit button:focus-visible {
+  outline: 2px solid var(--ball);
+  outline-offset: 2px;
+}

@@ -88,6 +88,30 @@ export const params = {
   // held sideways is only about 280 px tall in iOS 26's Safari, with its two rows of toolbar, and 36 px icons crowd it:
   // this makes them 28 px there. Judged by eye, on a phone. (The stylesheet starts from the same two numbers.)
   iconShare: 0.1,
+
+  // The cans of balls. A can holds 3 balls and keeps them while it is upright. Tipped past canPourAngle it lets them out one
+  // after another, each leaving its mouth along the way the mouth points. A can that is carried hangs from the point it was
+  // taken by, like anything held by one point, and canGrip is how firmly the hand keeps it upright: a hard shake overcomes it,
+  // and 0 would be a can that swings like a pendulum. Judged by feel.
+  canPourAngle: 100, // degrees from upright; 90 is lying on its side, so a little more is mouth down
+  canPourInterval: 0.15, // s between one ball leaving and the next
+  canPourSpeed: 0.6, // m/s; how fast a ball is let out of the mouth, on top of the can's own movement
+  canGrip: 70, // the most torque the hand puts into keeping a carried can upright
+
+  // The v6 scene (the bench, towel, bag and racquet; see src/v6). Its sizes are real and not tunable. These are its motion and its
+  // light touch on the toy; all judged by eye, on the live site.
+  zipMs: 520, // ms for the zip to run all the way by itself (a key press, restart, the last stretch after a drag)
+  zipSnap: 0.85, // let go past this far along the zip and it runs on to the end
+  riseMs: 580, // ms for each can, and the notebook, to rise in the open bag, with a slight spring
+  riseStaggerMs: 80, // ms between one can starting to rise and the next
+  riseNotebookMs: 260, // ms after the bag opens that the notebook starts to rise
+  sinkMs: 320, // ms for what is in the bag to sink back when it closes
+  notebookLiftMs: 450, // ms for the notebook to lift out of the bag toward the middle
+  notebookSpreadMs: 250, // ms for it to open out into its two pages
+  notebookBlur: 5, // px; how blurred the toy is behind the open notebook (the credits' are 10)
+  notebookVeil: 0.3, // how far a navy veil dims the toy behind the open notebook, 0 to 1 (the credits' is 0.65)
+  benchEndRestitution: 0.1, // how much of its speed a ball keeps off the bench's ends (its seat keeps the usual bounce, `restitution`)
+  ballShadows: 1, // 1 draws each ball's shadow on the bench and the bag; 0 leaves them out (they cost a little at every frame)
 };
 
 export type Params = typeof params;
