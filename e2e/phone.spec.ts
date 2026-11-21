@@ -176,15 +176,15 @@ test("every corner control is at least 44 by 44 px: the row at the top right, th
     }
   };
 
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: on", "Contact"]);
 
   await page.getByRole("button", { name: "Contact" }).tap();
   await expect(page.getByRole("link", { name: "LinkedIn" })).toBeVisible();
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact", "Email", "GitHub", "LinkedIn"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: on", "Contact", "Email", "GitHub", "LinkedIn"]);
 
   await page.getByRole("button", { name: "Credits", exact: true }).tap();
   await expect(page.getByRole("dialog", { name: "Credits" })).toBeVisible();
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact", "Email", "GitHub", "LinkedIn", "Close"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: on", "Contact", "Email", "GitHub", "LinkedIn", "Close"]);
 });
 
 test("tapping the ? with a finger opens its three links, and tapping it again closes them", async ({ page }) => {
@@ -341,7 +341,7 @@ test.describe("a phone held sideways", () => {
     // The contact links open, so that they count as corner controls too.
     await page.getByRole("button", { name: "Contact" }).tap();
     const where = await whatIsWhere(page);
-    expect(where.controls.sort()).toEqual(["Clear the balls", "Contact", "Credits", "Email", "GitHub", "LinkedIn", "Sound: soft"]);
+    expect(where.controls.sort()).toEqual(["Clear the balls", "Contact", "Credits", "Email", "GitHub", "LinkedIn", "Sound: on"]);
     expectNameOnScreen(where);
     expect(where.clearest.gap, `the air between the name or a ball and the ${where.clearest.name} button`).toBeGreaterThanOrEqual(8);
   });

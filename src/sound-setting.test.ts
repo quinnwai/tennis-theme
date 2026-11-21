@@ -18,21 +18,19 @@ describe("the sound setting", () => {
     expect(SOUND_KEY).toBe("site:sound");
   });
 
-  it("has four levels, off then soft then medium then loud, and starts at soft", () => {
-    expect([...SOUND_LEVELS]).toEqual(["off", "soft", "medium", "loud"]);
-    expect(DEFAULT_SOUND).toBe("soft");
+  it("has two settings, on and off, and starts on", () => {
+    expect([...SOUND_LEVELS]).toEqual(["on", "off"]);
+    expect(DEFAULT_SOUND).toBe("on");
   });
 
-  it("reads as soft when nothing is stored, so a new visitor gets the quiet start", () => {
+  it("reads as on when nothing is stored, so a new visitor gets the quiet start", () => {
     vi.stubGlobal("localStorage", fakeStorage());
-    expect(readSound()).toBe("soft");
+    expect(readSound()).toBe("on");
   });
 
-  it("steps from off to soft to medium to loud and round to off again", () => {
-    expect(nextSound("off")).toBe("soft");
-    expect(nextSound("soft")).toBe("medium");
-    expect(nextSound("medium")).toBe("loud");
-    expect(nextSound("loud")).toBe("off");
+  it("flips from on to off and back", () => {
+    expect(nextSound("on")).toBe("off");
+    expect(nextSound("off")).toBe("on");
   });
 
   it("stores the level's word, under that one key and no other", () => {
@@ -52,21 +50,26 @@ describe("the sound setting", () => {
     }
   });
 
-  it("reads another skin's stored off as off, and its on as the default level", () => {
+  it("reads another skin's stored off as off, and its on as on", () => {
     expect(parseSound("off")).toBe("off");
-    expect(parseSound("on")).toBe("soft");
+    expect(parseSound("on")).toBe("on");
     vi.stubGlobal("localStorage", fakeStorage({ "site:sound": "off" }));
     expect(readSound()).toBe("off");
     vi.stubGlobal("localStorage", fakeStorage({ "site:sound": "on" }));
-    expect(readSound()).toBe("soft");
+    expect(readSound()).toBe("on");
   });
 
-  it.each(["", "ON", "false", "0", "mute", "undefined", "Loud"])("reads the stray value %j as the default level: only the four words count", (value) => {
+  it.each(["soft", "medium", "loud"])("reads the earlier level %j as on", (value) => {
     vi.stubGlobal("localStorage", fakeStorage({ "site:sound": value }));
-    expect(readSound()).toBe("soft");
+    expect(readSound()).toBe("on");
   });
 
-  it("falls back to soft, and does not throw, when the browser refuses to let the page look at its storage", () => {
+  it.each(["", "ON", "false", "0", "mute", "undefined", "Loud"])("reads the stray value %j as on: only the word off mutes", (value) => {
+    vi.stubGlobal("localStorage", fakeStorage({ "site:sound": value }));
+    expect(readSound()).toBe("on");
+  });
+
+  it("falls back to on, and does not throw, when the browser refuses to let the page look at its storage", () => {
     // Some browsers (for instance with all cookies blocked) throw at the mere mention of localStorage.
     vi.stubGlobal("localStorage", undefined); // so that unstubAllGlobals puts back whatever was there
     Object.defineProperty(globalThis, "localStorage", {
@@ -75,7 +78,7 @@ describe("the sound setting", () => {
         throw new DOMException("blocked", "SecurityError");
       },
     });
-    expect(readSound()).toBe("soft");
+    expect(readSound()).toBe("on");
     expect(() => writeSound("off")).not.toThrow();
   });
 
@@ -87,6 +90,6 @@ describe("the sound setting", () => {
       },
     });
     expect(() => writeSound("off")).not.toThrow();
-    expect(readSound()).toBe("soft");
+    expect(readSound()).toBe("on");
   });
 });

@@ -242,16 +242,14 @@ a {
   height: var(--icon-size);
 }
 
-/* The sound button's icon shows the level: one wave when soft, two when medium, three when loud, a cross when off. */
+/* The sound button's icon: three waves when on, a cross when off. */
 .chip.sound .off,
 .chip.sound .wave {
   display: none;
 }
 
 .chip.sound[data-level="off"] .off,
-.chip.sound:is([data-level="soft"], [data-level="medium"], [data-level="loud"]) .w1,
-.chip.sound:is([data-level="medium"], [data-level="loud"]) .w2,
-.chip.sound[data-level="loud"] .w3 {
+.chip.sound[data-level="on"] .wave {
   display: inline;
 }
 

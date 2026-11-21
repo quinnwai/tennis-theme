@@ -11,7 +11,7 @@ const NAMES: SoundName[] = ["hit", "bounce", "rising", "out"];
  * that the site works from a sub-path, and the files sit in the skin's own folder, like everything else the
  * build ships. Both files from Pixabay open with 1105 samples of silence, which is what a common mp3 encoder
  * adds and the browser's decoder does not take off again; skipping it is skipping a lag of 23 ms on the hit and
- * 46 ms on the bounce. The hit file itself is trimmed to 0.85 s, where the sound has died away.
+ * 46 ms on the bounce. The last 3 seconds of the hit are silence too, so it stops early.
  */
 export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number }> = {
   hit: { file: "./tennis/sounds/soundreality-tennis-ball-hit-151257.mp3", from: 1105 / 48000, to: 0.85 },
@@ -38,8 +38,8 @@ export function bounceLoudness(speed: number): number {
 }
 
 /**
- * Whether the visitor has switched sound off. Only an explicit "off" counts: nothing stored yet means the soft
- * level, and so does a browser that will not say (storage can be blocked). `read` gives what is stored under `SOUND_KEY`.
+ * Whether the visitor has switched sound off. Only an explicit "off" counts: nothing stored yet means on,
+ * and so does a browser that will not say (storage can be blocked). `read` gives what is stored under `SOUND_KEY`.
  */
 export function isMuted(read: () => string | null): boolean {
   try {
@@ -50,16 +50,14 @@ export function isMuted(read: () => string | null): boolean {
 }
 
 /**
- * What every sound is multiplied by at this level: nothing at off, `soundSoftGain` at soft, 1 at medium (the
- * volumes in the settings are medium's) and `soundLoudGain` at loud.
+ * What every sound is multiplied by: nothing when off, and `soundGain` (the quiet level the volumes in the settings
+ * are played at) when on.
  */
 export function levelGain(level: SoundSetting): number {
-  if (level === "off") return 0;
-  if (level === "soft") return params.soundSoftGain;
-  return level === "loud" ? params.soundLoudGain : 1;
+  return level === "off" ? 0 : params.soundGain;
 }
 
-/** What the level stored under `SOUND_KEY` multiplies sounds by; a browser that will not say gets the default level's. */
+/** What the level stored under `SOUND_KEY` multiplies sounds by; a browser that will not say gets on's. */
 function storedGain(read: () => string | null): number {
   try {
     return levelGain(parseSound(read()));
@@ -123,16 +121,15 @@ export interface SoundEnv {
 }
 
 /**
- * On an iPhone, a page's audio can be "playback", which takes over the phone's audio (it pauses a visitor's
- * music, and plays through the ring/silent switch) or "ambient", which mixes under whatever else is playing and
- * is muted by the switch. A toy that arrives from an Instagram story, with music on, should not stop the music, so
- * it asks for "ambient". Safari 16.4 and later honor this; other browsers have no `audioSession`, and ignore it.
+ * On an iPhone, Web Audio counts as "ambient" sound by default and is silenced by the ring/silent switch, which
+ * is how a toy can be perfectly quiet on a phone that is otherwise fine. Safari 16.4 and later let a page say
+ * its audio is "playback", which the switch does not mute. Other browsers have no `audioSession`, and ignore this.
  */
-export function mixWithOtherAudio(nav: { audioSession?: { type: string } }): void {
+export function playThroughSilentSwitch(nav: { audioSession?: { type: string } }): void {
   try {
-    if (nav.audioSession) nav.audioSession.type = "ambient";
+    if (nav.audioSession) nav.audioSession.type = "playback";
   } catch {
-    // An older or stricter browser: the phone decides.
+    // An older or stricter browser: the switch keeps its say.
   }
 }
 
@@ -142,7 +139,7 @@ export function browserEnv(): SoundEnv {
   let decoder: OfflineAudioContext | undefined;
   return {
     createContext: () => {
-      mixWithOtherAudio(navigator as unknown as { audioSession?: { type: string } });
+      playThroughSilentSwitch(navigator as unknown as { audioSession?: { type: string } });
       return new AudioContext();
     },
     load: async (url) => {
