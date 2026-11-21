@@ -221,7 +221,10 @@ export class Court {
     this.world.on("pre-solve", (contact) => {
       const a = contact.getFixtureA();
       const b = contact.getFixtureB();
-      if ((this.bagFixtures.has(a) && this.emerging.has(b.getBody())) || (this.bagFixtures.has(b) && this.emerging.has(a.getBody()))) {
+      // (what stands in the open bag, the other cans' lids and the notebook, is part of it: a can drawn smaller than real, on a short window,
+      // would otherwise be pushed out violently by the lids of the cans beside it, which are nearer than its real width)
+      const ofBag = (fixture: Fixture) => this.bagFixtures.has(fixture) || (this.changing !== null && fixture.getBody() === this.changing);
+      if ((ofBag(a) && this.emerging.has(b.getBody())) || (ofBag(b) && this.emerging.has(a.getBody()))) {
         contact.setEnabled(false);
       }
       // The bench's ends are dead next to its seat. A contact that pushes mostly sideways is an end: the ball comes back off it
@@ -355,7 +358,7 @@ export class Court {
       position: { x: x * U, y: y * U },
       angle,
       angularDamping: CAN_ANGULAR_DAMPING,
-      userData: id, // a can that lands is an impact, like a ball
+      // (no userData: a can that lands makes no sound. A ball that meets a can still counts, through the ball's own.)
     });
     body.createFixture(new Box((CAN_WIDTH / 2) * U, (CAN_HEIGHT / 2) * U), {
       density: CAN_DENSITY,
@@ -391,20 +394,8 @@ export class Court {
     for (const can of [...this.cans]) this.removeCan(can.id);
   }
 
-  /** Send a ball or a can flying along a unit direction, as if struck. */
+  /** Send a ball flying along a unit direction, as if struck. A can is not struck: a tap on it does nothing. */
   hit(id: number, dirX: number, dirY: number): void {
-    const can = this.cans.find((c) => c.id === id);
-    const canBody = this.canBodies.get(id);
-    if (can && canBody) {
-      if (can.held) return;
-      const v = canBody.getLinearVelocity();
-      canBody.setLinearVelocity({
-        x: dirX * params.hitSpeed * U + v.x * params.hitCarryOver,
-        y: dirY * params.hitSpeed * U + v.y * params.hitCarryOver,
-      });
-      canBody.setAwake(true);
-      return;
-    }
     const ball = this.balls.find((b) => b.id === id);
     const body = this.bodies.get(id);
     if (!ball || !body || ball.held) return;
@@ -589,7 +580,14 @@ export class Court {
    * hard as `canGrip` allows and no harder.
    */
   private keepHolding(body: Body, hold: MouseJoint): void {
-    hold.setTarget({ x: this.target.x * U, y: this.target.y * U });
+    // The spring is pulled toward the pointer, which may be past the side walls (a finger has screen to spare past the page). Pulled
+    // there it would drag the can through the wall's thin edge, so the target stays where the can's own extent, from the point it
+    // hangs by, is still inside the court: the can meets the wall as a ball does and stops.
+    const angle = body.getAngle();
+    const half = (CAN_WIDTH / 2) * Math.abs(Math.cos(angle)) + (CAN_HEIGHT / 2) * Math.abs(Math.sin(angle));
+    const off = (body.getPosition().x - hold.getAnchorB().x) / U; // from the point it hangs by to its middle, meters
+    const x = Math.min(this.width - half - off, Math.max(half - off, this.target.x));
+    hold.setTarget({ x: x * U, y: this.target.y * U });
     const turned = Math.atan2(Math.sin(body.getAngle()), Math.cos(body.getAngle()));
     const grip = params.canGrip;
     const torque = -GRIP_STIFFNESS * grip * turned - GRIP_DAMPING * grip * body.getAngularVelocity();

@@ -66,9 +66,9 @@ const GAP_CLOSED = 20;
 /** The shut bag's top (its back top edge) above its bottom front edge, mm. */
 const BAG_TOP = 292 - BAG_D[1];
 /** On a short window (a wide desktop, a phone held sideways) less of the bench shows, down to this much of its front. */
-const MIN_SHOWS = 40;
-/** Then the cans and the notebook stop lower in the bag, by up to this much: they still show their tops. */
-const MAX_SINK = 100;
+const MIN_SHOWS = 96;
+/** Then the cans and the notebook stop lower in the bag, by up to this much (they come most of the way out); the scene is drawn smaller to make room. */
+const MAX_SINK = 45;
 /** The corner buttons' size and their gap from the window's edges (the "?" sits alone at the bottom right). */
 const CHIP_ZONE = 12 + 44 + 8;
 
@@ -129,7 +129,7 @@ export interface SceneLayout {
  * Lay the scene out for a window and the name in it. At real size wherever it fits: a short window first shows less of
  * the bench, then lets what is in the bag stop lower, and only then draws the scene smaller.
  */
-export function sceneLayout(width: number, height: number, name: NameLayout): SceneLayout {
+export function sceneLayout(width: number, height: number, name: NameLayout, lift = 0): SceneLayout {
   const real = name.ballPx / 67;
   let nameRight = -Infinity;
   for (const letter of name.letters) for (const loop of letter.loops) for (const p of loop) nameRight = Math.max(nameRight, p.x);
@@ -160,6 +160,17 @@ export function sceneLayout(width: number, height: number, name: NameLayout): Sc
     // last resort: smaller than real, just enough for the shut bag and the tops of what is in it to clear the name
     if (needs(MIN_SHOWS, MAX_SINK) * k > roomPx) k = roomPx / needs(MIN_SHOWS, MAX_SINK);
     sink = Math.max(0, Math.min(MAX_SINK, MIN_SHOWS + seat + OPEN_REACH + GAP_OPEN - roomPx / k));
+  }
+
+  // On a touch screen the floor is lifted `lift` px off the window's bottom (QWW-83). A ball on the seat has to rest on the seat, not
+  // on that floor above it: so enough of the bench shows that its seat line is at or above the lifted floor, and the scene is drawn
+  // smaller to make room. (It also changes k, which changes how much that is: a few rounds settle it.)
+  for (let round = 0; lift > 0 && round < 8; round++) {
+    const seatShows = lift / k + BENCH.D[1] * 0.5; // D[1] is negative: the seat line is half the bench's depth above its front edge
+    if (shows >= seatShows - 1e-6) break;
+    shows = seatShows;
+    if (needs(shows, MAX_SINK) * k > roomPx) k = roomPx / needs(shows, MAX_SINK);
+    sink = Math.max(0, Math.min(MAX_SINK, shows + seat + OPEN_REACH + GAP_OPEN - roomPx / k));
   }
 
   const bd: P = [BENCH.D[0] * k, BENCH.D[1] * k];
@@ -375,8 +386,8 @@ export class Scene {
   }
 
   /** Lay the scene out for the window. Returns the solid shapes that never change: the bench and the bag, page px. */
-  place(width: number, height: number, name: NameLayout): { bench: P[]; bag: P[] } {
-    const L = (this.layout = sceneLayout(width, height, name));
+  place(width: number, height: number, name: NameLayout, lift = 0): { bench: P[]; bag: P[] } {
+    const L = (this.layout = sceneLayout(width, height, name, lift));
     const { k } = L;
     put(this.benchSvg, bench().vb, [0, 0], [L.benchX, L.floorFrontY], k);
     put(this.towelSvg, towel().vb, [0, 0], L.towelAt, k);

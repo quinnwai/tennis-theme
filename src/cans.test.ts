@@ -31,13 +31,13 @@ function run(court: Court, seconds: number, watch?: () => void): void {
 const atRest = (court: Court) => court.balls.every((b) => Math.hypot(b.vx, b.vy) < 0.001);
 
 /** A court with the bench and the bag in it, as the page builds one for a window `w` by `h` px (letters left out). */
-function courtWithScene(w = 1280, h = 800) {
+function courtWithScene(w = 1280, h = 800, lift = 0) {
   const name = layoutName(w, h, WORDMARKS.ubuntu, params.ballScale);
-  const L = sceneLayout(w, h, name);
+  const L = sceneLayout(w, h, name, lift);
   const px = name.ballPx / params.ballDiameter;
   const toM = ([x, y]: P): { x: number; y: number } => ({ x: x / px, y: (h - y) / px });
   const solids = sceneSolids(L);
-  const court = new Court(w / px, h / px, [], [], 0, [solids.bench.map(toM)]);
+  const court = new Court(w / px, h / px, [], [], lift / px, [solids.bench.map(toM)]);
   court.setBag([solids.bag.map(toM)]);
   return { L, court, px, toM, solids };
 }
@@ -212,14 +212,34 @@ describe("a can", () => {
     expect(furthest).toBeLessThan(1.5 - 0.039);
   });
 
-  it("flies off when hit, the way a ball does", () => {
+  it("is not knocked by a hit: a tap on a can leaves it where it was", () => {
     const court = new Court(WIDTH, HEIGHT);
     const can = court.addCan(1, CAN_HEIGHT / 2);
     params.hitSpeed = 3;
     court.hit(can.id, 0, 1);
-    court.step();
-    expect(can.vy).toBeGreaterThan(2.5);
-    expect(Math.abs(can.vx)).toBeLessThan(0.1);
+    run(court, 0.5);
+    expect(Math.abs(can.vy)).toBeLessThan(0.05);
+    expect(can.x).toBeCloseTo(1, 2);
+  });
+
+  it("makes no sound when it lands: a can meeting the floor is not an impact", () => {
+    const court = new Court(WIDTH, HEIGHT);
+    court.addCan(1, 0.8);
+    let impacts = 0;
+    run(court, 1.5, () => (impacts += court.impacts.length));
+    expect(impacts).toBe(0);
+  });
+
+  it("still lets a ball that meets it count as an impact", () => {
+    const court = new Court(WIDTH, HEIGHT);
+    court.addCan(1.5, CAN_HEIGHT / 2);
+    const ball = court.addBall(0.5, RADIUS, false);
+    params.hitSpeed = 3;
+    court.hit(ball.id, 1, 0);
+    let impacts = 0;
+    run(court, 1, () => (impacts += court.impacts.length));
+    expect(ball.x).toBeLessThan(1.5);
+    expect(impacts).toBeGreaterThan(0);
   });
 
   it("goes out past the side lines, as a ball does, and is reported with the balls that went", () => {
@@ -230,6 +250,41 @@ describe("a can", () => {
     expect(court.cans).toHaveLength(0);
   });
 
+  it("stays between the side walls while it is carried, with the pointer anywhere past them", () => {
+    for (const side of [-1, 1]) {
+      for (const past of [0.075, 0.225]) {
+        // (0.075 and 0.225 m are about 40 and 120 px on a 1280 px window)
+        const court = new Court(WIDTH, HEIGHT);
+        const start = side < 0 ? 0.5 : WIDTH - 0.5;
+        const can = court.addCan(start, CAN_HEIGHT / 2);
+        court.grab(can.id, { x: can.x, y: can.y });
+        const to = side < 0 ? -past : WIDTH + past;
+        let furthest = 0; // how far the can's middle was ever past the wall
+        for (let i = 0; i < Math.round(3 / STEP); i++) {
+          court.carryTo(start + ((to - start) * Math.min(1, i / 60)), CAN_HEIGHT / 2);
+          court.step();
+          furthest = Math.max(furthest, side < 0 ? -can.x : can.x - WIDTH);
+        }
+        expect(court.cans, `still on the court, pointer ${past} m past the ${side < 0 ? "left" : "right"} wall`).toHaveLength(1);
+        expect(furthest, "its middle never went past the wall").toBeLessThanOrEqual(0);
+        const half = Math.abs(side < 0 ? can.x : WIDTH - can.x);
+        expect(half, "its side is inside the wall").toBeGreaterThan(CAN_HEIGHT / 2 * Math.abs(Math.sin(can.angle)) + 0.039 - 0.02);
+      }
+    }
+  });
+
+  it("passes through what else stands in the open bag while it is lifted out, so a can drawn smaller than real is not thrown by its neighbours' lids", () => {
+    const court = new Court(WIDTH, HEIGHT);
+    const rect = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    court.setBag([rect(0.8, 0.1, 1.4, 0.7)]);
+    court.setSolids([rect(1.0, 0.45, 1.1, 0.5)]); // a lid right where the can's body is
+    const can = court.addCan(1.05, 0.4, 0, CAN_BALLS, 0, true);
+    court.grab(can.id, { x: 1.05, y: 0.5 });
+    run(court, 0.3);
+    expect(Math.abs(can.y - 0.4), "it stays where the hand holds it").toBeLessThan(0.02);
+    expect(Math.abs(can.angle)).toBeLessThan(0.2);
+  });
+
   it("is taken off the court by clearCans, even when it is in somebody's hand", () => {
     const court = new Court(WIDTH, HEIGHT);
     const can = court.addCan(1, CAN_HEIGHT / 2);
@@ -237,6 +292,46 @@ describe("a can", () => {
     court.clearCans();
     expect(court.cans).toHaveLength(0);
     run(court, 0.5); // nothing is left holding on to a can that is gone
+  });
+});
+
+describe("the scene on a phone", () => {
+  const PHONES = [
+    [750, 280],
+    [844, 390],
+    [863, 360],
+    [1280, 800],
+    [1920, 1080],
+  ];
+
+  it("lets the open bag sink what is in it by at most 45 mm, whatever the window, with the floor lifted or not", () => {
+    for (const [w, h] of PHONES) {
+      for (const lift of [0, 30]) {
+        const { L } = courtWithScene(w, h, lift);
+        expect(L.sink, `sink at ${w}x${h}, lift ${lift}`).toBeLessThanOrEqual(45 + 1e-6);
+      }
+    }
+  });
+
+  it("is drawn about 66 percent of real size at 750 x 280, with the cans and the notebook coming further out", () => {
+    const { L } = courtWithScene(750, 280, 30);
+    expect(L.scale).toBeGreaterThan(0.6);
+    expect(L.scale).toBeLessThan(0.72);
+    expect(L.sink).toBeCloseTo(45, 0);
+  });
+
+  it("shows enough of the bench on a touch screen that a ball over the seat rests on the seat, within 1 px", () => {
+    for (const [w, h] of PHONES) {
+      const lift = 30;
+      const { L, court, px, toM } = courtWithScene(w, h, lift);
+      expect(L.benchSurfaceY, `the seat line is at or above the lifted floor at ${w}x${h}`).toBeLessThanOrEqual(h - lift + 0.01);
+      const x = L.benchX + 150 * L.k * 2; // clear seat left of the bag
+      const at = toM([x, L.benchSurfaceY - 200]);
+      const ball = court.addBall(at.x, at.y, false);
+      run(court, 6);
+      const underside = h - (ball.y - RADIUS) * px;
+      expect(Math.abs(underside - L.benchSurfaceY), `a ball rests on the seat at ${w}x${h}`).toBeLessThan(1);
+    }
   });
 });
 

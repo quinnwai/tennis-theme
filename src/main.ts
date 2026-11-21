@@ -58,6 +58,8 @@ function main(): void {
   let homes: Home[] = [];
   let simMs = 0;
   let lastHit: { id: number; dir: Vec; at: Vec } | null = null;
+  /** Set by Restart, until the next supply: the dots come back without the rising pop. */
+  let restarted = false;
   /** The solid shapes of the bench and the bag, page px, for keeping poured balls out of them. */
   let sceneLoops: [number, number][][] = [];
 
@@ -148,7 +150,7 @@ function main(): void {
     });
 
     // The bench stands right of the middle, cut off by the window's bottom, and the bag stands on its seat.
-    const placed = scene.place(renderer.width, renderer.height, layout);
+    const placed = scene.place(renderer.width, renderer.height, layout, floor * pxPerMeter);
     sceneLoops = [placed.bench, placed.bag];
     court = new Court(
       width,
@@ -275,6 +277,7 @@ function main(): void {
     views,
     {
       hit(id, dir, at) {
+        if (court.cans.some((c) => c.id === id)) return; // a tap on a can does nothing
         noteInteraction();
         court.hit(id, dir.x, -dir.y);
         renderer.burst(at.x, at.y, performance.now());
@@ -328,7 +331,8 @@ function main(): void {
       rising = true;
     }
     // One sound, even when the clear button has both dots rising in the same instant.
-    if (rising) sound.play("rising");
+    if (rising && !restarted) sound.play("rising");
+    restarted = false;
   }
 
   function stepOnce(): void {
@@ -348,6 +352,7 @@ function main(): void {
     for (const ball of [...court.balls]) court.remove(ball.id);
     court.clearCans();
     scene.reset();
+    restarted = true;
     for (const home of homes) {
       home.ballId = null;
       home.risingSince = null;
