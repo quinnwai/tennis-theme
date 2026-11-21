@@ -69,14 +69,9 @@ export const params = {
   soundOut: 0.65, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
-  soundMaxVoices: 4, // the most sounds playing at once; past that, the oldest give way
-  soundSoftGain: 0.5, // the soft level plays everything at this share of medium (about -6 dB); it is the level a new visitor gets
-  soundLoudGain: 1.6, // the loud level; no single sound goes past the loudest the file can be, so the ones already near it gain less
-  // A phone's speaker has no bass and a peaky upper midrange, which is what makes bright sounds harsh on it. Everything
-  // passes one filter on the way out: a shelf that turns the highs down, then a low-pass that takes the very top off.
-  soundShelfDb: -4, // dB; how far the highs above soundShelfHz are turned down (0 leaves them alone)
-  soundShelfHz: 4000,
-  soundLowpassHz: 9500, // nothing above this gets through (22000 leaves it open)
+  soundMaxVoices: 4, // the most sounds playing at once, not counting the hit, which is never cut short; past that, the oldest give way
+  soundSoftGain: 0.1, // the soft level plays everything at this share of medium (-20 dB); it is the level a new visitor gets
+  soundLoudGain: 2, // the loud level; no single sound goes past the loudest the file can be, so the ones already near it gain less
 
   // The buttons in the corners are icons with no circle (but for the "?"), all one tone and one size. The tone runs from the page's navy
   // (0, which fades them away) to white (1); a button turns fully white under the pointer. The size is the icon's width

@@ -82,12 +82,6 @@ export interface GainNodeLike extends AudioNodeLike {
   readonly gain: { value: number; setTargetAtTime(target: number, startTime: number, timeConstant: number): unknown };
 }
 
-export interface BiquadFilterLike extends AudioNodeLike {
-  type: string;
-  readonly frequency: { value: number };
-  readonly gain: { value: number };
-}
-
 export interface CompressorLike extends AudioNodeLike {
   readonly threshold: { value: number };
   readonly knee: { value: number };
@@ -110,7 +104,6 @@ export interface AudioContextLike {
   resume(): Promise<void>;
   suspend(): Promise<void>;
   createGain(): GainNodeLike;
-  createBiquadFilter(): BiquadFilterLike;
   createDynamicsCompressor(): CompressorLike;
   createBufferSource(): BufferSourceLike;
 }
@@ -177,26 +170,19 @@ const SLEEP_AFTER = 3000;
 const WHILE_WAKING = 2;
 
 /**
- * What every sound passes through on the way to the speaker. A shelf turns the highs down and a low-pass takes the
- * very top off, because a phone's small speaker has almost no bass and a peaky upper midrange, which makes bright
- * sounds harsh. Then a limiter, which only acts when several sounds pile up past full scale. Nothing here is
- * audible on a sound that is quiet and dull to begin with, apart from the highs being a little lower.
+ * What every sound passes through on the way to the speaker: a limiter, which only acts when several sounds pile
+ * up past full scale. There is no tone filter. An analysis of the files showed the hit's energy sits at 0.5 to 2 kHz,
+ * not in the highs, so cutting the highs changed nothing audible, and the first version's filter was dropped.
  */
 function buildMaster(ctx: AudioContextLike) {
-  const shelf = ctx.createBiquadFilter();
-  shelf.type = "highshelf";
-  const lowpass = ctx.createBiquadFilter();
-  lowpass.type = "lowpass";
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -6;
   limiter.knee.value = 6;
   limiter.ratio.value = 12;
   limiter.attack.value = 0.003;
   limiter.release.value = 0.1;
-  shelf.connect(lowpass);
-  lowpass.connect(limiter);
   limiter.connect(ctx.destination);
-  return { input: shelf, shelf, lowpass };
+  return { input: limiter as AudioNodeLike };
 }
 
 /** A sound that is playing: when it ends, and how to cut it short. */
@@ -208,7 +194,7 @@ interface Voice {
 /**
  * The toy's sounds. Each one answers something the visitor did, and the page asks for it with `play` or
  * `bounce`. Nothing is heard before the visitor has done something on the page, or while sound is switched
- * off, and no more than `soundMaxVoices` sounds play at once, so a court full of balls is a patter and not
+ * off, and no more than `soundMaxVoices` sounds play at once (the hit is never one of them, and never cut short), so a court full of balls is a patter and not
  * a wall of noise.
  */
 export class Sound {
@@ -229,8 +215,8 @@ export class Sound {
    */
   private asleep = true;
   private sleepTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Where every sound goes on its way out: the filter and then the limiter (see `buildMaster`). */
-  private master: { input: AudioNodeLike; shelf: BiquadFilterLike; lowpass: BiquadFilterLike } | null = null;
+  /** Where every sound goes on its way out: the limiter (see `buildMaster`). */
+  private master: { input: AudioNodeLike } | null = null;
   private buffers = new Map<SoundName, AudioBufferLike>();
   private voices: Voice[] = [];
 
@@ -295,24 +281,21 @@ export class Sound {
     this.wake();
     const now = ctx.currentTime;
     this.voices = this.voices.filter((voice) => voice.endsAt > now);
-    if (ctx.state !== "running" && this.voices.length >= WHILE_WAKING) return;
+    const isHit = name === "hit"; // the hit is never interrupted, and is not counted in the most sounds at once
+    if (!isHit && ctx.state !== "running" && this.voices.length >= WHILE_WAKING) return;
     try {
-      // Make room for this one: the oldest sounds, the nearest to finished, give way.
+      // Make room for this one: the oldest sounds, the nearest to finished, give way. The hit needs no room.
       const room = Math.max(1, Math.floor(params.soundMaxVoices));
-      while (this.voices.length >= room) this.voices.shift()!.cut(now);
+      while (!isHit && this.voices.length >= room) this.voices.shift()!.cut(now);
 
       const source = ctx.createBufferSource();
       const gain = ctx.createGain();
       source.buffer = buffer;
       gain.gain.value = volume;
       source.connect(gain);
-      const master = this.master!;
-      // The filter's numbers are read as each sound starts, so that the ?tune sliders are heard at once.
-      master.shelf.gain.value = params.soundShelfDb;
-      master.shelf.frequency.value = params.soundShelfHz;
-      master.lowpass.frequency.value = params.soundLowpassHz;
-      gain.connect(master.input);
+      gain.connect(this.master!.input);
       source.start(now, from, length);
+      if (isHit) return; // the hit is never one of the voices that can give way, nor cut short
       this.voices.push({
         endsAt: now + length,
         cut(at) {

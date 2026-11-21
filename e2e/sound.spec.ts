@@ -87,19 +87,6 @@ function fakeAudio() {
       };
       return gain;
     }
-    createBiquadFilter() {
-      const filter: any = {
-        kind: "filter",
-        type: "lowpass",
-        frequency: { value: 350 },
-        gain: { value: 0 },
-        connect(to: unknown) {
-          filter.to = to;
-        },
-      };
-      log.nodes.push(filter);
-      return filter;
-    }
     createDynamicsCompressor() {
       const limiter: any = {
         kind: "limiter",
@@ -406,14 +393,13 @@ test("the sound button steps off, soft, medium, loud: nothing is heard at off, a
   expect((await voices(page)).length).toBeGreaterThan(heard);
 });
 
-test("every sound passes the highs-cutting shelf, then the low-pass, then the limiter, on its way out", async ({ page }) => {
+test("every sound passes the limiter and nothing else (no tone filter) on its way out", async ({ page }) => {
   await open(page);
   await knockOffFirstDot(page);
   const { chains, nodes } = await page.evaluate(() => (window as any).__audio as AudioLog);
   expect(chains.length).toBeGreaterThan(0);
-  for (const chain of chains) expect(chain).toEqual(["highshelf", "lowpass", "limiter", "destination"]);
-  const shelf = nodes.find((n) => n.type === "highshelf")!;
-  expect(shelf.gain!.value).toBeLessThan(0);
+  for (const chain of chains) expect(chain).toEqual(["limiter", "destination"]);
+  expect(nodes.some((n) => n.kind === "filter")).toBe(false);
 });
 
 test("with the browser's own Web Audio, the sounds are made without a complaint and the toy keeps going", async ({ page }) => {
@@ -483,7 +469,7 @@ test("the files really decode in the browser, and start with the silence the pag
 test("with ?tune, every sound number has a slider that takes effect on the next sound and leaves the court alone", async ({ page }) => {
   await open(page, { address: "./?tune" });
   const sliders = page.locator("label", { hasText: "sound:" }).locator("input[type=range]");
-  const numbers = ["soundHit", "soundBounce", "soundRising", "soundOut", "soundBounceMinSpeed", "soundBounceFullSpeed", "soundMaxVoices", "soundSoftGain", "soundLoudGain", "soundShelfDb", "soundShelfHz", "soundLowpassHz"];
+  const numbers = ["soundHit", "soundBounce", "soundRising", "soundOut", "soundBounceMinSpeed", "soundBounceFullSpeed", "soundMaxVoices", "soundSoftGain", "soundLoudGain"];
   await expect(sliders).toHaveCount(numbers.length);
   // Each slider starts at the number in params, which is the one it will change.
   const start = await page.evaluate(
