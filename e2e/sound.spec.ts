@@ -153,12 +153,14 @@ const dot = (page: Page, index: number) =>
 /** Open the page with the audio stubbed out, and wait until the sound files are fetched and turned into sound. */
 async function open(page: Page, options: { soundSetting?: string | null; address?: string } = {}) {
   await page.addInitScript(fakeAudio);
-  // Medium plays every sound at exactly the volume in the settings, which is what most of these checks compare with; the
-  // ones about the levels say which they want, and `null` stores nothing, as for a visitor who has not pressed the button.
-  const setting = options.soundSetting === undefined ? "medium" : options.soundSetting;
+  // Most of these checks compare with the volumes in the settings, so unless a check says which setting it wants, the
+  // sound is on at full gain (the quiet level is set aside); `null` stores nothing, as for a visitor who has not pressed the button.
+  const fullGain = options.soundSetting === undefined;
+  const setting = fullGain ? "on" : options.soundSetting;
   if (setting) await page.addInitScript((value) => localStorage.setItem("site:sound", value), setting);
   await page.goto(options.address ?? "./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  if (fullGain) await page.evaluate(() => ((window as any).__sandbox.params.soundGain = 1));
   await page.waitForFunction("window.__audio.decoded === 4");
 }
 
@@ -340,7 +342,7 @@ test("with sound switched off, none of the four sounds plays; switched on again,
   expect(await voices(page)).toEqual([]);
 
   // The setting is read each time, so switching sound on needs no reload.
-  await page.evaluate(() => localStorage.setItem("site:sound", "medium"));
+  await page.evaluate(() => localStorage.setItem("site:sound", "on"));
   await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 3));
   await knockOffFirstDot(page);
   expect((await voicesOf(page, "hit")).length).toBe(1);
@@ -348,10 +350,10 @@ test("with sound switched off, none of the four sounds plays; switched on again,
 
 // The test above sets the stored value directly. This one uses the sound button itself, so that the button that writes
 // the setting and the sound that reads it are shown to agree about the key and the words.
-test("the sound button steps off, soft, medium, loud: nothing is heard at off, and each level after it is louder", async ({ page }) => {
+test("the sound button flips between on and off: nothing is heard at off, and on is quiet", async ({ page }) => {
   await open(page, { soundSetting: null });
   const button = page.getByRole("button", { name: /^Sound/ });
-  await expect(button).toHaveAttribute("aria-label", "Sound: soft"); // a new visitor starts soft
+  await expect(button).toHaveAttribute("aria-label", "Sound: on"); // a new visitor starts on
   const hitVolume = async () => {
     await page.evaluate(() => ((window as any).__sandbox.params.hitSpeed = 3));
     await knockOffFirstDot(page);
@@ -359,22 +361,9 @@ test("the sound button steps off, soft, medium, loud: nothing is heard at off, a
     return hits[hits.length - 1]?.volume;
   };
   const full = await volumeOf(page, "soundHit");
-  const soft = await hitVolume();
-  expect(soft).toBeCloseTo(full * (await volumeOf(page, "soundSoftGain")));
-  expect(soft).toBeLessThan(full);
-
-  await button.click();
-  await expect(button).toHaveAttribute("aria-label", "Sound: medium");
-  await advance(page, 6);
-  const medium = await hitVolume();
-  expect(medium).toBeCloseTo(full);
-
-  await button.click();
-  await expect(button).toHaveAttribute("aria-label", "Sound: loud");
-  await advance(page, 6);
-  const loud = await hitVolume();
-  expect(loud).toBeGreaterThan(medium!);
-  expect(loud).toBeLessThanOrEqual(1);
+  const on = await hitVolume();
+  expect(on).toBeCloseTo(full * (await volumeOf(page, "soundGain")));
+  expect(on).toBeLessThan(full);
 
   await button.click();
   await expect(button).toHaveAttribute("aria-label", "Sound: off");
@@ -388,7 +377,7 @@ test("the sound button steps off, soft, medium, loud: nothing is heard at off, a
 
   // The setting is read at each sound, so the next click needs no reload.
   await button.click();
-  await expect(button).toHaveAttribute("aria-label", "Sound: soft");
+  await expect(button).toHaveAttribute("aria-label", "Sound: on");
   await knockOffFirstDot(page);
   expect((await voices(page)).length).toBeGreaterThan(heard);
 });
@@ -409,7 +398,7 @@ test("with the browser's own Web Audio, the sounds are made without a complaint 
   page.on("console", (message) => {
     if (message.type() === "warning" || message.type() === "error") warnings.push(message.text());
   });
-  await page.addInitScript(() => localStorage.setItem("site:sound", "loud"));
+  await page.addInitScript(() => localStorage.setItem("site:sound", "on"));
   await page.goto("./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   await page.waitForTimeout(500); // the files are fetched and decoded
@@ -420,19 +409,19 @@ test("with the browser's own Web Audio, the sounds are made without a complaint 
   expect(warnings.filter((text) => /sound/i.test(text))).toEqual([]);
 });
 
-test("no setting stored means the soft level", async ({ page }) => {
+test("no setting stored means on", async ({ page }) => {
   await open(page, { soundSetting: null });
   expect(await page.evaluate(() => localStorage.getItem("site:sound"))).toBeNull();
-  await expect(page.getByRole("button", { name: "Sound: soft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sound: on" })).toBeVisible();
   await knockOffFirstDot(page);
   const hits = await voicesOf(page, "hit");
   expect(hits.length).toBe(1);
   expect(hits[0].volume).toBeLessThan(await volumeOf(page, "soundHit"));
 });
 
-test("another skin's stored on still plays sound, at the soft level", async ({ page }) => {
+test("another skin's stored on still plays sound", async ({ page }) => {
   await open(page, { soundSetting: "on" });
-  await expect(page.getByRole("button", { name: "Sound: soft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sound: on" })).toBeVisible();
   await knockOffFirstDot(page);
   expect((await voicesOf(page, "hit")).length).toBe(1);
 });
@@ -454,7 +443,7 @@ test("the files really decode in the browser, and start with the silence the pag
     return out;
   });
   const find = (word: string) => Object.entries(decoded).find(([name]) => name.includes(word))![1];
-  expect(find(FILE.hit).duration).toBeCloseTo(0.85, 1); // the file is softened and trimmed to its sounding part
+  expect(find(FILE.hit).duration).toBeCloseTo(4.03, 1);
   expect(find(FILE.bounce).duration).toBeCloseTo(0.888, 1);
   expect(find(FILE.rising).duration).toBeCloseTo(0.189, 1);
   expect(find(FILE.out).duration).toBeCloseTo(0.708, 1);
@@ -462,14 +451,14 @@ test("the files really decode in the browser, and start with the silence the pag
   expect(find(FILE.hit).quietUntil).toBeGreaterThan(0.02);
   expect(find(FILE.bounce).quietUntil).toBeGreaterThan(0.04);
   // ...and has by a few milliseconds after, so skipping them cuts nothing off.
-  expect(find(FILE.hit).quietUntil).toBeLessThan(0.035); // the softened hit fades in over 8 ms, so it is audible a little later
+  expect(find(FILE.hit).quietUntil).toBeLessThan(0.03);
   expect(find(FILE.bounce).quietUntil).toBeLessThan(0.055);
 });
 
 test("with ?tune, every sound number has a slider that takes effect on the next sound and leaves the court alone", async ({ page }) => {
-  await open(page, { address: "./?tune" });
+  await open(page, { address: "./?tune", soundSetting: "on" });
   const sliders = page.locator("label", { hasText: "sound:" }).locator("input[type=range]");
-  const numbers = ["soundHit", "soundBounce", "soundRising", "soundOut", "soundBounceMinSpeed", "soundBounceFullSpeed", "soundMaxVoices", "soundSoftGain", "soundLoudGain"];
+  const numbers = ["soundHit", "soundBounce", "soundRising", "soundOut", "soundBounceMinSpeed", "soundBounceFullSpeed", "soundMaxVoices", "soundGain"];
   await expect(sliders).toHaveCount(numbers.length);
   // Each slider starts at the number in params, which is the one it will change.
   const start = await page.evaluate(
@@ -483,7 +472,7 @@ test("with ?tune, every sound number has a slider that takes effect on the next 
   await page.getByLabel("sound: hit volume").fill("0.2");
   expect(await volumeOf(page, "soundHit")).toBeCloseTo(0.2);
   await knockOffDot(page, 1);
-  expect((await voicesOf(page, "hit"))[0].volume).toBeCloseTo(0.2);
+  expect((await voicesOf(page, "hit"))[0].volume).toBeCloseTo(0.2 * (await volumeOf(page, "soundGain"))); // the level when on still applies
 
   // Moving a slider must leave the toy alone: a rebuilt court would stop every ball in the air, and makes the
   // name's layout afresh, so a new layout is how to tell. (Checked in one step, so that no ball moves between.)

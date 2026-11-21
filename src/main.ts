@@ -269,9 +269,8 @@ function main(): void {
   });
   clearButton.addEventListener("click", reset);
 
-  // The sound button only keeps the setting: it shows it, steps to the next level on a click (off, soft, medium, loud,
-  // and round again), and stores it for the next visit. Whatever makes a sound reads the same setting from storage
-  // (see sound-setting.ts). Its icon and its label both say which level it is at.
+  // The sound button only keeps the setting: it shows it, flips between on and off on a click, and stores it for the next visit. Whatever makes a sound reads the same setting from storage
+  // (see sound-setting.ts). Its icon and its label both say which it is at.
   let soundLevel = readSound();
   const showSound = () => {
     soundChip.dataset.level = soundLevel;

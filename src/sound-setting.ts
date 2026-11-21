@@ -1,30 +1,29 @@
 /**
- * How loud the visitor wants the sound, kept in browser storage under "site:sound" so that it is remembered from
+ * Whether the visitor wants sound, kept in browser storage under "site:sound" so that it is remembered from
  * visit to visit and shared by every skin of the homepage (the "site:" prefix is for settings shared that way).
  *
- * There are four levels, which the sound button steps through in this order. Nothing is stored until the visitor
- * first presses the button, and a missing key means `DEFAULT_SOUND`: soft, because a toy cannot know how loud the
- * phone is turned up or what else is playing, and a quiet start is the polite one. The earlier skins stored only
- * "on" and "off", and a skin that has not been taught the levels still does, so "on" is read as the default level;
- * "off" has always meant off. Anything else stored is read as the default level too. Only the button writes it.
- * Whatever makes a sound reads it first, each time.
+ * There are two settings: on, which plays at one quiet level (a toy cannot know what else is playing on the
+ * phone, so a quiet start is the polite one), and off, which is mute. The button flips between them. Nothing is
+ * stored until the visitor first presses it, and a missing key means on. Only an explicit "off" has ever meant
+ * off, so anything else stored (the earlier "soft", "medium" and "loud", another skin's "on") is read as on.
+ * Only the button writes it. Whatever makes a sound reads it first, each time.
  */
 export const SOUND_KEY = "site:sound";
 
-export const SOUND_LEVELS = ["off", "soft", "medium", "loud"] as const;
+export const SOUND_LEVELS = ["on", "off"] as const;
 
 export type SoundSetting = (typeof SOUND_LEVELS)[number];
 
-export const DEFAULT_SOUND: SoundSetting = "soft";
+export const DEFAULT_SOUND: SoundSetting = "on";
 
-/** The level a stored word means. */
+/** The setting a stored word means: "off" is off, and anything else is on. */
 export function parseSound(stored: string | null): SoundSetting {
-  return (SOUND_LEVELS as readonly string[]).includes(stored ?? "") ? (stored as SoundSetting) : DEFAULT_SOUND;
+  return stored === "off" ? "off" : "on";
 }
 
-/** The level after this one, in the order the button steps through them, wrapping from loud to off. */
+/** The other setting. */
 export function nextSound(level: SoundSetting): SoundSetting {
-  return SOUND_LEVELS[(SOUND_LEVELS.indexOf(level) + 1) % SOUND_LEVELS.length];
+  return level === "on" ? "off" : "on";
 }
 
 /**

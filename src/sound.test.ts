@@ -6,7 +6,7 @@ import {
   SOUNDS,
   bounceLoudness,
   isMuted,
-  mixWithOtherAudio,
+  playThroughSilentSwitch,
   wakeOnGesture,
   type AudioContextLike,
   type AudioNodeLike,
@@ -216,19 +216,15 @@ describe("bounceLoudness", () => {
 });
 
 describe("levelGain", () => {
-  it("is nothing at off, and louder at each level after it, with medium as the volumes in params as they are", () => {
+  it("is nothing at off, and the quiet level at on", () => {
     expect(levelGain("off")).toBe(0);
-    expect(levelGain("medium")).toBe(1);
-    expect(levelGain("soft")).toBeGreaterThan(0);
-    expect(levelGain("soft")).toBeLessThan(levelGain("medium"));
-    expect(levelGain("loud")).toBeGreaterThan(levelGain("medium"));
+    expect(levelGain("on")).toBeGreaterThan(0);
+    expect(levelGain("on")).toBeLessThan(1);
   });
 
-  it("follows the numbers in params, so that the sliders work", () => {
-    params.soundSoftGain = 0.2;
-    params.soundLoudGain = 3;
-    expect(levelGain("soft")).toBe(0.2);
-    expect(levelGain("loud")).toBe(3);
+  it("follows the number in params, so that the slider works", () => {
+    params.soundGain = 0.2;
+    expect(levelGain("on")).toBe(0.2);
   });
 });
 
@@ -236,8 +232,7 @@ describe("isMuted", () => {
   it("is on until the visitor says off: nothing stored yet counts as on, and so does the old on", () => {
     expect(isMuted(() => null)).toBe(false);
     expect(isMuted(() => "on")).toBe(false);
-    expect(isMuted(() => "soft")).toBe(false);
-    expect(isMuted(() => "loud")).toBe(false);
+    expect(isMuted(() => "soft")).toBe(false); // an old level counts as on
     expect(isMuted(() => "off")).toBe(true);
   });
 
@@ -399,23 +394,14 @@ describe("Sound", () => {
     ]);
   });
 
-  it("plays everything at the level the visitor chose: soft quieter than medium, loud louder, never past the loudest a file can be", async () => {
+  it("plays everything at the quiet level when on, never past the loudest a file can be", async () => {
     const { sound, started, state } = await awake();
-    const volumes: Record<string, number> = {};
-    for (const level of ["soft", "medium", "loud"] as const) {
-      state.gain = levelGain(level);
-      sound.play("hit");
-      sound.play("out");
-      volumes[level] = started[started.length - 2].volume;
-    }
-    expect(volumes.soft).toBeCloseTo(defaults.soundHit * defaults.soundSoftGain);
-    expect(volumes.medium).toBeCloseTo(defaults.soundHit);
-    expect(volumes.loud).toBeCloseTo(defaults.soundHit * defaults.soundLoudGain);
-    expect(volumes.soft).toBeLessThan(volumes.medium);
-    expect(volumes.medium).toBeLessThan(volumes.loud);
-    // ball out is already near the top (0.65), so loud cannot lift it by the whole of the loud gain
-    expect(Math.max(...started.map((s) => s.volume))).toBeLessThanOrEqual(1);
-    params.soundOut = 1;
+    state.gain = levelGain("on");
+    sound.play("hit");
+    expect(started[started.length - 1].volume).toBeCloseTo(defaults.soundHit * defaults.soundGain);
+    params.soundOut = 20;
+    params.soundGain = 1;
+    state.gain = levelGain("on");
     sound.play("out");
     expect(started[started.length - 1].volume).toBe(1);
   });
@@ -439,11 +425,9 @@ describe("Sound", () => {
     expect(limiters[0].ratio.value).toBeGreaterThan(4); // a limiter, not a gentle compressor
   });
 
-  it("starts the visitor at the soft level, quieter than the volumes in params, and the volumes are the tuned ones", () => {
-    expect(defaults).toMatchObject({ soundHit: 0.5, soundBounce: 0.15, soundRising: 0.5, soundOut: 0.65, soundMaxVoices: 4 });
-    expect(levelGain("soft")).toBe(0.1);
-    expect(levelGain("medium")).toBe(1);
-    expect(levelGain("loud")).toBe(2);
+  it("plays the tuned volumes at the quiet level, with the hit at half of what it was", () => {
+    expect(defaults).toMatchObject({ soundHit: 0.25, soundBounce: 0.15, soundRising: 0.5, soundOut: 0.65, soundMaxVoices: 4, soundGain: 0.1 });
+    expect(levelGain("on")).toBe(0.1);
   });
 
   it("plays no bounce for a soft contact, and some for a hard one", async () => {
@@ -611,15 +595,15 @@ describe("wakeOnGesture", () => {
   });
 });
 
-describe("mixWithOtherAudio", () => {
-  it("asks Safari to treat the page's audio as ambient, which mixes with a visitor's music and does not pause it", () => {
+describe("playThroughSilentSwitch", () => {
+  it("asks Safari to treat the page's audio as playback, which the iPhone's silent switch does not mute", () => {
     const nav = { audioSession: { type: "auto" } };
-    mixWithOtherAudio(nav);
-    expect(nav.audioSession.type).toBe("ambient");
+    playThroughSilentSwitch(nav);
+    expect(nav.audioSession.type).toBe("playback");
   });
 
   it("does nothing in a browser without an audio session, or one that refuses", () => {
-    expect(() => mixWithOtherAudio({})).not.toThrow();
+    expect(() => playThroughSilentSwitch({})).not.toThrow();
     const strict = {
       audioSession: {
         set type(_: string) {
@@ -630,6 +614,6 @@ describe("mixWithOtherAudio", () => {
         },
       },
     };
-    expect(() => mixWithOtherAudio(strict)).not.toThrow();
+    expect(() => playThroughSilentSwitch(strict)).not.toThrow();
   });
 });
