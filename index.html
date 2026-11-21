@@ -27,11 +27,13 @@
           <path d="M3 3v5h5" />
         </svg>
       </button>
-      <!-- On or off, remembered under "site:sound" (see src/sound-setting.ts). The icon shows the state: waves when on, a cross when off. -->
-      <button class="chip sound" type="button" role="switch" aria-checked="true" aria-label="Sound" title="Sound">
+      <!-- Off, soft, medium or loud, remembered under "site:sound" (see src/sound-setting.ts). The icon shows the level: no, one, two or three waves... a cross when off. The label and level are set by the script. -->
+      <button class="chip sound" type="button" data-level="soft" aria-label="Sound: soft" title="Sound: soft">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M2.4 9h4.2L12 4.2v15.6L6.6 15H2.4z" />
-          <path class="on" d="M16.2 8.6a4.8 4.8 0 0 1 0 6.8M19.4 5.5a9.1 9.1 0 0 1 0 13" />
+          <path class="wave w1" d="M15.2 10.4a4 4 0 0 1 0 3.2" />
+          <path class="wave w2" d="M17.6 8a7 7 0 0 1 0 8" />
+          <path class="wave w3" d="M20 5.5a11 11 0 0 1 0 13" />
           <path class="off" d="m16.3 9.1 5.7 5.8m0-5.8-5.7 5.8" />
         </svg>
       </button>

@@ -615,7 +615,7 @@ test("with ?tune, the blur and the dimming have sliders that work while the cred
 
 // ---- The corner buttons: credits, clear and sound in a row at the top right, the "?" at the bottom right, all bare icons ----
 
-const soundToggle = (page: Page) => page.getByRole("switch", { name: "Sound" });
+const soundToggle = (page: Page) => page.getByRole("button", { name: /^Sound/ });
 const clearButton = (page: Page) => page.getByRole("button", { name: "Clear the balls" });
 const contactButton = (page: Page) => page.getByRole("navigation", { name: "Contact" }).getByRole("button", { name: "Contact" });
 /** The four buttons that are always on the page. The info button is the credits one; the restart button is the clear one. */
@@ -912,6 +912,10 @@ test("the credits button is a book, not a letter", async ({ page }) => {
 // neighbours: the room its drawing takes, against the average of the book's and the restart arrow's, which it was a
 // third short of when it was first made (0.74).
 test("the speaker is about as big as the restart arrow and the book beside it", async ({ page }) => {
+  // At loud, with all three waves showing: the most room the speaker takes (soft, the start, shows only one).
+  await soundToggle(page).click();
+  await soundToggle(page).click();
+  await expect(soundToggle(page)).toHaveAttribute("aria-label", "Sound: loud");
   const areas = await page.evaluate(() => {
     // The room an icon's drawing takes, in px squared: the box round what is on show (the speaker keeps a cross for its
     // off state, hidden), with the thickness of the line added all round.
@@ -973,31 +977,58 @@ test("a ball dropped on the ? bounces off it instead of falling through", async 
   expect(closest).toBeGreaterThan(box.width / 2 + d.r - 4);
 });
 
-test("the sound toggle starts on, and nothing is stored until the visitor chooses", async ({ page }) => {
-  await expect(soundToggle(page)).toHaveAttribute("aria-checked", "true");
-  // A missing key means on, which is how the sound reads it too.
+test("the sound button starts at soft, and nothing is stored until the visitor chooses", async ({ page }) => {
+  await expect(soundToggle(page)).toHaveAttribute("aria-label", "Sound: soft");
+  await expect(soundToggle(page)).toHaveAttribute("title", "Sound: soft");
+  // A missing key means soft, which is how the sound reads it too.
   expect((await stored(page))["site:sound"]).toBeUndefined();
 });
 
-test("a click flips the sound toggle between on and off, and the icon shows which it is", async ({ page }) => {
+test("each click steps the sound button off, soft, medium, loud and round again, and the icon looks different at every level", async ({ page }) => {
   const toggle = soundToggle(page);
   const box = (await toggle.boundingBox())!;
-  // A picture of the toggle alone, with the pointer well away so that hovering does not tint it, and any fade finished.
+  // A picture of the button alone, with the pointer well away so that hovering does not tint it, and any fade finished.
   const picture = async () => {
     await page.mouse.move(700, 780);
     return page.screenshot({ clip: box, scale: "css", animations: "disabled" });
   };
 
-  const on = await picture();
+  const pictures: Record<string, Buffer> = { soft: await picture() };
+  for (const level of ["medium", "loud", "off"]) {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-label", `Sound: ${level}`);
+    pictures[level] = await picture();
+  }
   await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
-  const off = await picture();
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
-  const onAgain = await picture();
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: soft");
+  const softAgain = await picture();
 
-  expect(await differingPixels(page, off, on)).toBeGreaterThan(20); // the two states look different (waves against a cross)...
-  expect(await differingPixels(page, onAgain, on)).toBe(0); // ...and the same state looks the same, so that was no noise
+  // All four look different from each other (one wave, two, three, a cross)...
+  const levels = Object.keys(pictures);
+  for (const [i, one] of levels.entries()) {
+    for (const other of levels.slice(i + 1)) {
+      expect(await differingPixels(page, pictures[one], pictures[other]), `${one} against ${other}`).toBeGreaterThan(20);
+    }
+  }
+  // ...and the same level looks the same, so that was no noise.
+  expect(await differingPixels(page, softAgain, pictures.soft)).toBe(0);
+});
+
+test("the sound button shows one wave at soft, two at medium, three at loud and a cross at off", async ({ page }) => {
+  const toggle = soundToggle(page);
+  const shown = () =>
+    page.evaluate(() => {
+      const visible = (selector: string) =>
+        getComputedStyle(document.querySelector(`.chip.sound ${selector}`)!).display !== "none";
+      return { waves: [".w1", ".w2", ".w3"].filter(visible).length, cross: visible(".off") };
+    });
+  expect(await shown()).toEqual({ waves: 1, cross: false });
+  await toggle.click();
+  expect(await shown()).toEqual({ waves: 2, cross: false });
+  await toggle.click();
+  expect(await shown()).toEqual({ waves: 3, cross: false });
+  await toggle.click();
+  expect(await shown()).toEqual({ waves: 0, cross: true });
 });
 
 test("on a portrait phone, the turn-your-phone note sits below the row of buttons instead of running through it", async ({ page }) => {
@@ -1011,37 +1042,38 @@ test("on a portrait phone, the turn-your-phone note sits below the row of button
   }
 });
 
-test("the sound toggle works from the keyboard", async ({ page }) => {
+test("the sound button works from the keyboard", async ({ page }) => {
   const toggle = soundToggle(page);
   await toggle.focus();
   await page.keyboard.press("Space");
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: medium");
   await page.keyboard.press("Enter");
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: loud");
 });
 
-test("the sound toggle's choice is stored as site:sound, and survives a reload", async ({ page }) => {
+test("the sound button's choice is stored as site:sound, and survives a reload", async ({ page }) => {
   const toggle = soundToggle(page);
   const before = await stored(page);
 
   await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: medium");
   const after = await stored(page);
   // The one thing the click put in storage is the key that every skin of the homepage shares for this setting.
   expect(Object.keys(after).filter((key) => after[key] !== before[key])).toEqual(["site:sound"]);
-  expect(after["site:sound"]).toBe("off");
+  expect(after["site:sound"]).toBe("medium");
 
   await reload(page);
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: medium");
 
   await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
-  expect((await stored(page))["site:sound"]).toBe("on");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: off");
+  expect((await stored(page))["site:sound"]).toBe("off");
   await reload(page);
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: off");
 });
 
-test("with browser storage blocked, the page still starts and the sound toggle still flips", async ({ page }) => {
+test("with browser storage blocked, the page still starts and the sound button still steps", async ({ page }) => {
   // Some browsers throw at the mere mention of localStorage, for instance with all cookies blocked.
   await page.addInitScript(() => {
     Object.defineProperty(window, "localStorage", {
@@ -1053,9 +1085,9 @@ test("with browser storage blocked, the page still starts and the sound toggle s
   await page.goto("./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   const toggle = soundToggle(page);
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: soft");
   await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(toggle).toHaveAttribute("aria-label", "Sound: medium");
 });
 
 test("with ?tune, the buttons' tone and icon size have sliders that work, and moving the tone leaves the toy alone", async ({ page }) => {

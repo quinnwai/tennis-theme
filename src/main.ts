@@ -6,7 +6,7 @@ import { params } from "./params";
 import { Court, STEP, type Ball } from "./physics";
 import { Renderer, type BallSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
-import { readSound, writeSound } from "./sound-setting";
+import { nextSound, readSound, writeSound } from "./sound-setting";
 import { leavesTrail } from "./trail";
 import { mountTuner } from "./tune";
 import { layoutName, type NameLayout } from "./wordmark";
@@ -269,13 +269,19 @@ function main(): void {
   });
   clearButton.addEventListener("click", reset);
 
-  // The sound toggle only keeps the setting: it shows it, flips it on a click, and stores it for the next visit.
-  // Whatever makes a sound reads the same setting from storage (see sound-setting.ts).
-  let soundOn = readSound() === "on";
-  const showSound = () => soundChip.setAttribute("aria-checked", String(soundOn));
+  // The sound button only keeps the setting: it shows it, steps to the next level on a click (off, soft, medium, loud,
+  // and round again), and stores it for the next visit. Whatever makes a sound reads the same setting from storage
+  // (see sound-setting.ts). Its icon and its label both say which level it is at.
+  let soundLevel = readSound();
+  const showSound = () => {
+    soundChip.dataset.level = soundLevel;
+    const label = `Sound: ${soundLevel}`;
+    soundChip.setAttribute("aria-label", label);
+    soundChip.title = label;
+  };
   soundChip.addEventListener("click", () => {
-    soundOn = !soundOn;
-    writeSound(soundOn ? "on" : "off");
+    soundLevel = nextSound(soundLevel);
+    writeSound(soundLevel);
     showSound();
   });
   showSound();
