@@ -2,7 +2,7 @@
 // how many balls there can be, and how a can is carried and thrown. The page's own checks of the same things are in e2e/bench-bag.spec.ts.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { CAN_BALLS, CAN_COUNT, CAN_HEIGHT, isTipped, mouthDirection, tiltOf } from "./cans";
+import { CAN_BALLS, CAN_COUNT, CAN_HEIGHT, CAN_WIDTH, isTipped, mouthDirection, tiltOf } from "./cans";
 import { params } from "./params";
 import { Court, MAX_BALLS, STEP } from "./physics";
 import { BAG_ANCHOR, bagOutline, bagTopAt, type P } from "./v6/art";
@@ -250,26 +250,59 @@ describe("a can", () => {
     expect(court.cans).toHaveLength(0);
   });
 
-  it("stays between the side walls while it is carried, with the pointer anywhere past them", () => {
+  /** Carry a can to `(toX, toY)` over a second, hold it there 1.5 s, and report how far a corner of it ever went past the walls and the floor, and how far it turned. */
+  function carryAndHold(startX: number, toX: number, toY: number, floor = 0) {
+    const court = new Court(WIDTH, HEIGHT, [], [], floor);
+    const can = court.addCan(startX, floor + CAN_HEIGHT / 2 + 0.05);
+    court.grab(can.id, { x: can.x, y: can.y + CAN_HEIGHT * 0.4 }); // by its top, as a press does
+    let pastWall = 0;
+    let belowFloor = 0;
+    let turned = 0;
+    let angle = can.angle;
+    const corners = () =>
+      [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => ({
+        x: can.x + (sx * CAN_WIDTH) / 2 * Math.cos(can.angle) - (sy * CAN_HEIGHT) / 2 * Math.sin(can.angle),
+        y: can.y + (sx * CAN_WIDTH) / 2 * Math.sin(can.angle) + (sy * CAN_HEIGHT) / 2 * Math.cos(can.angle),
+      }));
+    const total = Math.round(2.5 / STEP);
+    for (let i = 0; i < total; i++) {
+      const p = Math.min(1, i / Math.round(1 / STEP));
+      court.carryTo(startX + (toX - startX) * p, can.y * 0 + (floor + CAN_HEIGHT / 2 + 0.05 + CAN_HEIGHT * 0.4) + (toY - (floor + CAN_HEIGHT / 2 + 0.05 + CAN_HEIGHT * 0.4)) * p);
+      court.step();
+      turned += Math.abs(can.angle - angle);
+      angle = can.angle;
+      if (i % Math.round(0.1 / STEP) === 0 || i === total - 1) {
+        for (const c of corners()) {
+          pastWall = Math.max(pastWall, -c.x, c.x - WIDTH);
+          belowFloor = Math.max(belowFloor, floor - c.y);
+        }
+      }
+    }
+    return { court, can, pastWall, belowFloor, turns: turned / (2 * Math.PI) };
+  }
+
+  it("stays between the side walls while it is carried, with the pointer anywhere past them, and settles instead of spinning", () => {
     for (const side of [-1, 1]) {
       for (const past of [0.075, 0.225]) {
         // (0.075 and 0.225 m are about 40 and 120 px on a 1280 px window)
-        const court = new Court(WIDTH, HEIGHT);
-        const start = side < 0 ? 0.5 : WIDTH - 0.5;
-        const can = court.addCan(start, CAN_HEIGHT / 2);
-        court.grab(can.id, { x: can.x, y: can.y });
-        const to = side < 0 ? -past : WIDTH + past;
-        let furthest = 0; // how far the can's middle was ever past the wall
-        for (let i = 0; i < Math.round(3 / STEP); i++) {
-          court.carryTo(start + ((to - start) * Math.min(1, i / 60)), CAN_HEIGHT / 2);
-          court.step();
-          furthest = Math.max(furthest, side < 0 ? -can.x : can.x - WIDTH);
-        }
-        expect(court.cans, `still on the court, pointer ${past} m past the ${side < 0 ? "left" : "right"} wall`).toHaveLength(1);
-        expect(furthest, "its middle never went past the wall").toBeLessThanOrEqual(0);
-        const half = Math.abs(side < 0 ? can.x : WIDTH - can.x);
-        expect(half, "its side is inside the wall").toBeGreaterThan(CAN_HEIGHT / 2 * Math.abs(Math.sin(can.angle)) + 0.039 - 0.02);
+        const at = `${past} m past the ${side < 0 ? "left" : "right"} wall`;
+        const { court, pastWall, turns } = carryAndHold(side < 0 ? 0.6 : WIDTH - 0.6, side < 0 ? -past : WIDTH + past, 0.6);
+        expect(court.cans, `still on the court, pointer ${at}`).toHaveLength(1);
+        expect(pastWall, `no corner more than 3 px (0.006 m) past the wall, pointer ${at}`).toBeLessThan(0.006);
+        expect(turns, `less than one full turn, pointer ${at}`).toBeLessThan(1);
       }
+    }
+  });
+
+  it("stays above the floor while it is carried, with the pointer just above the window's bottom, and lies on the court when let go", () => {
+    for (const floor of [0, 0.056]) {
+      // (0.056 m is the 30 px a touch screen lifts the floor; the pointer is 3 px above the floor, which is the bottom of the window)
+      const { court, can, belowFloor } = carryAndHold(1.2, 1.2, floor + 0.006, floor);
+      expect(belowFloor, `no corner more than 3 px below the floor, floor ${floor}`).toBeLessThan(0.006);
+      court.release();
+      run(court, 2);
+      expect(court.cans, "still on the court").toHaveLength(1);
+      expect(can.y, "lying on the court, not under it").toBeGreaterThan(floor);
     }
   });
 
@@ -318,6 +351,13 @@ describe("the scene on a phone", () => {
     expect(L.scale).toBeGreaterThan(0.6);
     expect(L.scale).toBeLessThan(0.72);
     expect(L.sink).toBeCloseTo(45, 0);
+  });
+
+  it("draws the scene about 0.95 of real size at 844 x 390 and 0.82 at 863 x 360 on a touch screen: halfway out, not smaller than the seat needs", () => {
+    expect(courtWithScene(844, 390, 30).L.scale).toBeCloseTo(0.948, 1);
+    expect(courtWithScene(863, 360, 30).L.scale).toBeCloseTo(0.82, 1);
+    expect(courtWithScene(750, 280, 30).L.scale).toBeCloseTo(0.656, 1);
+    expect(courtWithScene(750, 280, 30).L.shows, "the seat rule makes it show about 95 mm").toBeCloseTo(95.5, 0);
   });
 
   it("shows enough of the bench on a touch screen that a ball over the seat rests on the seat, within 1 px", () => {
