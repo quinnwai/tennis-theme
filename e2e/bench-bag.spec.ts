@@ -323,12 +323,8 @@ test.describe("what a ball lands on", () => {
     await advance(page, 8);
     const b = (await balls(page)).find((b) => b.id === id)!;
     expect(Math.hypot(b.vx, b.vy), "at rest").toBeLessThan(2);
-    // On a touch screen the floor is lifted (params.floorLiftPx, QWW-83), and where the bench's seat is lower than that lifted floor (a window
-    // as short as a phone held sideways) the ball rests on the floor, a few px above the seat's middle line: look at it on a phone.
-    const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
-    const rest = Math.min(L.benchSurfaceY, L.height - lift);
-    expect(b.y + b.r, "its underside on the seat").toBeGreaterThan(rest - 2);
-    expect(b.y + b.r).toBeLessThan(rest + 2);
+    // The scene shows enough of the bench that its seat line is at or above the touch screen's lifted floor (QWW-85 round 3).
+    expect(Math.abs(b.y + b.r - L.benchSurfaceY), "its underside on the seat's middle line").toBeLessThan(1);
   });
 
   test("a ball dropped over the bag does not go down through it", async ({ page }) => {
@@ -536,22 +532,78 @@ test.describe("the notebook", () => {
     await expect(notebookDialog(page)).toBeHidden();
   });
 
-  test("its type is at least 14 px (11 px in a window under 340 px tall) and all its words are on the pages, in every window", async ({ page }) => {
+  /** Open the notebook at `size` (a fresh page) and give back what it reports of itself. */
+  async function notebookAt(page: Page, size: { width: number; height: number }) {
+    await page.setViewportSize(size);
+    await page.goto("./");
+    await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+    await unzip(page);
+    await openNotebook(page);
+    await expect(notebookDialog(page), `the notebook opens at ${size.width}x${size.height}`).toBeVisible();
+    await page.waitForTimeout(1200);
+    // (Caveat is fetched when the notebook first opens, and the words are measured again when it arrives: wait for that on a slow machine)
+    await expect.poll(async () => (await sandbox<{ fits: boolean; ball: boolean }>(page, "notebook()")).fits, { timeout: 10_000 }).toBe(true);
+    return sandbox<{ px: number; fits: boolean; paged: boolean; spread: number; ball: boolean; width: number }>(page, "notebook()");
+  }
+
+  test("its type is 14 px or more, with every line on a page and the ball showing, in every window", async ({ page }) => {
     test.setTimeout(120_000); // six windows, each with an unzip and a notebook
     for (const size of WINDOWS) {
-      await page.setViewportSize(size);
-      await page.goto("./");
-      await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
-      await unzip(page);
-      await openNotebook(page);
-      await expect(notebookDialog(page), `the notebook opens at ${size.width}x${size.height}`).toBeVisible();
-      await page.waitForTimeout(1200);
-      const type = await sandbox<{ px: number; fits: boolean }>(page, "notebook()");
-      // The words fill a whole spread, and the shortest window (a phone held sideways, 280 px) has room for about 22 lines of them: there
-      // the type steps down toward 11 px on closer rules; everywhere else it is 14 px or more.
-      expect(type.px, `type size at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(size.height < 340 ? 11 : 14);
-      expect(type.fits, `every line on a page at ${size.width}x${size.height}`).toBe(true);
+      const type = await notebookAt(page, size);
+      const at = `${size.width}x${size.height}`;
+      expect(type.px, `type size at ${at}`).toBeGreaterThanOrEqual(14);
+      expect(type.fits, `every line on a page at ${at}`).toBe(true);
+      expect(type.ball, `the ball shows at ${at}`).toBe(true);
+      expect(type.paged, `two spreads only in a window under 340 px tall, at ${at}`).toBe(size.height < 340);
     }
+  });
+
+  test("in a window 390 px tall the notebook is one spread, no more than 75 percent of the window's width", async ({ page }) => {
+    const type = await notebookAt(page, { width: 844, height: 390 });
+    expect(type.paged).toBe(false);
+    expect(type.px).toBe(14);
+    expect(type.width / 844).toBeLessThanOrEqual(0.75);
+  });
+
+  test("in a window 280 px tall it turns to a second spread at 14 px, with the ball on the last page, and Escape still closes it", async ({ page }) => {
+    const type = await notebookAt(page, { width: 750, height: 280 });
+    expect(type.paged).toBe(true);
+    expect(type.px).toBe(14);
+    expect(type.fits).toBe(true);
+    expect(type.width / 750, "about two thirds of the window's width").toBeLessThan(0.7);
+    const turn = notebookDialog(page).getByRole("button", { name: /Turn to the next page/ });
+    await expect(turn).toBeVisible();
+    const ball = notebookDialog(page).locator(".v6-nb-doodle");
+    await expect(ball, "the ball is on the last page, not the first spread").toBeHidden();
+    // the chip turns it (a finger and the mouse both click it)
+    await turn.click();
+    expect((await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(1);
+    await expect(ball).toBeVisible();
+    const back = notebookDialog(page).getByRole("button", { name: /Turn back/ });
+    await back.click();
+    expect((await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(0);
+    // so do the arrow keys
+    await page.keyboard.press("ArrowRight");
+    expect((await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(1);
+    await page.keyboard.press("ArrowLeft");
+    expect((await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(0);
+    // the words of the second spread are the ones that were cut off the first: the last words are on it
+    await page.keyboard.press("ArrowRight");
+    const lastPage = await notebookDialog(page).locator(".v6-nb-text").evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const outer = el.getBoundingClientRect();
+      const rects = Array.from(range.getClientRects()).filter((r) => r.width > 0.5);
+      return { shown: rects.some((r) => r.left >= outer.left - 1 && r.right <= outer.right + 1), count: rects.length };
+    });
+    expect(lastPage.shown, "words are on the turned spread").toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(notebookDialog(page)).toBeHidden();
+  });
+
+  test("a window that holds the words on one spread has no turn chip", async ({ page }) => {
+    await notebookAt(page, { width: 1280, height: 800 });
+    await expect(notebookDialog(page).getByRole("button", { name: /Turn/ })).toBeHidden();
   });
 
   test("it is credited in the credits", async ({ page }) => {
@@ -604,7 +656,7 @@ test.describe("the test hook", () => {
     });
     expect(shape).toEqual({
       bag: ["notebookOut", "open", "pull", "zip"],
-      notebook: ["fits", "open", "px"],
+      notebook: ["ball", "fits", "open", "paged", "px", "spread", "width"],
       cans: true,
       advance: "function",
       balls: true,
