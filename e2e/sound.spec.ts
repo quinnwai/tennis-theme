@@ -489,3 +489,59 @@ test("with ?tune, every sound number has a slider that takes effect on the next 
   });
   expect(untouched).toEqual({ sameLayout: true, sameBalls: true });
 });
+
+// ---- Restart and the cans (QWW-85) ----
+
+/** Unzip the bag from the keyboard, as a visitor without a pointer would, and give what is in it time to come up. */
+async function unzipByKeyboard(page: Page) {
+  await page.getByRole("slider", { name: /Unzip the bag/ }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => page.evaluate(() => (window as any).__sandbox.bag().open)).toBe(true);
+  await page.waitForTimeout(1000);
+}
+
+test("Restart brings the dots back without the rising sound; a knocked-off dot keeps its own, and so does the bag opening", async ({ page }) => {
+  await open(page);
+  await unzipByKeyboard(page);
+  expect(await voicesOf(page, "rising"), "the bag opening has its pop").toHaveLength(1);
+  await page.getByRole("button", { name: "Clear the balls" }).click();
+  await advance(page, 3);
+  expect(await sandbox<boolean[]>(page, "dots()"), "the dots are back").toEqual([true, true]);
+  expect(await voicesOf(page, "rising"), "and came back silently").toHaveLength(1);
+  await knockOffFirstDot(page);
+  await advance(page, 4);
+  expect(await voicesOf(page, "rising"), "a dot that regrows after being knocked off keeps its pop").toHaveLength(2);
+});
+
+test("a can makes no sound when it lands, and a tap on it plays no hit and leaves it where it was", async ({ page }) => {
+  test.setTimeout(90_000);
+  await open(page);
+  await unzipByKeyboard(page);
+  const before = (await voices(page)).length;
+  const rises = (await page.locator(".v6-rise").first().boundingBox())!;
+  const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
+  const moveTo = async (from: [number, number], to: [number, number], moves = 20) => {
+    for (let i = 1; i <= moves; i++) {
+      await page.mouse.move(from[0] + ((to[0] - from[0]) * i) / moves, from[1] + ((to[1] - from[1]) * i) / moves);
+      await advance(page, 1 / 60);
+    }
+  };
+  const top: [number, number] = [rises.x + rises.width / 2, rises.y + 8];
+  await page.mouse.move(...top);
+  await page.mouse.down();
+  await moveTo(top, [top[0] - 40, top[1] - 60], 6);
+  const height = (await page.evaluate(() => (window as any).__sandbox.cans()))[0].height as number;
+  const floor = await page.evaluate(() => innerHeight);
+  await moveTo([top[0] - 40, top[1] - 60], [100, floor - lift - height - 10], 30);
+  await advance(page, 1.5);
+  await page.mouse.up();
+  await advance(page, 3);
+  expect(await voices(page), "a can that landed made no sound").toHaveLength(before);
+  const can = (await page.evaluate(() => (window as any).__sandbox.cans()))[0] as { x: number; y: number; height: number };
+  await page.mouse.click(can.x, can.y + can.height * 0.25); // a tap on its body
+  await advance(page, 0.5);
+  const after = (await page.evaluate(() => (window as any).__sandbox.cans()))[0] as { x: number; y: number };
+  expect(Math.abs(after.y - can.y), "the tap left it where it was").toBeLessThan(2);
+  expect(Math.abs(after.x - can.x)).toBeLessThan(2);
+  expect(await voicesOf(page, "hit"), "and played no hit").toHaveLength(0);
+});

@@ -28,7 +28,7 @@ export interface Notebook {
   /** Whether the notebook is out of the bag: from `open` until it is back down (already false when `onClosed` runs). */
   isOpen(): boolean;
   /** The size of the type of the words, px, and whether every line of them is on a page (for the browser checks). */
-  type(): { px: number; fits: boolean };
+  type(): { px: number; fits: boolean; paged: boolean; spread: number; ball: boolean; width: number };
 }
 
 // ---- helpers, the same as the generator's ----
@@ -89,15 +89,20 @@ interface Geo {
   FS: number;
   RULE_GAP: number;
   TEXT_TOP: number;
+  /** The words are on two spreads (four pages), turned by a chip, rather than one. */
+  paged?: boolean;
 }
 const DESIGN: Geo = { PW: 308, PH: 437, GUTTER: 24, SIDE: 7, OVER: 6, UNDER: 14, FS: 15, RULE_GAP: 19, TEXT_TOP: 34 };
 /** The smallest type, px, that the spread is shrunk to before it is given a shape of its own, and that the phone shape sets. */
 const PHONE_TYPE = 14;
 /** The air round the spread in the phone shape, px (the design shape's is MARGIN). */
 const PHONE_MARGIN = 8;
-/** A window shorter than this, px, cannot hold the words on one spread at PHONE_TYPE; its type is SHORT_TYPE. */
+/** A window shorter than this, px, cannot hold the words on one spread at PHONE_TYPE: there they run over two spreads, turned by a chip. */
 const SHORT_WINDOW = 340;
-const SHORT_TYPE = 12;
+/** In the phone shapes the spread is no wider than the words need: the narrowest page is tried first, and widened until they fit at PHONE_TYPE with the ball. */
+const MIN_PHONE_PAGE = 232;
+/** The spread of two spreads (a short window) starts about this share of the window's width. */
+const PAGED_SHARE = 0.62;
 /** The widest a page gets in the phone shape, px: a held-sideways phone is wide, and wider pages hold more words on each rule. */
 const PHONE_PAGE_MAX = 440;
 
@@ -126,11 +131,14 @@ let HOLES: number[] = [];
 // The words in two columns, one on each page's writing area, a line on each rule; the left page fills first.
 let COL_GAP = 0;
 let TEXT_H = 0;
+/** Whether the words run over two spreads (four pages), turned by a chip. */
+let PAGED = false;
 /** Sizes to try, largest first, until the words fit. */
 let SIZES: number[] = [];
 
 function setGeometry(g: Geo): void {
   ({ PW, PH, GUTTER, SIDE, OVER, UNDER, FS, RULE_GAP, TEXT_TOP } = g);
+  PAGED = !!g.paged;
   LP = SIDE;
   RP = SIDE + PW + GUTTER;
   SW = RP + PW + SIDE;
@@ -193,6 +201,12 @@ function spread(): string {
     `<g class="v6-nb-doodle"></g></svg>`
   );
 }
+
+/** The chip that turns the page: an arrow to the right while the first spread shows, to the left on the second. */
+const TURN_ICON = {
+  next: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>`,
+  back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>`,
+};
 
 /** The site's close chip (index.html), 36 px in a 44 px chip. */
 const CLOSE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
@@ -262,10 +276,9 @@ function geometryFor(w: number, h: number): Geo {
   const OVER = 3;
   const UNDER = 6;
   const GUTTER = 12;
+  // The widest the pages can be; layout() looks for the narrowest that holds the words.
   const PW = Math.floor((w - CHIP_ZONE - PHONE_MARGIN - 2 * SIDE - GUTTER) / 2);
   const PH = Math.floor(h - 2 * PHONE_MARGIN - OVER - UNDER);
-  // The words are long (about 35 lines at this width), and a window as short as 280 px has room for about 22 lines at 14 px: there the
-  // type is smaller on closer rules, as small as it has to be to keep all of the words on the one spread.
   const short = h < SHORT_WINDOW;
   return {
     PW: Math.min(PW, PHONE_PAGE_MAX),
@@ -274,9 +287,10 @@ function geometryFor(w: number, h: number): Geo {
     SIDE,
     OVER,
     UNDER,
-    FS: short ? SHORT_TYPE : PHONE_TYPE,
-    RULE_GAP: short ? SHORT_TYPE + 3.5 : 19,
-    TEXT_TOP: short ? 16 : 20,
+    FS: PHONE_TYPE,
+    RULE_GAP: short ? 17 : 19,
+    TEXT_TOP: short ? 14 : 20,
+    paged: short,
   };
 }
 
@@ -287,8 +301,10 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   dialog.innerHTML =
     `<button type="button" class="chip v6-nb-close" aria-label="Close the notebook" title="Close">${CLOSE_ICON}</button>` +
     `<div class="v6-nb-closed">${closedNotebook()}</div>` +
+    `<button type="button" class="chip v6-nb-turn" aria-label="Turn to the next page" title="Turn the page" hidden>${TURN_ICON.next}</button>` +
     `<div class="v6-nb-fit"><div class="v6-nb-spread"></div></div>`;
   const chip = dialog.querySelector<HTMLButtonElement>(".v6-nb-close")!;
+  const turnChip = dialog.querySelector<HTMLButtonElement>(".v6-nb-turn")!;
   const closed = dialog.querySelector<HTMLElement>(".v6-nb-closed")!;
   const fitBox = dialog.querySelector<HTMLElement>(".v6-nb-fit")!;
   const spreadBox = dialog.querySelector<HTMLElement>(".v6-nb-spread")!;
@@ -312,7 +328,12 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
       height: `${TEXT_H}px`,
       columnGap: `${COL_GAP}px`,
       lineHeight: `${RULE_GAP}px`,
+      // Paged: columns of a fixed width, two showing and the rest overflowing to the right, to be turned to; the box does not show them.
+      columnCount: PAGED ? "auto" : "2",
+      columnWidth: PAGED ? `${TEXT_W}px` : "auto",
+      overflow: PAGED ? "hidden" : "visible",
     });
+    turnChip.hidden = !PAGED;
     setFont(FS);
   }
   document.body.append(dialog);
@@ -325,6 +346,10 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   let run = 0;
   let fontPx = FS;
   let fitsNow = true;
+  let ballShown = false;
+  let ballSpread = 0;
+  /** Which spread of a paged notebook shows: 0 for the first, 1 for the second. */
+  let spreadNo = 0;
   let pressedOutside = false;
 
   function setFont(px: number): void {
@@ -346,41 +371,94 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
       .map((r) => ({ x0: (r.left - outer.left) / k, x1: (r.right - outer.left) / k, y0: (r.top - outer.top) / k, y1: (r.bottom - outer.top) / k }));
   }
 
-  /** Whether every line of the words is on one of the two pages' writing areas, none spilling or cut off. */
+  /** Whether every line of the words is on one of the pages' writing areas (the four, when paged), none spilling or cut off. */
   function textFits(): boolean {
-    if (text.scrollWidth > text.clientWidth + 1 || text.scrollHeight > text.clientHeight + 1) return false;
-    const right = TEXT_W + COL_GAP;
-    return lineBoxes().every(
-      (b) => b.y0 >= -1 && b.y1 <= TEXT_H + 1 && b.x0 >= -1 && (b.x1 <= TEXT_W + 1 || (b.x0 >= right - 1 && b.x1 <= right + TEXT_W + 1)),
-    );
+    const pitch = RP - LP;
+    const was = text.scrollLeft;
+    text.scrollLeft = 0; // the line boxes are read with nothing turned
+    const columns = PAGED ? 4 : 2;
+    const inside = () => {
+      if (text.scrollHeight > text.clientHeight + 1) return false;
+      if (PAGED ? text.scrollWidth > (columns - 1) * pitch + TEXT_W + 1 : text.scrollWidth > text.clientWidth + 1) return false;
+      return lineBoxes().every((b) => {
+        const c = Math.round(b.x0 / pitch);
+        return b.y0 >= -1 && b.y1 <= TEXT_H + 1 && c >= 0 && c < columns && b.x0 >= c * pitch - 1 && b.x1 <= c * pitch + TEXT_W + 1;
+      });
+    };
+    const ok = inside();
+    text.scrollLeft = was;
+    return ok;
   }
 
-  /** Set the words at the largest size that fits, then draw the ball two rules under them if the right page has room. */
+  /** Show the spread `n` of a paged notebook (the first or the second): the words turn, and the ball shows where it is. */
+  function setSpread(n: number): void {
+    spreadNo = PAGED ? Math.max(0, Math.min(1, n)) : 0;
+    text.scrollLeft = spreadNo * 2 * (RP - LP);
+    doodleBox.style.display = !PAGED || ballSpread === spreadNo ? "" : "none";
+    turnChip.innerHTML = spreadNo === 0 ? TURN_ICON.next : TURN_ICON.back;
+    const label = spreadNo === 0 ? "Turn to the next page" : "Turn back to the first page";
+    turnChip.setAttribute("aria-label", label);
+    turnChip.title = spreadNo === 0 ? "Turn the page" : "Turn back";
+  }
+
+  /** Set the words at the largest size that fits, then draw the ball under them if the page they end on has room. */
   function measure(): void {
     for (const px of SIZES) {
       setFont(px);
       fitsNow = textFits();
       if (fitsNow) break;
     }
+    const pitch = RP - LP;
+    text.scrollLeft = 0;
     const lines = lineBoxes();
     const last = lines[lines.length - 1];
     // the rule the last line sits on (the words start on rule 1; rule 0, the header line, stays empty)
-    const line = last ? Math.floor((last.y0 + last.y1) / 2 / RULE_GAP) + 1 : RULES.length;
-    const onRight = !!last && last.x0 >= TEXT_W + COL_GAP / 2;
+    let line = last ? Math.floor((last.y0 + last.y1) / 2 / RULE_GAP) + 1 : RULES.length;
+    // The ball goes on a right-hand page: the page the words end on, or the next one if they end on a left-hand page and there is one.
+    let col = last ? Math.round(last.x0 / pitch) : 0;
+    if (PAGED && col % 2 === 0 && col < 3) {
+      col++;
+      line = 0;
+    }
+    const onRight = !!last && col % 2 === 1;
     // The ball sits on the third rule under the last line, or on the page's last rule if that comes first. It is as big as the
     // room under the words allows, up to radius 16 (22 in the stills' bigger scale), and left out if that is under 11.
     const sit = Math.min(line + 3, RULES.length - 1);
     const r = Math.min(16, (ruleY(sit) - ruleY(line) - 8) / 2);
-    doodleBox.innerHTML =
-      fitsNow && onRight && r >= 11 ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` : "";
+    ballShown = fitsNow && onRight && r >= 11;
+    ballSpread = Math.floor(col / 2);
+    doodleBox.innerHTML = ballShown ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` : "";
+    setSpread(spreadNo);
+  }
+
+  /** Draw the shape `g`, or only note it when it is the one already drawn. */
+  function use(g: Geo): void {
+    if (JSON.stringify(g) !== JSON.stringify(shape)) render(g);
+    else setGeometry(g);
   }
 
   function layout(): void {
     const [w, h] = [dialog.clientWidth || innerWidth, dialog.clientHeight || innerHeight];
     const wanted = geometryFor(w, h);
-    const changed = JSON.stringify(wanted) !== JSON.stringify(shape);
-    if (changed) render(wanted);
-    else setGeometry(shape); // geometryFor tried the design's shape
+    if (wanted === DESIGN) {
+      use(DESIGN);
+      measure();
+    } else {
+      // The spread is no wider than the words need: the narrowest pages that hold them at PHONE_TYPE, and the ball, are looked for,
+      // from MIN_PHONE_PAGE (or, for two spreads, about PAGED_SHARE of the window) up to the widest the window allows.
+      const first = wanted.paged ? Math.ceil((PAGED_SHARE * w - wanted.GUTTER - 2 * wanted.SIDE) / 2) : MIN_PHONE_PAGE;
+      let chosen = wanted;
+      for (let pw = Math.max(MIN_PHONE_PAGE, first); pw <= wanted.PW; pw += 6) {
+        use({ ...wanted, PW: pw });
+        measure();
+        if (fitsNow && fontPx === FS && ballShown) {
+          chosen = { ...wanted, PW: pw };
+          break;
+        }
+      }
+      use(chosen);
+      measure();
+    }
     fit = place(w, h, wanted === DESIGN ? MARGIN : PHONE_MARGIN);
     fitBox.style.transform = `translate(${fit.left}px, ${fit.top}px) scale(${fit.s})`;
   }
@@ -396,6 +474,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
         dialog.animate([veil(0, 0), veil(params.notebookBlur, params.notebookVeil)], fade),
         spreadBox.animate([{ opacity: 0 }, { opacity: 1 }], fade),
         chip.animate([{ opacity: 0 }, { opacity: 1 }], fade),
+        turnChip.animate([{ opacity: 0 }, { opacity: 1 }], fade),
       ];
     }
     const { s, left, top } = fit;
@@ -453,6 +532,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
         { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" },
       ),
       chip.animate([{ opacity: 0 }, { opacity: 1 }], { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" }),
+      turnChip.animate([{ opacity: 0 }, { opacity: 1 }], { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" }),
     ];
   }
 
@@ -476,15 +556,15 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     if (!dialog.open) dialog.showModal();
     text.textContent = notebookText(); // dated today, even on a page left open overnight
     askForFont();
+    spreadNo = 0;
     layout();
-    measure();
     anims = build(from);
     settle(() => {
       state = "open";
       // the end of every animation is the stylesheet's open state: let it go
       for (const a of anims) a.cancel();
       anims = [];
-      measure();
+      layout();
       opts.onOpened?.();
     });
     chip.focus({ preventScroll: true });
@@ -516,10 +596,14 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   const isOpen = () => state !== "closed";
 
   chip.addEventListener("click", () => close());
+  turnChip.addEventListener("click", () => setSpread(1 - spreadNo));
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state !== "closed") {
       e.preventDefault();
       close();
+    } else if (state === "open" && PAGED && (e.key === "ArrowRight" || e.key === "PageDown" || e.key === "ArrowLeft" || e.key === "PageUp")) {
+      e.preventDefault();
+      setSpread(e.key === "ArrowRight" || e.key === "PageDown" ? 1 : 0);
     }
   });
   dialog.addEventListener("cancel", (e) => {
@@ -532,15 +616,13 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   });
   // A click on the dimmed toy around the spread closes it, as with the credits. The press has to start out there too.
   // While it is still lifting, a click there is more likely the second half of a double click on the bag: ignored.
-  const inside = (target: EventTarget | null) => target instanceof Node && (spreadBox.contains(target) || closed.contains(target));
+  const inside = (target: EventTarget | null) => target instanceof Node && (spreadBox.contains(target) || closed.contains(target) || turnChip.contains(target));
   dialog.addEventListener("pointerdown", (e) => (pressedOutside = !inside(e.target)));
   dialog.addEventListener("click", (e) => {
     if (state === "open" && pressedOutside && !inside(e.target)) close();
   });
   addEventListener("resize", () => {
-    if (state !== "open") return;
-    layout();
-    measure();
+    if (state === "open") layout();
   });
   // Caveat is only fetched when the notebook is first opened (it is 50 kB the page does not otherwise need): ask for it then, and measure
   // the words again once it is there.
@@ -550,13 +632,20 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     fontAsked = true;
     document.fonts.load(`500 ${FS}px Caveat`, notebookText()).then(
       () => {
-        if (state === "opening" || state === "open") measure();
+        if (state === "opening" || state === "open") layout();
       },
       () => {},
     );
   }
 
-  const type = () => ({ px: fontPx, fits: state === "open" ? textFits() : fitsNow });
+  const type = () => ({
+    px: fontPx,
+    fits: state === "open" ? textFits() : fitsNow,
+    paged: PAGED,
+    spread: spreadNo,
+    ball: ballShown,
+    width: SW * fit.s,
+  });
 
   return { open, close, isOpen, type };
 }

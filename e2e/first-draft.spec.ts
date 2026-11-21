@@ -893,7 +893,7 @@ test("every icon is the size params.ts gives for the window, and every button is
   const icon = iconSizeFor(width, height);
   const floor = (await page.evaluate(() => matchMedia("(pointer: coarse)").matches)) ? 44 : 0;
   const sizes = await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>(".chip:not(.close):not(.v6-nb-close)")].map((chip) => {
+    [...document.querySelectorAll<HTMLElement>(".chip:not(.close):not(.v6-nb-close):not(.v6-nb-turn)")].map((chip) => {
       const svg = chip.querySelector("svg");
       return {
         name: chip.getAttribute("aria-label"),
