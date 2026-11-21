@@ -66,7 +66,7 @@ const GAP_CLOSED = 20;
 /** The shut bag's top (its back top edge) above its bottom front edge, mm. */
 const BAG_TOP = 292 - BAG_D[1];
 /** On a short window (a wide desktop, a phone held sideways) less of the bench shows, down to this much of its front. */
-const MIN_SHOWS = 96;
+const MIN_SHOWS = 40;
 /** Then the cans and the notebook stop lower in the bag, by up to this much (they come most of the way out); the scene is drawn smaller to make room. */
 const MAX_SINK = 45;
 /** The corner buttons' size and their gap from the window's edges (the "?" sits alone at the bottom right). */

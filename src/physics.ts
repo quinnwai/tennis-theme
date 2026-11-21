@@ -177,6 +177,8 @@ export class Court {
   private heldCan: Can | null = null;
   /** What carries the held can: a spring from the point it was taken by to the pointer. */
   private hold: MouseJoint | null = null;
+  /** Where on the held can the hold takes it, from the can's middle, meters. */
+  private holdLocal = { x: 0, y: 0 };
   private target = { x: 0, y: 0 };
   private meetings: Meeting[] = [];
   private time = 0; // seconds of simulated time
@@ -450,6 +452,7 @@ export class Court {
         body.getWorldPoint(local),
       ),
     ) as MouseJoint;
+    this.holdLocal = { x: local.x / U, y: local.y / U };
     this.heldCan = can;
     can.held = true;
     this.target = { x: at.x, y: at.y };
@@ -580,14 +583,16 @@ export class Court {
    * hard as `canGrip` allows and no harder.
    */
   private keepHolding(body: Body, hold: MouseJoint): void {
-    // The spring is pulled toward the pointer, which may be past the side walls (a finger has screen to spare past the page). Pulled
-    // there it would drag the can through the wall's thin edge, so the target stays where the can's own extent, from the point it
-    // hangs by, is still inside the court: the can meets the wall as a ball does and stops.
-    const angle = body.getAngle();
-    const half = (CAN_WIDTH / 2) * Math.abs(Math.cos(angle)) + (CAN_HEIGHT / 2) * Math.abs(Math.sin(angle));
-    const off = (body.getPosition().x - hold.getAnchorB().x) / U; // from the point it hangs by to its middle, meters
-    const x = Math.min(this.width - half - off, Math.max(half - off, this.target.x));
-    hold.setTarget({ x: x * U, y: this.target.y * U });
+    // The spring is pulled toward the pointer, which may be past a side wall or lower than the can's own length above the floor (it hangs
+    // below the point it is held by). Pulled there it would drag the can through the wall's or floor's thin edge, so the target stays
+    // where the can, hanging upright from its point, is still inside the court. The margins are fixed by that point alone, not by how
+    // the can is turned at the moment: a margin that followed the angle would move the target as the can swung, and spin it.
+    const { x: hx, y: hy } = this.holdLocal;
+    const reachX = 0.7 * Math.hypot(CAN_WIDTH / 2 + Math.abs(hx), CAN_HEIGHT / 2 + Math.abs(hy)); // 0.7 of the way to the farthest corner: the least that stops it spinning on the wall
+    const reachDown = CAN_HEIGHT / 2 + hy;
+    const x = Math.min(this.width - reachX, Math.max(reachX, this.target.x));
+    const y = Math.max(this.floor + reachDown, this.target.y);
+    hold.setTarget({ x: x * U, y: y * U });
     const turned = Math.atan2(Math.sin(body.getAngle()), Math.cos(body.getAngle()));
     const grip = params.canGrip;
     const torque = -GRIP_STIFFNESS * grip * turned - GRIP_DAMPING * grip * body.getAngularVelocity();
