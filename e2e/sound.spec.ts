@@ -454,7 +454,7 @@ test("the files really decode in the browser, and start with the silence the pag
     return out;
   });
   const find = (word: string) => Object.entries(decoded).find(([name]) => name.includes(word))![1];
-  expect(find(FILE.hit).duration).toBeCloseTo(4.03, 1);
+  expect(find(FILE.hit).duration).toBeCloseTo(0.85, 1); // the file is softened and trimmed to its sounding part
   expect(find(FILE.bounce).duration).toBeCloseTo(0.888, 1);
   expect(find(FILE.rising).duration).toBeCloseTo(0.189, 1);
   expect(find(FILE.out).duration).toBeCloseTo(0.708, 1);

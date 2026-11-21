@@ -11,7 +11,7 @@ const NAMES: SoundName[] = ["hit", "bounce", "rising", "out"];
  * that the site works from a sub-path, and the files sit in the skin's own folder, like everything else the
  * build ships. Both files from Pixabay open with 1105 samples of silence, which is what a common mp3 encoder
  * adds and the browser's decoder does not take off again; skipping it is skipping a lag of 23 ms on the hit and
- * 46 ms on the bounce. The last 3 seconds of the hit are silence too, so it stops early.
+ * 46 ms on the bounce. The hit file itself is trimmed to 0.85 s, where the sound has died away.
  */
 export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number }> = {
   hit: { file: "./tennis/sounds/soundreality-tennis-ball-hit-151257.mp3", from: 1105 / 48000, to: 0.85 },
@@ -123,15 +123,16 @@ export interface SoundEnv {
 }
 
 /**
- * On an iPhone, Web Audio counts as "ambient" sound by default and is silenced by the ring/silent switch, which
- * is how a toy can be perfectly quiet on a phone that is otherwise fine. Safari 16.4 and later let a page say
- * its audio is "playback", which the switch does not mute. Other browsers have no `audioSession`, and ignore this.
+ * On an iPhone, a page's audio can be "playback", which takes over the phone's audio (it pauses a visitor's
+ * music, and plays through the ring/silent switch) or "ambient", which mixes under whatever else is playing and
+ * is muted by the switch. A toy that arrives from an Instagram story, with music on, should not stop the music, so
+ * it asks for "ambient". Safari 16.4 and later honor this; other browsers have no `audioSession`, and ignore it.
  */
-export function playThroughSilentSwitch(nav: { audioSession?: { type: string } }): void {
+export function mixWithOtherAudio(nav: { audioSession?: { type: string } }): void {
   try {
-    if (nav.audioSession) nav.audioSession.type = "playback";
+    if (nav.audioSession) nav.audioSession.type = "ambient";
   } catch {
-    // An older or stricter browser: the switch keeps its say.
+    // An older or stricter browser: the phone decides.
   }
 }
 
@@ -141,7 +142,7 @@ export function browserEnv(): SoundEnv {
   let decoder: OfflineAudioContext | undefined;
   return {
     createContext: () => {
-      playThroughSilentSwitch(navigator as unknown as { audioSession?: { type: string } });
+      mixWithOtherAudio(navigator as unknown as { audioSession?: { type: string } });
       return new AudioContext();
     },
     load: async (url) => {
