@@ -1,5 +1,5 @@
 import { params, type Params } from "./params";
-import { SOUND_KEY } from "./sound-setting"; // where the browser keeps whether the visitor has sound on, which the sound toggle writes
+import { SOUND_KEY, parseSound, type SoundSetting } from "./sound-setting"; // where the browser keeps how loud the visitor wants the sound, which the sound button writes
 
 /** The four things that make a sound. */
 export type SoundName = "hit" | "bounce" | "rising" | "out";
@@ -38,14 +38,33 @@ export function bounceLoudness(speed: number): number {
 }
 
 /**
- * Whether the visitor has switched sound off. Only an explicit "off" counts: nothing stored yet means on, and
- * so does a browser that will not say (storage can be blocked). `read` gives what is stored under `SOUND_KEY`.
+ * Whether the visitor has switched sound off. Only an explicit "off" counts: nothing stored yet means the soft
+ * level, and so does a browser that will not say (storage can be blocked). `read` gives what is stored under `SOUND_KEY`.
  */
 export function isMuted(read: () => string | null): boolean {
   try {
-    return read() === "off";
+    return parseSound(read()) === "off";
   } catch {
     return false;
+  }
+}
+
+/**
+ * What every sound is multiplied by at this level: nothing at off, `soundSoftGain` at soft, 1 at medium (the
+ * volumes in the settings are medium's) and `soundLoudGain` at loud.
+ */
+export function levelGain(level: SoundSetting): number {
+  if (level === "off") return 0;
+  if (level === "soft") return params.soundSoftGain;
+  return level === "loud" ? params.soundLoudGain : 1;
+}
+
+/** What the level stored under `SOUND_KEY` multiplies sounds by; a browser that will not say gets the default level's. */
+function storedGain(read: () => string | null): number {
+  try {
+    return levelGain(parseSound(read()));
+  } catch {
+    return levelGain(parseSound(null));
   }
 }
 
@@ -63,6 +82,20 @@ export interface GainNodeLike extends AudioNodeLike {
   readonly gain: { value: number; setTargetAtTime(target: number, startTime: number, timeConstant: number): unknown };
 }
 
+export interface BiquadFilterLike extends AudioNodeLike {
+  type: string;
+  readonly frequency: { value: number };
+  readonly gain: { value: number };
+}
+
+export interface CompressorLike extends AudioNodeLike {
+  readonly threshold: { value: number };
+  readonly knee: { value: number };
+  readonly ratio: { value: number };
+  readonly attack: { value: number };
+  readonly release: { value: number };
+}
+
 export interface BufferSourceLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
   start(when: number, offset: number, duration: number): void;
@@ -77,6 +110,8 @@ export interface AudioContextLike {
   resume(): Promise<void>;
   suspend(): Promise<void>;
   createGain(): GainNodeLike;
+  createBiquadFilter(): BiquadFilterLike;
+  createDynamicsCompressor(): CompressorLike;
   createBufferSource(): BufferSourceLike;
 }
 
@@ -90,6 +125,8 @@ export interface SoundEnv {
   decode(data: ArrayBuffer): Promise<AudioBufferLike>;
   /** Whether the visitor has sound switched off. Asked every time a sound is about to play. */
   muted(): boolean;
+  /** What a sound is multiplied by at the level the visitor has chosen (see `levelGain`). Asked every time a sound is about to play. */
+  gain(): number;
 }
 
 /**
@@ -121,6 +158,7 @@ export function browserEnv(): SoundEnv {
     },
     decode: (data) => (decoder ??= new OfflineAudioContext(2, 1, 44100)).decodeAudioData(data),
     muted: () => isMuted(() => localStorage.getItem(SOUND_KEY)),
+    gain: () => storedGain(() => localStorage.getItem(SOUND_KEY)),
   };
 }
 
@@ -137,6 +175,29 @@ const SLEEP_AFTER = 3000;
  * wake-up stalls, as when a phone call has taken the audio, the rest would pile up behind it.
  */
 const WHILE_WAKING = 2;
+
+/**
+ * What every sound passes through on the way to the speaker. A shelf turns the highs down and a low-pass takes the
+ * very top off, because a phone's small speaker has almost no bass and a peaky upper midrange, which makes bright
+ * sounds harsh. Then a limiter, which only acts when several sounds pile up past full scale. Nothing here is
+ * audible on a sound that is quiet and dull to begin with, apart from the highs being a little lower.
+ */
+function buildMaster(ctx: AudioContextLike) {
+  const shelf = ctx.createBiquadFilter();
+  shelf.type = "highshelf";
+  const lowpass = ctx.createBiquadFilter();
+  lowpass.type = "lowpass";
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -6;
+  limiter.knee.value = 6;
+  limiter.ratio.value = 12;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.1;
+  shelf.connect(lowpass);
+  lowpass.connect(limiter);
+  limiter.connect(ctx.destination);
+  return { input: shelf, shelf, lowpass };
+}
 
 /** A sound that is playing: when it ends, and how to cut it short. */
 interface Voice {
@@ -168,6 +229,8 @@ export class Sound {
    */
   private asleep = true;
   private sleepTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Where every sound goes on its way out: the filter and then the limiter (see `buildMaster`). */
+  private master: { input: AudioNodeLike; shelf: BiquadFilterLike; lowpass: BiquadFilterLike } | null = null;
   private buffers = new Map<SoundName, AudioBufferLike>();
   private voices: Voice[] = [];
 
@@ -185,9 +248,11 @@ export class Sound {
         .catch((error) => console.warn(`The "${name}" sound could not be loaded.`, error));
     }
     try {
-      this.ctx = env.createContext();
+      const ctx = env.createContext();
+      this.master = buildMaster(ctx);
+      this.ctx = ctx;
       // A browser that lets audio start by itself starts it running; there is nothing to hear yet.
-      void this.ctx.suspend().catch(() => {});
+      void ctx.suspend().catch(() => {});
     } catch {
       // No Web Audio here: the toy stays quiet.
     }
@@ -222,7 +287,7 @@ export class Sound {
     const ctx = this.ctx;
     const buffer = this.buffers.get(name);
     if (!this.interacted || !ctx || !buffer || this.env.muted()) return;
-    const volume = loudness * params[VOLUME[name]];
+    const volume = Math.min(1, loudness * params[VOLUME[name]] * this.env.gain());
     const { from, to } = SOUNDS[name];
     const length = Math.min(to ?? Infinity, buffer.duration) - from;
     if (!(volume > 0 && length > 0)) return;
@@ -241,7 +306,12 @@ export class Sound {
       source.buffer = buffer;
       gain.gain.value = volume;
       source.connect(gain);
-      gain.connect(ctx.destination);
+      const master = this.master!;
+      // The filter's numbers are read as each sound starts, so that the ?tune sliders are heard at once.
+      master.shelf.gain.value = params.soundShelfDb;
+      master.shelf.frequency.value = params.soundShelfHz;
+      master.lowpass.frequency.value = params.soundLowpassHz;
+      gain.connect(master.input);
       source.start(now, from, length);
       this.voices.push({
         endsAt: now + length,

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { params } from "./params";
 import {
   Sound,
+  levelGain,
   SOUNDS,
   bounceLoudness,
   isMuted,
@@ -40,6 +41,14 @@ interface Decoded {
 interface FakeGain extends GainNodeLike {
   /** When its volume was told to fade out, if it was. */
   fadedAt?: number;
+  /** What it was connected to. */
+  to?: AudioNodeLike;
+}
+
+/** A filter or limiter, which remembers what it was connected to. */
+interface FakeNode extends AudioNodeLike {
+  kind: string;
+  to?: AudioNodeLike;
 }
 
 /** A sound the page asked the audio to start. */
@@ -71,9 +80,12 @@ function fakeAudio(
     breakNodes?: boolean;
   } = {},
 ) {
-  const state = { now: 0, muted: false, contexts: 0, resumes: 0, suspends: 0, contextState: "running" };
+  const state = { now: 0, muted: false, gain: 1, contexts: 0, resumes: 0, suspends: 0, contextState: "running" };
   const loads: string[] = [];
   const started: Started[] = [];
+  const filters: Array<FakeNode & { type: string; frequency: { value: number }; gain: { value: number } }> = [];
+  const limiters: Array<FakeNode & { threshold: { value: number }; ratio: { value: number } }> = [];
+  const destination: FakeNode = { kind: "destination", connect: () => undefined };
 
   const context: AudioContextLike = {
     get currentTime() {
@@ -82,7 +94,7 @@ function fakeAudio(
     get state() {
       return state.contextState;
     },
-    destination: { connect: () => undefined },
+    destination,
     resume: async () => {
       state.resumes++;
       if (options.stuckAsleep) return new Promise<void>(() => undefined);
@@ -102,9 +114,39 @@ function fakeAudio(
             gain.fadedAt = at;
           },
         },
-        connect: () => undefined,
+        connect(to: AudioNodeLike) {
+          gain.to = to;
+        },
       };
       return gain;
+    },
+    createBiquadFilter: () => {
+      const filter = {
+        kind: "filter",
+        type: "lowpass",
+        frequency: { value: 350 },
+        gain: { value: 0 },
+        connect(to: AudioNodeLike) {
+          filter.to = to;
+        },
+      } as FakeNode & { type: string; frequency: { value: number }; gain: { value: number } };
+      filters.push(filter);
+      return filter;
+    },
+    createDynamicsCompressor: () => {
+      const limiter = {
+        kind: "limiter",
+        threshold: { value: -24 },
+        knee: { value: 30 },
+        ratio: { value: 12 },
+        attack: { value: 0.003 },
+        release: { value: 0.25 },
+        connect(to: AudioNodeLike) {
+          limiter.to = to;
+        },
+      } as FakeNode & { threshold: { value: number }; knee: { value: number }; ratio: { value: number }; attack: { value: number }; release: { value: number } };
+      limiters.push(limiter);
+      return limiter;
     },
     createBufferSource: () => {
       if (options.breakNodes) throw new Error("Cannot create a node on a closed context");
@@ -144,11 +186,12 @@ function fakeAudio(
       return { duration: LENGTH[name], name } satisfies Decoded;
     },
     muted: () => state.muted,
+    gain: () => state.gain,
   };
 
   /** The sounds that are still playing at the moment: not cut short, not finished. */
   const playing = () => started.filter((s) => s.stoppedAt === undefined && s.at + s.duration > state.now);
-  return { env, state, loads, started, playing };
+  return { env, state, loads, started, playing, filters, limiters, destination };
 }
 
 /** A sound whose visitor has already done something, with the files ready to play. */
@@ -186,10 +229,29 @@ describe("bounceLoudness", () => {
   });
 });
 
+describe("levelGain", () => {
+  it("is nothing at off, and louder at each level after it, with medium as the volumes in params as they are", () => {
+    expect(levelGain("off")).toBe(0);
+    expect(levelGain("medium")).toBe(1);
+    expect(levelGain("soft")).toBeGreaterThan(0);
+    expect(levelGain("soft")).toBeLessThan(levelGain("medium"));
+    expect(levelGain("loud")).toBeGreaterThan(levelGain("medium"));
+  });
+
+  it("follows the numbers in params, so that the sliders work", () => {
+    params.soundSoftGain = 0.2;
+    params.soundLoudGain = 2;
+    expect(levelGain("soft")).toBe(0.2);
+    expect(levelGain("loud")).toBe(2);
+  });
+});
+
 describe("isMuted", () => {
-  it("is on until the visitor says off: nothing stored yet counts as on", () => {
+  it("is on until the visitor says off: nothing stored yet counts as on, and so does the old on", () => {
     expect(isMuted(() => null)).toBe(false);
     expect(isMuted(() => "on")).toBe(false);
+    expect(isMuted(() => "soft")).toBe(false);
+    expect(isMuted(() => "loud")).toBe(false);
     expect(isMuted(() => "off")).toBe(true);
   });
 
@@ -349,6 +411,73 @@ describe("Sound", () => {
       defaults.soundRising,
       defaults.soundOut,
     ]);
+  });
+
+  it("plays everything at the level the visitor chose: soft quieter than medium, loud louder, never past the loudest a file can be", async () => {
+    const { sound, started, state } = await awake();
+    const volumes: Record<string, number> = {};
+    for (const level of ["soft", "medium", "loud"] as const) {
+      state.gain = levelGain(level);
+      sound.play("hit");
+      sound.play("out");
+      volumes[level] = started[started.length - 2].volume;
+    }
+    expect(volumes.soft).toBeCloseTo(defaults.soundHit * defaults.soundSoftGain);
+    expect(volumes.medium).toBeCloseTo(defaults.soundHit);
+    expect(volumes.loud).toBeCloseTo(defaults.soundHit * defaults.soundLoudGain);
+    expect(volumes.soft).toBeLessThan(volumes.medium);
+    expect(volumes.medium).toBeLessThan(volumes.loud);
+    // ball out is already near the top (0.65), so loud cannot lift it by the whole of the loud gain
+    expect(Math.max(...started.map((s) => s.volume))).toBeLessThanOrEqual(1);
+    params.soundOut = 1;
+    sound.play("out");
+    expect(started[started.length - 1].volume).toBe(1);
+  });
+
+  it("plays nothing at off", async () => {
+    const { sound, started, state } = await awake();
+    state.muted = true;
+    state.gain = levelGain("off");
+    sound.play("hit");
+    sound.bounce(5);
+    expect(started).toEqual([]);
+  });
+
+  it("sends every sound through the highs-cutting shelf, then the low-pass, then the limiter, then the speaker", async () => {
+    const { sound, started, filters, limiters, destination } = await awake();
+    sound.play("hit");
+    expect(filters.map((f) => f.type)).toEqual(["highshelf", "lowpass"]);
+    expect(limiters).toHaveLength(1);
+    const [shelf, lowpass] = filters;
+    expect(started[0].gain.to).toBe(shelf);
+    expect(shelf.to).toBe(lowpass);
+    expect(lowpass.to).toBe(limiters[0]);
+    expect(limiters[0].to).toBe(destination);
+    expect(limiters[0].threshold.value).toBeLessThan(0);
+    expect(limiters[0].ratio.value).toBeGreaterThan(4); // a limiter, not a gentle compressor
+  });
+
+  it("takes the filter's numbers from params, as each sound starts, so that the sliders are heard at once", async () => {
+    const { sound, filters } = await awake();
+    sound.play("hit");
+    const [shelf, lowpass] = filters;
+    expect([shelf.gain.value, shelf.frequency.value, lowpass.frequency.value]).toEqual([
+      defaults.soundShelfDb,
+      defaults.soundShelfHz,
+      defaults.soundLowpassHz,
+    ]);
+    expect(defaults.soundShelfDb).toBeLessThan(0); // the highs really are turned down
+    expect(defaults.soundLowpassHz).toBeLessThan(20000);
+    params.soundShelfDb = -9;
+    params.soundShelfHz = 3000;
+    params.soundLowpassHz = 7000;
+    sound.play("hit");
+    expect([shelf.gain.value, shelf.frequency.value, lowpass.frequency.value]).toEqual([-9, 3000, 7000]);
+  });
+
+  it("starts the visitor at the soft level, quieter than the volumes in params, and the volumes are the tuned ones", () => {
+    expect(defaults).toMatchObject({ soundHit: 0.5, soundBounce: 0.15, soundRising: 0.5, soundOut: 0.65, soundMaxVoices: 4 });
+    expect(levelGain("soft")).toBeLessThan(1);
   });
 
   it("plays no bounce for a soft contact, and some for a hard one", async () => {

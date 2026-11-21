@@ -176,15 +176,15 @@ test("every corner control is at least 44 by 44 px: the row at the top right, th
     }
   };
 
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound", "Contact"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact"]);
 
   await page.getByRole("button", { name: "Contact" }).tap();
   await expect(page.getByRole("link", { name: "LinkedIn" })).toBeVisible();
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound", "Contact", "Email", "GitHub", "LinkedIn"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact", "Email", "GitHub", "LinkedIn"]);
 
   await page.getByRole("button", { name: "Credits", exact: true }).tap();
   await expect(page.getByRole("dialog", { name: "Credits" })).toBeVisible();
-  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound", "Contact", "Email", "GitHub", "LinkedIn", "Close"]);
+  expectBigEnough(await sizes(), ["Credits", "Clear the balls", "Sound: soft", "Contact", "Email", "GitHub", "LinkedIn", "Close"]);
 });
 
 test("tapping the ? with a finger opens its three links, and tapping it again closes them", async ({ page }) => {
@@ -279,7 +279,7 @@ test("a swipe on the empty toy, a pull down from the top, a push in from the edg
     // A browser that takes a touch for a scroll or a pinch of its own cancels the page's pointer.
     for (const type of ["pointercancel", "touchcancel"]) window.addEventListener(type, () => w.__cancels++, true);
   });
-  const sound = (await page.getByRole("switch", { name: "Sound" }).boundingBox())!;
+  const sound = (await page.getByRole("button", { name: /^Sound/ }).boundingBox())!;
 
   const swipes: [string, Point, Point][] = [
     ["up over the empty toy", { x: width / 2, y: height - 30 }, { x: width / 2, y: 40 }],
@@ -341,7 +341,7 @@ test.describe("a phone held sideways", () => {
     // The contact links open, so that they count as corner controls too.
     await page.getByRole("button", { name: "Contact" }).tap();
     const where = await whatIsWhere(page);
-    expect(where.controls.sort()).toEqual(["Clear the balls", "Contact", "Credits", "Email", "GitHub", "LinkedIn", "Sound"]);
+    expect(where.controls.sort()).toEqual(["Clear the balls", "Contact", "Credits", "Email", "GitHub", "LinkedIn", "Sound: soft"]);
     expectNameOnScreen(where);
     expect(where.clearest.gap, `the air between the name or a ball and the ${where.clearest.name} button`).toBeGreaterThanOrEqual(8);
   });
@@ -496,7 +496,7 @@ test.describe("a phone held sideways", () => {
     await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
     await page.getByLabel("button icon size").fill("24");
 
-    const buttons = [page.getByRole("button", { name: "Credits", exact: true }), page.getByRole("button", { name: "Clear the balls" }), page.getByRole("switch", { name: "Sound" }), page.getByRole("button", { name: "Contact" })];
+    const buttons = [page.getByRole("button", { name: "Credits", exact: true }), page.getByRole("button", { name: "Clear the balls" }), page.getByRole("button", { name: /^Sound/ }), page.getByRole("button", { name: "Contact" })];
     for (const button of buttons) {
       const box = (await button.boundingBox())!;
       const name = (await button.getAttribute("aria-label")) ?? "";
@@ -504,7 +504,7 @@ test.describe("a phone held sideways", () => {
       expect(box.height, `the ${name} button's height`).toBeCloseTo(44, 1);
     }
     // The slider did take hold: the icon in the button is the 24 px that was asked for, in a button that is not the 32 px a mouse would get.
-    expect(await page.getByRole("switch", { name: "Sound" }).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
+    expect(await page.getByRole("button", { name: /^Sound/ }).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
 
     // The button is a solid disc in the toy, as big as its box. Carry the right-hand ball up to the sound button and push it against the
     // button with the finger ending in its middle: the ball is stopped at the button's surface, a ball's radius and the button's from its
@@ -559,13 +559,13 @@ test.describe("a phone held sideways", () => {
     await page.goto("./?tune");
     await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
     await page.setViewportSize({ width: 750, height: 280 });
-    const soundIcon = () => page.getByRole("switch", { name: "Sound" }).locator("svg").evaluate((svg) => svg.getBoundingClientRect().width);
+    const soundIcon = () => page.getByRole("button", { name: /^Sound/ }).locator("svg").evaluate((svg) => svg.getBoundingClientRect().width);
     await expect.poll(soundIcon).toBe(28);
     await page.getByLabel("icon share of the short side").fill("0.08");
     expect(await sandbox<number>(page, "params.iconShare")).toBe(0.08);
     await expect.poll(soundIcon).toBe(22); // 8% of 280
     // The buttons are still 44 px, and the ball still bounces off the sound button's disc at that size.
-    expect((await page.getByRole("switch", { name: "Sound" }).boundingBox())!.width).toBe(44);
+    expect((await page.getByRole("button", { name: /^Sound/ }).boundingBox())!.width).toBe(44);
   });
 
   // The bottom edge of the screen is where a phone's own swipe-up lives (the home bar on an iPhone), and a press that starts there is
@@ -770,7 +770,7 @@ test.describe("a phone held upright", () => {
       const range = document.createRange();
       range.selectNodeContents(el); // the icon and every line of the sentence
       const ink = range.getBoundingClientRect();
-      const buttons = ["Credits", "Clear the balls", "Sound"].map((name) => document.querySelector(`[aria-label="${name}"]`)!.getBoundingClientRect().bottom);
+      const buttons = ['[aria-label="Credits"]', '[aria-label="Clear the balls"]', ".chip.sound"].map((selector) => document.querySelector(selector)!.getBoundingClientRect().bottom);
       return { left: ink.left, right: ink.right, top: ink.top, bottom: ink.bottom, buttonsBottom: Math.max(...buttons), overflow: el.scrollWidth - el.clientWidth };
     });
     expect(shown.top, "below the row of buttons").toBeGreaterThanOrEqual(shown.buttonsBottom);
