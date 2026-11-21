@@ -83,7 +83,6 @@ function fakeAudio(
   const state = { now: 0, muted: false, gain: 1, contexts: 0, resumes: 0, suspends: 0, contextState: "running" };
   const loads: string[] = [];
   const started: Started[] = [];
-  const filters: Array<FakeNode & { type: string; frequency: { value: number }; gain: { value: number } }> = [];
   const limiters: Array<FakeNode & { threshold: { value: number }; ratio: { value: number } }> = [];
   const destination: FakeNode = { kind: "destination", connect: () => undefined };
 
@@ -119,19 +118,6 @@ function fakeAudio(
         },
       };
       return gain;
-    },
-    createBiquadFilter: () => {
-      const filter = {
-        kind: "filter",
-        type: "lowpass",
-        frequency: { value: 350 },
-        gain: { value: 0 },
-        connect(to: AudioNodeLike) {
-          filter.to = to;
-        },
-      } as FakeNode & { type: string; frequency: { value: number }; gain: { value: number } };
-      filters.push(filter);
-      return filter;
     },
     createDynamicsCompressor: () => {
       const limiter = {
@@ -191,7 +177,7 @@ function fakeAudio(
 
   /** The sounds that are still playing at the moment: not cut short, not finished. */
   const playing = () => started.filter((s) => s.stoppedAt === undefined && s.at + s.duration > state.now);
-  return { env, state, loads, started, playing, filters, limiters, destination };
+  return { env, state, loads, started, playing, limiters, destination };
 }
 
 /** A sound whose visitor has already done something, with the files ready to play. */
@@ -240,9 +226,9 @@ describe("levelGain", () => {
 
   it("follows the numbers in params, so that the sliders work", () => {
     params.soundSoftGain = 0.2;
-    params.soundLoudGain = 2;
+    params.soundLoudGain = 3;
     expect(levelGain("soft")).toBe(0.2);
-    expect(levelGain("loud")).toBe(2);
+    expect(levelGain("loud")).toBe(3);
   });
 });
 
@@ -443,41 +429,21 @@ describe("Sound", () => {
     expect(started).toEqual([]);
   });
 
-  it("sends every sound through the highs-cutting shelf, then the low-pass, then the limiter, then the speaker", async () => {
-    const { sound, started, filters, limiters, destination } = await awake();
+  it("sends every sound through the limiter and then the speaker, with no tone filter in between", async () => {
+    const { sound, started, limiters, destination } = await awake();
     sound.play("hit");
-    expect(filters.map((f) => f.type)).toEqual(["highshelf", "lowpass"]);
     expect(limiters).toHaveLength(1);
-    const [shelf, lowpass] = filters;
-    expect(started[0].gain.to).toBe(shelf);
-    expect(shelf.to).toBe(lowpass);
-    expect(lowpass.to).toBe(limiters[0]);
+    expect(started[0].gain.to).toBe(limiters[0]);
     expect(limiters[0].to).toBe(destination);
     expect(limiters[0].threshold.value).toBeLessThan(0);
     expect(limiters[0].ratio.value).toBeGreaterThan(4); // a limiter, not a gentle compressor
   });
 
-  it("takes the filter's numbers from params, as each sound starts, so that the sliders are heard at once", async () => {
-    const { sound, filters } = await awake();
-    sound.play("hit");
-    const [shelf, lowpass] = filters;
-    expect([shelf.gain.value, shelf.frequency.value, lowpass.frequency.value]).toEqual([
-      defaults.soundShelfDb,
-      defaults.soundShelfHz,
-      defaults.soundLowpassHz,
-    ]);
-    expect(defaults.soundShelfDb).toBeLessThan(0); // the highs really are turned down
-    expect(defaults.soundLowpassHz).toBeLessThan(20000);
-    params.soundShelfDb = -9;
-    params.soundShelfHz = 3000;
-    params.soundLowpassHz = 7000;
-    sound.play("hit");
-    expect([shelf.gain.value, shelf.frequency.value, lowpass.frequency.value]).toEqual([-9, 3000, 7000]);
-  });
-
   it("starts the visitor at the soft level, quieter than the volumes in params, and the volumes are the tuned ones", () => {
     expect(defaults).toMatchObject({ soundHit: 0.5, soundBounce: 0.15, soundRising: 0.5, soundOut: 0.65, soundMaxVoices: 4 });
-    expect(levelGain("soft")).toBeLessThan(1);
+    expect(levelGain("soft")).toBe(0.1);
+    expect(levelGain("medium")).toBe(1);
+    expect(levelGain("loud")).toBe(2);
   });
 
   it("plays no bounce for a soft contact, and some for a hard one", async () => {
@@ -504,7 +470,7 @@ describe("Sound", () => {
   it("never has more sounds playing at once than soundMaxVoices; the oldest give way, with a quick fade", async () => {
     params.soundMaxVoices = 4;
     const { sound, started, playing, state } = await awake();
-    const names: SoundName[] = ["bounce", "hit", "out", "rising", "bounce", "bounce", "hit", "bounce", "out", "bounce"];
+    const names: SoundName[] = ["bounce", "bounce", "out", "rising", "bounce", "bounce", "rising", "bounce", "out", "bounce"];
     names.forEach((name, i) => {
       state.now = i * 0.001; // all within a hundredth of a second, so none has finished
       sound.play(name);
@@ -518,6 +484,37 @@ describe("Sound", () => {
       expect(cut.gain.fadedAt).toBeDefined();
       expect(cut.stoppedAt).toBeGreaterThan(cut.gain.fadedAt!);
     }
+  });
+
+  it("never cuts a hit short and never counts it among the sounds playing at once", async () => {
+    params.soundMaxVoices = 2;
+    const { sound, started, playing, state } = await awake();
+    sound.play("hit");
+    for (let i = 0; i < 6; i++) {
+      state.now = 0.001 * (i + 1);
+      sound.play(i % 2 ? "out" : "bounce");
+    }
+    state.now = 0.01;
+    sound.play("hit");
+    const hits = started.filter((s) => s.name === "hit");
+    expect(hits).toHaveLength(2);
+    for (const hit of hits) {
+      expect(hit.gain.fadedAt).toBeUndefined();
+      expect(hit.stoppedAt).toBeUndefined();
+    }
+    // Both hits play next to the two other sounds that fit; the others gave way.
+    expect(playing().filter((s) => s.name !== "hit")).toHaveLength(2);
+    expect(playing().filter((s) => s.name === "hit")).toHaveLength(2);
+  });
+
+  it("lets a hit through while the audio is still waking, when other sounds are held back", async () => {
+    const { sound, started } = await awake({ startAsleep: true, stuckAsleep: true });
+    sound.interact();
+    sound.play("bounce");
+    sound.play("bounce");
+    sound.play("bounce"); // held back: only two may queue while waking
+    sound.play("hit");
+    expect(started.map((s) => s.name)).toEqual(["bounce", "bounce", "hit"]);
   });
 
   it("lets sounds that have finished make room by themselves, cutting nothing", async () => {
