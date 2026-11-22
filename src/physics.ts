@@ -162,6 +162,8 @@ export class Court {
    * again for anything much harder.
    */
   readonly impacts: Impact[] = [];
+  /** The `seed` of each can that left past the side lines during the last step, for the page to put back in the bag. */
+  readonly cansGone: number[] = [];
   private world: World;
   /** The body that everything fixed belongs to: the walls, the letters, the buttons, the bench and the bag. */
   private fixed: Body;
@@ -489,6 +491,7 @@ export class Court {
   /** Advance the world by one `STEP`. Returns the ids of balls that left for good. */
   step(): number[] {
     const dt = STEP;
+    this.cansGone.length = 0;
     const radius = params.ballDiameter / 2;
     this.meetings.length = 0;
 
@@ -572,6 +575,7 @@ export class Court {
     for (const can of [...this.cans]) {
       if (can.x < -CAN_OUT || can.x > this.width + CAN_OUT) {
         this.removeCan(can.id);
+        this.cansGone.push(can.seed);
         gone.push(can.id);
       }
     }
