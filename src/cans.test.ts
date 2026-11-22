@@ -250,6 +250,15 @@ describe("a can", () => {
     expect(court.cans).toHaveLength(0);
   });
 
+  it("names the can that went out by its seed, so the page can put it back in the bag", () => {
+    const court = new Court(WIDTH, 40);
+    court.addCan(WIDTH + 0.2, 30, 0, undefined, 2);
+    court.step();
+    expect(court.cansGone).toEqual([2]);
+    court.step();
+    expect(court.cansGone).toEqual([]);
+  });
+
   /** Carry a can to `(toX, toY)` over a second, hold it there 1.5 s, and report how far a corner of it ever went past the walls and the floor, and how far it turned. */
   function carryAndHold(startX: number, toX: number, toY: number, floor = 0) {
     const court = new Court(WIDTH, HEIGHT, [], [], floor);

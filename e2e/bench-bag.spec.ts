@@ -558,6 +558,16 @@ test.describe("the notebook", () => {
     }
   });
 
+  test("the note is signed '- Quinn Wai', on the ball's line and to its right", async ({ page }) => {
+    await notebookAt(page, { width: 1440, height: 800 });
+    const sign = notebookDialog(page).locator(".v6-nb-doodle .v6-nb-sign");
+    await expect(sign).toHaveText("- Quinn Wai");
+    const s = (await sign.boundingBox())!;
+    const ball = (await notebookDialog(page).locator(".v6-nb-doodle > g").boundingBox())!;
+    expect(s.x, "after the ball").toBeGreaterThan(ball.x + ball.width);
+    expect(Math.abs(s.y + s.height / 2 - (ball.y + ball.height / 2)), "on the ball's line").toBeLessThan(ball.height);
+  });
+
   test("in a window 390 px tall the notebook is one spread, no more than 75 percent of the window's width", async ({ page }) => {
     const type = await notebookAt(page, { width: 844, height: 390 });
     expect(type.paged).toBe(false);

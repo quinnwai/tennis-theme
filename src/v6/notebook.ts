@@ -427,7 +427,11 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     const r = Math.min(16, (ruleY(sit) - ruleY(line) - 8) / 2);
     ballShown = fitsNow && onRight && r >= 11;
     ballSpread = Math.floor(col / 2);
-    doodleBox.innerHTML = ballShown ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` : "";
+    doodleBox.innerHTML = ballShown
+      ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` +
+        // the sign-off, in the same pen, on the ball's line and flush with the page's right margin
+        `<text class="v6-nb-sign" x="${f(RP + PW - 18)}" y="${f(ruleY(sit) - 3)}" text-anchor="end" font-family="Caveat, cursive" font-weight="500" font-size="${fontPx}" fill="${C.navy}">- Quinn Wai</text>`
+      : "";
     setSpread(spreadNo);
   }
 

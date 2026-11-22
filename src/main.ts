@@ -339,6 +339,8 @@ function main(): void {
     const gone = court.step();
     for (const impact of court.impacts) sound.bounce(impact.speed);
     if (gone.length > 0) sound.play("out");
+    // a can that flew out of the screen is back in the bag, full
+    for (const seed of court.cansGone) scene.returnCan(seed);
     simMs += STEP * 1000;
     supply();
   }
