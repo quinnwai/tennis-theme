@@ -80,10 +80,7 @@ function main(): void {
       reducedMotion,
       onSolids: (loops) => applySceneSolids(loops),
       onNotebook: (box, opener) => notebook.open(box, opener),
-      onInteraction: (kind) => {
-        noteInteraction();
-        if (kind === "unzip") sound.play("rising");
-      },
+      onInteraction: () => noteInteraction(),
     },
     canvas,
   );

@@ -500,17 +500,17 @@ async function unzipByKeyboard(page: Page) {
   await page.waitForTimeout(1000);
 }
 
-test("Restart brings the dots back without the rising sound; a knocked-off dot keeps its own, and so does the bag opening", async ({ page }) => {
+test("Restart brings the dots back without the rising sound, and so does opening the bag; a knocked-off dot keeps its own", async ({ page }) => {
   await open(page);
   await unzipByKeyboard(page);
-  expect(await voicesOf(page, "rising"), "the bag opening has its pop").toHaveLength(1);
+  expect(await voices(page), "the bag opening makes no sound").toHaveLength(0);
   await page.getByRole("button", { name: "Clear the balls" }).click();
   await advance(page, 3);
   expect(await sandbox<boolean[]>(page, "dots()"), "the dots are back").toEqual([true, true]);
-  expect(await voicesOf(page, "rising"), "and came back silently").toHaveLength(1);
+  expect(await voicesOf(page, "rising"), "and came back silently").toHaveLength(0);
   await knockOffFirstDot(page);
   await advance(page, 4);
-  expect(await voicesOf(page, "rising"), "a dot that regrows after being knocked off keeps its pop").toHaveLength(2);
+  expect(await voicesOf(page, "rising"), "a dot that regrows after being knocked off keeps its pop").toHaveLength(1);
 });
 
 test("a can makes no sound when it lands, and a tap on it plays no hit and leaves it where it was", async ({ page }) => {
