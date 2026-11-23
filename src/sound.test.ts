@@ -425,8 +425,8 @@ describe("Sound", () => {
     expect(limiters[0].ratio.value).toBeGreaterThan(4); // a limiter, not a gentle compressor
   });
 
-  it("plays the tuned volumes at the quiet level, with the hit at half of what it was", () => {
-    expect(defaults).toMatchObject({ soundHit: 0.3, soundBounce: 0.15, soundRising: 0.25, soundOut: 0.65, soundMaxVoices: 4, soundGain: 0.1 });
+  it("plays the tuned volumes at the quiet level, all halved again on 2026-11-22", () => {
+    expect(defaults).toMatchObject({ soundHit: 0.25, soundBounce: 0.125, soundRising: 0.25, soundOut: 0.5, soundMaxVoices: 4, soundGain: 0.1 });
     expect(levelGain("on")).toBe(0.1);
   });
 
