@@ -1126,6 +1126,7 @@ test("with ?tune, bigger icons make bigger solid buttons: a ball thrown at the s
 });
 
 test("a dot always comes back, and the clear button sweeps the court", async ({ page }) => {
+  await freeze(page); // after the clear, the court is empty until this check lets time pass
   for (let round = 0; round < 3; round++) {
     const d = await dot(page, 0);
     await page.mouse.click(d.x - d.r * 0.8, d.y + d.r * 0.2);

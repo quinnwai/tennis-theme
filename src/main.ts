@@ -277,7 +277,7 @@ function main(): void {
         if (court.cans.some((c) => c.id === id)) return; // a tap on a can does nothing
         noteInteraction();
         court.hit(id, dir.x, -dir.y);
-        renderer.burst(at.x, at.y, performance.now());
+        renderer.burst(at.x, at.y, clock(performance.now()));
         sound.play("hit");
         lastHit = { id, dir, at };
       },
@@ -395,7 +395,7 @@ function main(): void {
     if (takeCanAt(e.clientX, e.clientY)) {
       canPointer = e.pointerId;
       if (touch) finger = e.pointerId;
-    } else if (gestures.down(e.clientX, e.clientY, gestureClock(e.timeStamp), touch) && touch) {
+    } else if (gestures.down(e.clientX, e.clientY, clock(e.timeStamp), touch) && touch) {
       finger = e.pointerId;
     }
   });
@@ -424,7 +424,7 @@ function main(): void {
   canvas.addEventListener("pointerup", (e) => {
     if (stray(e)) return;
     finger = null;
-    if (!endCanCarry(e)) gestures.up(gestureClock(e.timeStamp));
+    if (!endCanCarry(e)) gestures.up(clock(e.timeStamp));
   });
   canvas.addEventListener("pointercancel", (e) => {
     if (stray(e)) return;
@@ -536,9 +536,9 @@ function main(): void {
   let last = performance.now();
   let pending = 0;
   // A browser check can freeze the real-time loop (`__sandbox.freeze()`): from then on only `advance` moves the court, and taps, holds and
-  // carries are timed by the court's own clock, so a slow machine cannot change what a check sees.
+  // carries, and how old a trail or a pow is, are timed by the court's own clock, so a slow machine cannot change what a check sees.
   let frozen = false;
-  const gestureClock = (real: number) => (frozen ? simMs : real);
+  const clock = (real: number) => (frozen ? simMs : real);
   function frame(now: number): void {
     if (!frozen) {
       pending += Math.min(0.1, (now - last) / 1000);
@@ -551,10 +551,11 @@ function main(): void {
     last = now;
     const alpha = pending / STEP;
     const sprites = court.balls.map((b) => sprite(b, alpha));
+    const drawnAt = clock(now);
     court.balls.forEach((b, i) => {
-      if (leavesTrail(b)) renderer.trail(sprites[i], now);
+      if (leavesTrail(b)) renderer.trail(sprites[i], drawnAt);
     });
-    renderer.draw(now, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha));
+    renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha));
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
