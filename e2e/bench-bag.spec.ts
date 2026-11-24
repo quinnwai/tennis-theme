@@ -3,7 +3,9 @@
 // checks run on every project, the phones held sideways included (with a mouse; the finger checks are in bench-bag.phone.spec.ts).
 // Everything goes through the page's test hook, window.__sandbox. The court's own rules are in src/cans.test.ts.
 
-import { expect, test, type Page } from "@playwright/test";
+import { freeze, until } from "./frozen";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./test";
 import { notebookText } from "../src/notebook-text";
 
 type Pt = [number, number];
@@ -465,6 +467,7 @@ test.describe("the cans", () => {
   });
 
   test("a can that is shaken hard by its base is turned over and pours its balls out", async ({ page }) => {
+    await freeze(page);
     await unzip(page);
     const top = await canTop(page, 0);
     const L = await scene(page);
@@ -475,7 +478,9 @@ test.describe("the cans", () => {
     // Set it down on the open floor left of the name, as a visitor would, and let it settle: it stands, full.
     const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
     await carry(page, [top.x - 40, top.y - 60], [100, L.height - lift - height - 10]);
-    await advance(page, 1.5);
+    // The can swings under the hand for a while after the hand stops, and a can let go in mid-swing may land on its side. It is let go once
+    // the swing is over, and this waits for that in the court's time and not the machine's.
+    await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
     await page.mouse.up();
     await advance(page, 3);
     const [can] = await cans(page);
@@ -487,7 +492,7 @@ test.describe("the cans", () => {
     const base: Pt = [can.x, can.y + can.height * 0.4];
     await page.mouse.move(base[0], base[1]);
     await page.mouse.down();
-    const lifted: Pt = [base[0], base[1] - can.height * 1.5];
+    const lifted: Pt = [base[0] + can.height * 1.5, base[1] - can.height * 1.5]; // clear of the wall, which would stop half of each swing
     await carry(page, base, lifted, 15);
     let at = lifted;
     for (let swing = 0; swing < 10 && (await cans(page))[0].ballsLeft > 0; swing++) {

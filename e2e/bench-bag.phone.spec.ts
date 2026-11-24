@@ -2,7 +2,8 @@
 // input and no mouse. The file's name ends in phone.spec.ts, so that playwright.config.ts runs it on the phone projects only (the sideways
 // ones, by the title below) and not on the desktop one.
 
-import { expect, test, type CDPSession, type Page } from "@playwright/test";
+import { expect, type CDPSession, type Page } from "@playwright/test";
+import { test } from "./test";
 
 interface Point {
   x: number;

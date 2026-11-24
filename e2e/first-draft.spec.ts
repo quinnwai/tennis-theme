@@ -2,7 +2,9 @@
 // with BASE_URL set, against a deployed copy.
 
 import { readFileSync } from "node:fs";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
+import { test } from "./test";
+import { freeze, run, until } from "./frozen";
 import { iconSizeFor } from "../src/controls";
 import { params } from "../src/params";
 
@@ -90,18 +92,14 @@ test("a click at a ball's bottom left sends it up and to the right, along the li
 });
 
 test("pressing and holding a ball lets you drag it around", async ({ page }) => {
+  await freeze(page);
   const d = await dot(page, 0);
   const target = { x: d.x + 150, y: d.y - 160 };
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
   await page.mouse.move(d.x + 60, d.y - 80, { steps: 10 });
   await page.mouse.move(target.x, target.y, { steps: 10 });
-  await expect
-    .poll(async () => {
-      const b = await ball(page, d.id);
-      return Math.hypot(b.x - target.x, b.y - target.y);
-    })
-    .toBeLessThan(6);
+  await until(page, async () => { const b = await ball(page, d.id); return Math.hypot(b.x - target.x, b.y - target.y); }, (gap) => gap < 6, "the ball arrives at the pointer");
   expect((await ball(page, d.id)).held).toBe(true);
   await page.mouse.up();
   expect((await ball(page, d.id)).held).toBe(false);
@@ -735,6 +733,7 @@ interface Flight {
  * right-hand end).
  */
 async function throwAt(page: Page, button: Locator): Promise<Flight> {
+  await freeze(page);
   const box = (await button.boundingBox())!;
   const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const d = await dot(page, 1);
@@ -745,8 +744,8 @@ async function throwAt(page: Page, button: Locator): Promise<Flight> {
   await page.mouse.down();
   await page.mouse.move(below.x, d.y, { steps: 8 });
   await page.mouse.move(below.x, below.y, { steps: 8 });
-  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - below.x, (await ball(page, d.id)).y - below.y)).toBeLessThan(6);
-  await page.waitForTimeout(120); // let it stop, so that the run-up starts the same way every time
+  await until(page, async () => { const b = await ball(page, d.id); return Math.hypot(b.x - below.x, b.y - below.y); }, (gap) => gap < 6, "the ball arrives below the button");
+  await run(page, 0.12); // let it stop, so that the run-up starts the same way every time
 
   const flight = await page.evaluate(
     ({ id, at, contact }) => {

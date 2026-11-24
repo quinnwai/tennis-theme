@@ -3,7 +3,8 @@
 // server or, with BASE_URL set, against a deployed copy; both only use the page's test hook,
 // window.__sandbox.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./test";
 
 interface Ball {
   id: number;

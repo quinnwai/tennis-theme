@@ -2,7 +2,9 @@
 // play. Real audio cannot be heard or measured from a test, and a test must not need a sound card; what
 // these checks look at is what the page decides: which file, how loud, and whether at all.
 
-import { expect, test, type Page } from "@playwright/test";
+import { drag, freeze, run, until } from "./frozen";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./test";
 
 /** One sound the page asked the audio to start. */
 interface Voice {
@@ -209,16 +211,17 @@ async function dropGround(page: Page) {
  * still, so that it drops straight down from there.
  */
 async function dropSecondDotFrom(page: Page, at: { x: number; y: number }) {
+  await freeze(page);
   const d = await dot(page, 1);
   // Four radii above the dots is clear of the first dot, the name and the buttons at the top right, in a window of any size.
   const over = d.y - 4 * d.r;
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
-  await page.mouse.move(d.x, over, { steps: 6 });
-  await page.mouse.move(at.x, over, { steps: 10 });
-  await page.mouse.move(at.x, at.y, { steps: 6 });
-  await expect.poll(async () => Math.hypot((await ball(page, d.id)).x - at.x, (await ball(page, d.id)).y - at.y)).toBeLessThan(4);
-  await page.waitForTimeout(150); // let it stop, so that it falls straight down
+  await drag(page, d, { x: d.x, y: over }, 6);
+  await drag(page, { x: d.x, y: over }, { x: at.x, y: over }, 10);
+  await drag(page, { x: at.x, y: over }, at, 6);
+  await until(page, async () => { const b = await ball(page, d.id); return Math.hypot(b.x - at.x, b.y - at.y); }, (gap) => gap < 4, "the ball arrives at the spot");
+  await run(page, 0.15); // let it stop, so that it falls straight down
   await page.mouse.up();
   return d;
 }
