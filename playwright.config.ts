@@ -24,7 +24,9 @@ const run = deployed ? undefined : (process.env.E2E_RUN ||= randomUUID());
 // blocks the page while the browser starts its audio. That takes 0.2 to 0.4 s when many browsers do it at
 // once, as in a parallel run, and the timing checks in these tests suffer for it. With the audio inside
 // the browser's own process it takes about 50 ms.
-const launchOptions = { args: ["--disable-features=AudioServiceOutOfProcess"] };
+// A headless browser still plays through the Mac's real speakers, and the feature flag above silences nothing,
+// so --disable-audio-output keeps every test browser off the speakers.
+const launchOptions = { args: ["--disable-features=AudioServiceOutOfProcess", "--disable-audio-output"] };
 
 // A phone, as Chromium plays one: the phone's window size, pixel density and user agent, a touch screen in
 // place of a mouse (so `(pointer: coarse)` holds), and a layout that follows the page's viewport tag. The size is
