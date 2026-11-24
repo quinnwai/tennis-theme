@@ -41,6 +41,9 @@ const phone = (device: string) => {
 
 export default defineConfig({
   testDir: "e2e",
+  // A test may take as long as it does on a machine that is E2E_CPU_THROTTLE times slower (see e2e/test.ts): the clock that runs out is the
+  // machine's, and what a test looks at is not.
+  timeout: 30_000 * Math.max(1, Number(process.env.E2E_CPU_THROTTLE) || 1),
   fullyParallel: true,
   // On CI the HTML report and a trace of every failure are kept for the workflow to upload.
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",

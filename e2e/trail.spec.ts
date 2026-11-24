@@ -2,7 +2,7 @@
 // behind a ball, that it goes away, and that its numbers can be tuned live. Runs against the dev server or, with
 // BASE_URL set, against a deployed copy; both only use the page's test hook, window.__sandbox.
 
-import { drawn, freeze, run } from "./frozen";
+import { drawn, freeze, run, until } from "./frozen";
 import { expect, type Page } from "@playwright/test";
 import { test } from "./test";
 
@@ -36,6 +36,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("a ball flying up is followed by a solid white band about as wide as the ball, and nothing much wider", async ({ page }, testInfo) => {
+  await freeze(page); // the trail's age is the court's time now: it moves a frame at a time, in the loop below
   const d = await dot(page, 0);
   await page.mouse.click(d.x, d.y + d.r * 0.8);
   // While the ball is a few widths up, read the page again and again: where the ball is, and what is
@@ -62,6 +63,7 @@ test("a ball flying up is followed by a solid white band about as wide as the ba
       const exact = (p: number[]) => p.every((v, i) => Math.abs(v - expected[i]) <= 6);
       const found = [];
       for (let frame = 0; frame < 150 && found.length < 6; frame++) {
+        s.advance(1 / 120);
         await new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0)));
         const ball = s.balls().find((b: Ball) => b.id === id) as Ball | undefined;
         if (!ball) continue;
@@ -131,8 +133,7 @@ test("once the ball has come to rest its trail is gone within a second, and a re
 
 test("a ball being dragged leaves a trail too, and none once it is held still", async ({ page }) => {
   // The court moves only as this check says (a frame's worth of time after each move of the pointer), and the trail is looked at after the
-  // page has drawn that frame, so a slow machine cannot change what is seen. How long a trail lasts is the page's own clock, which is
-  // slowed down here so that a slow machine's frames still find the points that came before them.
+  // page has drawn that frame, so a slow machine cannot change what is seen. How old a trail point is, is the court's time too.
   await freeze(page);
   await page.evaluate("window.__sandbox.params.trailLifetime = 1");
   const d = await dot(page, 0);
@@ -150,8 +151,9 @@ test("a ball being dragged leaves a trail too, and none once it is held still", 
   expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
   expect(most).toBeGreaterThan(10);
   // Hold it still: it catches up with the pointer and stops, and its trail is gone within a second.
-  await run(page, 2);
-  await expect.poll(() => sandbox<number>(page, "effects().trailPoints"), { timeout: 2000, intervals: [50] }).toBe(0);
+  await run(page, 2); // it catches up with the pointer, and then a second of the court's time passes
+  await drawn(page);
+  expect(await sandbox<number>(page, "effects().trailPoints")).toBe(0);
   expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
   await page.mouse.up();
 });
@@ -183,6 +185,7 @@ test("each number of the trail and the poof has a slider under ?tune that moves 
 test("moving a trail or poof slider leaves a ball in flight alone", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
+  await freeze(page);
   // The second dot, because the panel of sliders sits at the left of the window, and in a window as narrow as a phone's it
   // covers the first dot.
   const d = await dot(page, 1);
@@ -191,9 +194,7 @@ test("moving a trail or poof slider leaves a ball in flight alone", async ({ pag
   // where a ball is drawn smaller. The hit sends it up at 3 m/s, and it is still rising at that pace for only a quarter of a
   // second, so the ball is looked at every 10 ms: at the default pace of checking, a busy machine can let that quarter second go by.
   const inFlight = -0.5 * (await sandbox<number>(page, "pxPerMeter()"));
-  await expect
-    .poll(async () => (await balls(page)).find((b) => b.id === d.id)?.vy ?? 0, { intervals: [10] })
-    .toBeLessThan(inFlight);
+  await until(page, async () => (await balls(page)).find((b) => b.id === d.id)?.vy ?? 0, (vy) => vy < inFlight, "the ball is in flight");
   // Read the ball, move the slider and read the ball again without letting a single step of the
   // simulation run in between. Rebuilding the court would leave the ball standing still in mid air.
   const { before, after } = await page.evaluate((id) => {

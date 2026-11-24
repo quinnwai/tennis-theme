@@ -4,6 +4,7 @@
 // window.__sandbox.
 
 import { expect, type Page } from "@playwright/test";
+import { drawn, freeze, run } from "./frozen";
 import { test } from "./test";
 
 interface Ball {
@@ -32,6 +33,7 @@ test.beforeEach(async ({ page }) => {
 test("a hit bursts into a chunky white star around the point it was struck, and it is gone once its lifetime is up", async ({ page }, testInfo) => {
   // Slow the poof down to a third of its pace, so the star stays readable for about three times
   // as long and a busy machine cannot make the readings miss it. Its shape is the same.
+  await freeze(page); // the burst's age is the court's time now, which moves only in the loop below, a frame at a time
   await page.evaluate("window.__sandbox.params.poofLifetime = 1");
   const d = await dot(page, 0);
   const click = { x: d.x - d.r * 0.6, y: d.y + d.r * 0.6 };
@@ -50,8 +52,8 @@ test("a hit bursts into a chunky white star around the point it was struck, and 
       // "Light" is anything clearly brighter than the navy in every color: the white of a chip, not navy or the green ball.
       const light = (p: number[]) => p.every((v, i) => v > background[i] + 50);
       const found: { lit: number; total: number; directions: number }[] = [];
-      const started = performance.now();
-      while (performance.now() - started < 400 && found.length < 12) {
+      for (let frame = 0; frame < 12; frame++) {
+        s.advance(1 / 120);
         await new Promise<void>((done) => requestAnimationFrame(() => setTimeout(done, 0)));
         const ball = s.balls().find((b: Ball) => b.id === id) as Ball;
         let lit = 0;
@@ -84,5 +86,7 @@ test("a hit bursts into a chunky white star around the point it was struck, and 
   expect(Math.max(...readings.map((r) => r.lit / r.total))).toBeGreaterThan(0.4);
   expect(Math.max(...readings.map((r) => r.directions))).toBeGreaterThanOrEqual(7);
   // And it is gone once its lifetime is up.
-  await expect.poll(() => sandbox<number>(page, "effects().bursts"), { timeout: 2500, intervals: [50] }).toBe(0);
+  await run(page, 1.2);
+  await drawn(page);
+  expect(await sandbox<number>(page, "effects().bursts")).toBe(0);
 });
