@@ -2,7 +2,8 @@
 // caught and answered by the test, so nothing a test does ever reaches the real PostHog project. That holds
 // against the dev server and, with BASE_URL set, against a deployed copy.
 
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { test } from "./test";
 
 const ENDPOINT = "https://us.i.posthog.com/i/v0/e/";
 

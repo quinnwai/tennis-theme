@@ -395,7 +395,7 @@ function main(): void {
     if (takeCanAt(e.clientX, e.clientY)) {
       canPointer = e.pointerId;
       if (touch) finger = e.pointerId;
-    } else if (gestures.down(e.clientX, e.clientY, e.timeStamp, touch) && touch) {
+    } else if (gestures.down(e.clientX, e.clientY, gestureClock(e.timeStamp), touch) && touch) {
       finger = e.pointerId;
     }
   });
@@ -424,7 +424,7 @@ function main(): void {
   canvas.addEventListener("pointerup", (e) => {
     if (stray(e)) return;
     finger = null;
-    if (!endCanCarry(e)) gestures.up(e.timeStamp);
+    if (!endCanCarry(e)) gestures.up(gestureClock(e.timeStamp));
   });
   canvas.addEventListener("pointercancel", (e) => {
     if (stray(e)) return;
@@ -535,14 +535,20 @@ function main(): void {
 
   let last = performance.now();
   let pending = 0;
+  // A browser check can freeze the real-time loop (`__sandbox.freeze()`): from then on only `advance` moves the court, and taps, holds and
+  // carries are timed by the court's own clock, so a slow machine cannot change what a check sees.
+  let frozen = false;
+  const gestureClock = (real: number) => (frozen ? simMs : real);
   function frame(now: number): void {
-    pending += Math.min(0.1, (now - last) / 1000);
-    last = now;
-    gestures.tick(now);
-    while (pending >= STEP) {
-      stepOnce();
-      pending -= STEP;
+    if (!frozen) {
+      pending += Math.min(0.1, (now - last) / 1000);
+      gestures.tick(now);
+      while (pending >= STEP) {
+        stepOnce();
+        pending -= STEP;
+      }
     }
+    last = now;
     const alpha = pending / STEP;
     const sprites = court.balls.map((b) => sprite(b, alpha));
     court.balls.forEach((b, i) => {
@@ -602,7 +608,15 @@ function main(): void {
       },
       /** Run the simulation forward without waiting for frames. */
       advance(seconds: number) {
-        for (let i = 0; i < Math.round(seconds / STEP); i++) stepOnce();
+        for (let i = 0; i < Math.round(seconds / STEP); i++) {
+          stepOnce();
+          if (frozen) gestures.tick(simMs);
+        }
+      },
+      /** Stop the real-time loop: the court then moves only when `advance` is called, and presses are timed by the court's clock. */
+      freeze() {
+        frozen = true;
+        pending = 0;
       },
     },
   });

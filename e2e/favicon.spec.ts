@@ -2,7 +2,8 @@
 // flat tennis ball in the site's own colors, with a PNG for browsers that do not take the SVG. Run in a
 // real browser against the dev server or, with BASE_URL set, against a deployed copy.
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./test";
 
 /** One `<link rel="icon">` of the homepage. */
 interface Icon {

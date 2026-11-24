@@ -2,7 +2,8 @@
 // same moment, so every run has to be sure that the page it tests is the one it set up: the dev server
 // it started itself or, with BASE_URL, the deployed copy it was pointed at.
 
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "./test";
 
 if (process.env.BASE_URL) {
   test("against a deployed copy, no dev server is started and the checks use the address they were given", async ({}, testInfo) => {

@@ -2,7 +2,9 @@
 // behind a ball, that it goes away, and that its numbers can be tuned live. Runs against the dev server or, with
 // BASE_URL set, against a deployed copy; both only use the page's test hook, window.__sandbox.
 
-import { expect, test, type Page } from "@playwright/test";
+import { drawn, freeze, run } from "./frozen";
+import { expect, type Page } from "@playwright/test";
+import { test } from "./test";
 
 interface Ball {
   id: number;
@@ -128,6 +130,11 @@ test("once the ball has come to rest its trail is gone within a second, and a re
 });
 
 test("a ball being dragged leaves a trail too, and none once it is held still", async ({ page }) => {
+  // The court moves only as this check says (a frame's worth of time after each move of the pointer), and the trail is looked at after the
+  // page has drawn that frame, so a slow machine cannot change what is seen. How long a trail lasts is the page's own clock, which is
+  // slowed down here so that a slow machine's frames still find the points that came before them.
+  await freeze(page);
+  await page.evaluate("window.__sandbox.params.trailLifetime = 1");
   const d = await dot(page, 0);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
@@ -136,12 +143,14 @@ test("a ball being dragged leaves a trail too, and none once it is held still", 
   let most = 0;
   for (let i = 1; i <= 12; i++) {
     await page.mouse.move(d.x + i * 36, d.y - i * 16);
-    await page.waitForTimeout(10);
+    await run(page, 1 / 30);
+    await drawn(page);
     most = Math.max(most, await sandbox<number>(page, "effects().trailPoints"));
   }
   expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
   expect(most).toBeGreaterThan(10);
   // Hold it still: it catches up with the pointer and stops, and its trail is gone within a second.
+  await run(page, 2);
   await expect.poll(() => sandbox<number>(page, "effects().trailPoints"), { timeout: 2000, intervals: [50] }).toBe(0);
   expect((await balls(page)).find((b) => b.id === d.id)!.held).toBe(true);
   await page.mouse.up();
