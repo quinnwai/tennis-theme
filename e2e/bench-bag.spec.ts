@@ -467,6 +467,7 @@ test.describe("the cans", () => {
   });
 
   test("a can that is shaken hard by its base is turned over and pours its balls out", async ({ page }) => {
+    test.slow(); // a long run of small moves, each one a round trip to the page: three times the time on a slow machine
     await freeze(page);
     await unzip(page);
     const top = await canTop(page, 0);
@@ -532,7 +533,9 @@ test.describe("the notebook", () => {
     await expect.poll(async () => (await bag(page)).notebookOut).toBe(false);
     await openNotebook(page);
     await expect(notebookDialog(page)).toBeVisible();
-    await page.waitForTimeout(1200); // it has finished opening
+    // It has finished opening: nothing in it is still animating. (A wait of a fixed time ends before that on a slow machine.)
+    await expect.poll(() => notebookDialog(page).evaluate((el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running"))).toBe(false);
+    await page.waitForTimeout(100);
     await page.mouse.click(3, 3); // the corner of the window, outside the spread (which keeps 8 px clear of the edge in a short window)
     await expect(notebookDialog(page)).toBeHidden();
   });
