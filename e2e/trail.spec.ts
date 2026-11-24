@@ -135,7 +135,6 @@ test("a ball being dragged leaves a trail too, and none once it is held still", 
   // The court moves only as this check says (a frame's worth of time after each move of the pointer), and the trail is looked at after the
   // page has drawn that frame, so a slow machine cannot change what is seen. How old a trail point is, is the court's time too.
   await freeze(page);
-  await page.evaluate("window.__sandbox.params.trailLifetime = 1");
   const d = await dot(page, 0);
   await page.mouse.move(d.x, d.y);
   await page.mouse.down();
