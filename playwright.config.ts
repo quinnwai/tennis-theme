@@ -40,8 +40,10 @@ const phone = (device: string) => {
 export default defineConfig({
   testDir: "e2e",
   fullyParallel: true,
-  reporter: "list",
+  // On CI the HTML report and a trace of every failure are kept for the workflow to upload.
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
+    trace: "retain-on-failure",
     baseURL: deployed ?? (process.env.E2E_PORT ? `http://127.0.0.1:${process.env.E2E_PORT}/` : undefined),
     viewport: { width: 1440, height: 800 },
   },
