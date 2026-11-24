@@ -446,6 +446,7 @@ test.describe("a phone held sideways", () => {
     // The ball chases the finger as fast as it carries; lift while it is clearly moving.
     await until(page, async () => { const b = await ball(page, d.id); return Math.hypot(b.vx, b.vy); }, (speed) => speed > 500, "the ball is moving fast");
     await fingers.lift(1);
+    await advance(page, 1 / 240); // one step with the ball free, so that its speed is what it kept, not what it had when held
     const thrown = await ball(page, d.id);
     expect(thrown.held).toBe(false);
     expect(thrown.vx, "it keeps going the way it was").toBeGreaterThan(300);
