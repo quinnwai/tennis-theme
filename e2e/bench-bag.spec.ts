@@ -428,6 +428,8 @@ test.describe("unzipping the bag", () => {
 
 test.describe("the cans", () => {
   test("a press on a can standing in the open bag takes it out, and carrying it away leaves it standing full on the floor", async ({ page }) => {
+    test.slow(); // many small moves, each one a round trip to the page
+    await freeze(page);
     await unzip(page);
     expect(await cans(page)).toHaveLength(0); // all three are still in the bag
     const top = await canTop(page, 0);
@@ -443,7 +445,7 @@ test.describe("the cans", () => {
     const L = await scene(page);
     const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
     await carry(page, [top.x - 80, top.y - 120], [100, L.height - lift - held[0].height - 10]);
-    await advance(page, 1.5);
+    await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
     await page.mouse.up();
     await advance(page, 4);
     const [can] = await cans(page);
