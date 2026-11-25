@@ -215,12 +215,12 @@ const WIGGLE = 0.45;
 /** The most a carried can leans into a sideways move, radians: about 17 degrees. */
 const MAX_LEAN = 0.3;
 /**
- * A ball slower than this (engine units a second: 1 cm a second) and turning slower than `STILL_SPIN` (radians a second) is still. It is
- * looser than the engine's own tolerance because a ball jammed between strokes shivers at a few mm a second, which would keep it, and every
- * ball resting against it, awake.
+ * A ball is still when, for half a second, it has not left a spot 1 mm across (`STILL_MOVE`, a fraction of its diameter) and is nowhere
+ * near fast (`STILL_SPEED`, engine units a second: 5 cm a second). Its speed alone says too little: a ball jammed between strokes shivers
+ * back and forth at up to a few cm a second without going anywhere, which kept it, and every ball resting on it, awake (QWW-107).
  */
-const STILL_SPEED = 0.1;
-const STILL_SPIN = 0.5;
+const STILL_MOVE = 0.015;
+const STILL_SPEED = 0.5;
 /** How long a ball is still before it is put to sleep: half a second, as the engine's own. */
 const STILL_STEPS = Math.round(0.5 / STEP);
 
@@ -318,6 +318,8 @@ export class Court {
   private supportChanged = false;
   /** How many steps in a row each ball has been still (see `sleepStill`). */
   private stillFor = new Map<number, number>();
+  /** Where each ball was when it began to be still (see `sleepStill`), in meters. */
+  private stillAt = new Map<number, Point>();
   /** Physics steps into the current can frame (four to a frame). */
   private sub = 0;
   private staticSolids: Solid[] | null = null;
@@ -801,9 +803,17 @@ export class Court {
     for (const ball of this.balls) {
       const body = this.bodies.get(ball.id)!;
       const v = body.getLinearVelocity();
-      const still = body.isAwake() && !ball.held && !ball.pinned && v.x * v.x + v.y * v.y < STILL_SPEED ** 2 && Math.abs(body.getAngularVelocity()) < STILL_SPIN;
-      if (!still) {
+      const from = this.stillAt.get(ball.id);
+      const slow = body.isAwake() && !ball.held && !ball.pinned && v.x * v.x + v.y * v.y < STILL_SPEED ** 2;
+      if (!slow) {
         this.stillFor.delete(ball.id);
+        this.stillAt.delete(ball.id);
+        continue;
+      }
+      if (!from || Math.hypot(ball.x - from.x, ball.y - from.y) > STILL_MOVE * params.ballDiameter) {
+        // moved off its spot (or has just begun): count from here
+        this.stillAt.set(ball.id, { x: ball.x, y: ball.y });
+        this.stillFor.set(ball.id, 1);
         continue;
       }
       const steps = Math.min(STILL_STEPS, (this.stillFor.get(ball.id) ?? 0) + 1);
@@ -834,6 +844,7 @@ export class Court {
       for (const member of group) {
         this.bodies.get(member.id)!.setAwake(false);
         this.stillFor.delete(member.id);
+        this.stillAt.delete(member.id);
       }
     }
   }
@@ -953,6 +964,8 @@ export class Court {
     if (body) this.world.destroyBody(body);
     this.bodies.delete(id);
     this.lastMet.delete(id);
+    this.stillFor.delete(id);
+    this.stillAt.delete(id);
     const index = this.balls.findIndex((b) => b.id === id);
     if (index >= 0) this.balls.splice(index, 1);
     if (this.heldId === id) this.heldId = null;
