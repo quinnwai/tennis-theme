@@ -6,12 +6,12 @@ import { CAN_BALLS, CAN_HEIGHT, CAN_WIDTH } from "./cans";
 import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
 import { params } from "./params";
-import { Court, STEP, type Ball, type Can, type Entry } from "./physics";
+import { Court, STEP, TROPHY_ID, type Ball, type Can, type Entry } from "./physics";
 import { Renderer, type BallSprite, type Ghost, type ImageSprite, type ShadowSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { nextSound, readSound, writeSound } from "./sound-setting";
 import { leavesTrail } from "./trail";
-import { DESCENT_MS, TROPHY_ART, TROPHY_URL, glintAt, keepTrophyIn, trophyAnchor, trophyFit } from "./trophy";
+import { DESCENT_MS, TROPHY, TROPHY_ART, TROPHY_BOX, TROPHY_HULL, TROPHY_LIP, TROPHY_URL, glintAt, keepTrophyIn, trophyAnchor, trophyFit } from "./trophy";
 import { mountTuner } from "./tune";
 import { CAN_IMAGE, SHADOW, SHADOW_OPACITY, SKEW, canImage } from "./v6/art";
 import { mountNotebook, type Notebook } from "./v6/notebook";
@@ -24,6 +24,7 @@ import { WORDMARKS } from "./wordmark.data";
 
 const REFILL_DELAY_MS = 1200; // longer than a tapped ball takes to go straight up and come back down
 const RISE_MS = 260; // how long a fresh ball takes to rise out of the stem
+const DROP_MS = 200; // how long a ball let go over the trophy's mouth takes to drop in
 
 /** An "i": the spot where its dot sits. Its stem never runs out of balls. Meters, y up. */
 interface Home {
@@ -86,15 +87,16 @@ function main(): void {
    */
   let celebration: { glintDue: number; half: boolean } | null = null;
   let shower: Confetti | null = null;
-  /** The trophy, once it has been won: kept through Play again and Restart, never past leaving the page. `rest` is where its foot floats. */
-  let trophy: { rest: Vec; scale: number; since: number } | null = null;
-  const trophyImg = document.createElement("img");
-  trophyImg.className = "trophy";
-  trophyImg.alt = "";
-  trophyImg.setAttribute("aria-hidden", "true");
+  /**
+   * The trophy, once it has been won: kept through Play again and Restart, never past leaving the page. `rest` is where its foot floats,
+   * `at` where the middle of its foot is now (page px) and `angle` how it is turned (radians clockwise). `free`: it has been touched, so it
+   * no longer floats but is a thing in the court like a can; `held`: how long a can has stood on it, which keeps it from bobbing (sim ms).
+   */
+  let trophy: { rest: Vec; scale: number; since: number; at: Vec; angle: number; free: boolean; held: number } | null = null;
+  const trophyImg = new Image();
   trophyImg.src = TROPHY_URL;
-  trophyImg.hidden = true;
-  document.body.append(trophyImg);
+  /** Balls on their way into the trophy's cup, from where they went in (page px): the court has already taken them. */
+  const drops: { id: number; from: Vec; since: number }[] = [];
   /** What the celebration did and when, for the browser checks: the court's time in seconds, and where a glint is. */
   const celebrationLog: { event: string; t: number; x?: number; y?: number }[] = [];
   const logEvent = (event: string, at?: Vec) => celebrationLog.push({ event, t: simMs / 1000, ...at });
@@ -200,6 +202,10 @@ function main(): void {
     court.onBackInBag = (can) => putBack(can.seed, can.ballsLeft, can.id);
     court.onCanEntry = (_can, _ball, entry) => judged(entry);
     court.onBagEntry = bagEntry;
+    court.onTrophyEntry = (ball, entry) => {
+      drops.push({ id: ball.id, from: toScreen(ball.x, ball.y), since: simMs });
+      judged(entry);
+    };
 
     homes = layout.dots.map((dot, i) => {
       const at = toMeters(dot);
@@ -292,7 +298,7 @@ function main(): void {
     celebration = { glintDue: 0, half: false };
   }
 
-  /** Where the trophy floats here, and how big (px per mm as drawn). */
+  /** Where the trophy floats here, and how big (px per mm as drawn); and the trophy in the court at that size. */
   function fitTrophy(): void {
     if (!trophy) return;
     const k = pxPerMeter / 1000;
@@ -300,20 +306,101 @@ function main(): void {
     const fit = trophyFit(k, nameTop, renderer.width, renderer.height);
     trophy.scale = fit.scale;
     trophy.rest = keepTrophyIn(fit.rest, k * fit.scale, renderer.width, renderer.height);
+    if (trophy.free) trophy.at = keepTrophyIn(trophy.at, k * fit.scale, renderer.width, renderer.height);
+    placeTrophy();
   }
 
-  /** Where the middle of the trophy's foot is now, and its px per mm as drawn. */
-  const trophyAt = () => ({ at: trophyAnchor(trophy!.rest, simMs - trophy!.since, reducedMotion), k: (pxPerMeter / 1000) * trophy!.scale });
+  /** The trophy's px per mm as drawn: real size, unless the window is too short to float it above the name. */
+  const tk = () => (pxPerMeter / 1000) * (trophy?.scale ?? 1);
 
-  function drawTrophy(): void {
-    trophyImg.hidden = !trophy;
+  /** The trophy's solid outline and bowl in the court, at its size, where it is now. One that has been touched falls from there and stands. */
+  function placeTrophy(): void {
     if (!trophy) return;
-    const { at, k } = trophyAt();
-    Object.assign(trophyImg.style, {
-      width: `${TROPHY_ART.w * k}px`,
-      height: `${TROPHY_ART.h * k}px`,
-      transform: `translate(${at.x - TROPHY_ART.ox * k}px, ${at.y - TROPHY_ART.oy * k}px)`,
-    });
+    const s = trophy.scale / 1000;
+    court.setTrophy(
+      TROPHY_HULL.map(([x, y]) => ({ x: x * s, y: y * s })),
+      { x: TROPHY.rimX * s, y: TROPHY.rim * s, half: TROPHY.open * s },
+      toMeters(trophy.at),
+      { cx: TROPHY_BOX.cx * s, cy: TROPHY_BOX.cy * s, hw: TROPHY_BOX.hw * s, hh: TROPHY_BOX.hh * s },
+    );
+    trophy.angle = 0;
+    if (trophy.free) court.freeTrophy(true);
+  }
+
+  /** Where the trophy is for this step: coming down and bobbing where it floats (held still while a can stands on it), or wherever the court has it. */
+  function stepTrophy(): void {
+    if (!trophy) return;
+    if (!trophy.free) {
+      if (court.trophyHolds()) trophy.held += STEP * 1000;
+      trophy.at = trophyAnchor(trophy.rest, simMs - trophy.since - trophy.held, reducedMotion);
+      court.moveTrophy(toMeters(trophy.at));
+      return;
+    }
+    const foot = court.trophyAnchor();
+    if (foot) {
+      trophy.at = toScreen(foot.x, foot.y);
+      trophy.angle = -foot.a;
+    }
+  }
+
+  /** A point of the trophy (its mm, y up, from its foot) on the page, as it stands (turned, sized). */
+  function trophyPoint(x: number, y: number): Vec {
+    const t = trophy!;
+    const k = tk();
+    const [px, py] = [x * k, -y * k];
+    const [c, s] = [Math.cos(t.angle), Math.sin(t.angle)];
+    return { x: t.at.x + px * c - py * s, y: t.at.y + px * s + py * c };
+  }
+
+  /** Whether a point on the page (px) is on the trophy: inside its picture's box, which may stand turned. */
+  function onTrophy(x: number, y: number): boolean {
+    if (!trophy) return false;
+    const k = tk();
+    const { at } = trophy;
+    const [c, s] = [Math.cos(-trophy.angle), Math.sin(-trophy.angle)];
+    const [dx, dy] = [x - at.x, y - at.y];
+    [x, y] = [at.x + dx * c - dy * s, at.y + dx * s + dy * c];
+    return x >= at.x - TROPHY_ART.ox * k && x <= at.x + (TROPHY_ART.w - TROPHY_ART.ox) * k && y <= at.y + 2 && y >= at.y - TROPHY_ART.oy * k;
+  }
+
+  function trophySprites(): ImageSprite[] {
+    if (!trophy || !trophyImg.complete) return [];
+    const k = tk();
+    return [{ img: trophyImg, ...trophy.at, angle: trophy.angle, w: TROPHY_ART.w * k, h: TROPHY_ART.h * k, ox: TROPHY_ART.ox * k, oy: TROPHY_ART.oy * k }];
+  }
+
+  /** The front of the cup on the page: below the near half of the rim's opening, and on down past the base. A ball dropping in is hidden there. */
+  function frontOfCup(): [number, number][] {
+    const { rx, ry, shear } = TROPHY_LIP;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = (i / 24) * Math.PI;
+      const p = trophyPoint(TROPHY.rimX + rx * Math.cos(t) - shear * ry * Math.sin(t), TROPHY.rim - ry * Math.sin(t));
+      pts.push([p.x, p.y]);
+    }
+    for (const [x, y] of [
+      [TROPHY.rimX - rx - 60, TROPHY.rim - 420],
+      [TROPHY.rimX + rx + 60, TROPHY.rim - 420],
+    ]) {
+      const p = trophyPoint(x, y);
+      pts.push([p.x, p.y]);
+    }
+    return pts;
+  }
+
+  /** Where a ball dropping into the cup is now (page px), and whether it is far enough down to be drawn behind the front of the rim. */
+  function dropAt(d: { from: Vec; since: number }): { at: Vec; behindLip: boolean } {
+    const p = Math.min(1, (simMs - d.since) / DROP_MS);
+    const to = trophyPoint(TROPHY.rimX, TROPHY.rim - 64);
+    const at = { x: d.from.x + (to.x - d.from.x) * p * p, y: d.from.y + (to.y - d.from.y) * p * p };
+    return { at, behindLip: at.y > trophyPoint(TROPHY.rimX, TROPHY.rim).y - radiusPx * 0.5 };
+  }
+
+  /** Balls dropping into the trophy's cup: over the back of its lip, behind the front of it. */
+  function dropSprites(): { sprite: BallSprite; hide: [number, number][] }[] {
+    if (!trophy || drops.length === 0) return [];
+    const hide = frontOfCup();
+    return drops.map((d) => ({ sprite: { id: -2, ...dropAt(d).at, r: radiusPx, angle: 0 }, hide }));
   }
 
   /**
@@ -334,7 +421,7 @@ function main(): void {
       c.half = true;
       logEvent("confetti-half");
       if (!trophy) {
-        trophy = { rest: { x: renderer.width / 2, y: 0 }, scale: 1, since: simMs };
+        trophy = { rest: { x: renderer.width / 2, y: 0 }, scale: 1, since: simMs, at: { x: renderer.width / 2, y: -12 }, angle: 0, free: false, held: 0 };
         fitTrophy();
         logEvent("trophy-in");
       }
@@ -343,8 +430,11 @@ function main(): void {
     if (c.half && simMs >= c.glintDue) {
       celebration = null;
       logEvent("trophy-settled");
-      const { at, k } = trophyAt();
-      const rim = glintAt(at, k);
+      // (a trophy set down may stand turned: the glint turns with it)
+      const k = tk();
+      const off = glintAt({ x: 0, y: 0 }, k);
+      const [c, s] = [Math.cos(trophy!.angle), Math.sin(trophy!.angle)];
+      const rim = { x: trophy!.at.x + off.x * c - off.y * s, y: trophy!.at.y + off.x * s + off.y * c };
       flash(rim.x, rim.y, 120 * k);
       logEvent("glint", rim);
       rules.hide();
@@ -532,6 +622,8 @@ function main(): void {
       rules.show();
       tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
     }
+    for (let i = drops.length - 1; i >= 0; i--) if (simMs - drops[i].since >= DROP_MS) drops.splice(i, 1);
+    stepTrophy();
     stepCelebration();
   }
 
@@ -542,6 +634,7 @@ function main(): void {
     finger = null;
     if (notebook.isOpen()) notebook.close();
     for (const ball of [...court.balls]) court.remove(ball.id);
+    drops.length = 0;
     court.clearCans();
     scene.reset();
     // the cans in the bag are full again
@@ -590,7 +683,7 @@ function main(): void {
     });
   }
 
-  /** What a press at a point (page px) lands on among the cans: the nearest one within reach of its outline, else one standing in the open bag. */
+  /** What a press at a point (page px) lands on among the cans: the nearest one within reach of its outline, else one standing in the open bag. The trophy comes between: a press on it beats a can only near, not on, the can. */
   function pickCan(at: Vec): CanTarget | null {
     let best: CanView | undefined;
     let bestGap = Infinity;
@@ -601,6 +694,9 @@ function main(): void {
         bestGap = gap;
       }
     }
+    // a press on a can itself takes it; one beside a can, over the trophy, takes the trophy (a window as small as a phone's has them close)
+    if (best && bestGap === 0) return { kind: "can", id: best.id };
+    if (onTrophy(at.x, at.y)) return { kind: "trophy" };
     if (best) return { kind: "can", id: best.id };
     const index = scene.canAt(at.x, at.y);
     return index >= 0 ? { kind: "bag", index } : null;
@@ -614,6 +710,7 @@ function main(): void {
   const canHand = new CanHand({
     tap(target) {
       noteInteraction();
+      if (target.kind === "trophy") return; // nothing happens when it is tapped: it is only carried
       if (target.kind === "can") court.tapCan(target.id);
       else {
         const can = outOfBag(target.index, true);
@@ -622,6 +719,17 @@ function main(): void {
     },
     grab(target, from, at) {
       noteInteraction();
+      if (target.kind === "trophy") {
+        if (!trophy) return null;
+        // once touched it stops floating and is a thing in the court, carried and set down like a heavy can
+        if (!trophy.free) {
+          court.freeTrophy();
+          trophy.free = true;
+        }
+        if (!court.grabCan(TROPHY_ID, toMeters(from))) return null;
+        court.carryCan(TROPHY_ID, toMeters(at));
+        return TROPHY_ID;
+      }
       const id = target.kind === "can" ? target.id : outOfBag(target.index, false).id;
       if (!court.grabCan(id, toMeters(from))) return null;
       court.carryCan(id, toMeters(at));
@@ -691,7 +799,7 @@ function main(): void {
   });
 
   function hoverCursor(x: number, y: number): string {
-    if (scene.canAt(x, y) >= 0) return "grab";
+    if (onTrophy(x, y) || scene.canAt(x, y) >= 0) return "grab";
     for (const can of canViews()) if (canGap(can, { x, y }) <= params.canReachPx) return "grab";
     let nearest = Infinity;
     for (const b of views()) nearest = Math.min(nearest, Math.hypot(b.x - x, b.y - y));
@@ -807,13 +915,24 @@ function main(): void {
     ghostClock = now;
     const step = frozenNow ? dt : Math.min(0.05, dt);
     const out: Ghost[] = [];
-    for (const c of court.cans) {
+    // the cans, and the trophy once it has been touched (its shadow is its own shape)
+    const things = court.cans.map((c) => ({ id: c.id, held: c.held, vx: c.vx, vy: c.vy, can: c as Can | null }));
+    const tm = court.motionOf(TROPHY_ID);
+    if (tm) things.push({ id: TROPHY_ID, ...tm, can: null });
+    for (const c of things) {
       const rest = c.held ? court.restOf(c.id) : null;
-      if (!rest) {
+      if (!rest || (!c.can && !trophyImg.complete)) {
         shown.delete(c.id);
         continue;
       }
-      const target = { id: c.id, ...toScreen(rest.x, rest.y), angle: -rest.a, w: CAN_WIDTH * pxPerMeter * c.scale, h: CAN_HEIGHT * pxPerMeter * c.scale, alpha: 1 };
+      let target: Ghost;
+      if (c.can) target = { id: c.id, ...toScreen(rest.x, rest.y), angle: -rest.a, w: CAN_WIDTH * pxPerMeter * c.can.scale, h: CAN_HEIGHT * pxPerMeter * c.can.scale, alpha: 1 };
+      else {
+        // its picture's shape, handles and all, standing on its foot where the court says it will rest
+        const [k, foot] = [tk(), court.footOf(rest)];
+        const image = { img: trophyImg, x: -TROPHY_ART.ox * k, y: -TROPHY_ART.oy * k, w: TROPHY_ART.w * k, h: TROPHY_ART.h * k };
+        target = { id: c.id, ...toScreen(foot.x, foot.y), angle: -foot.a, w: image.w, h: image.h, alpha: 1, image };
+      }
       const speed = Math.hypot(c.vx, c.vy);
       const visible = Math.max(0, Math.min(1, 1 - (speed - GHOST_CLEAR) / (GHOST_GONE - GHOST_CLEAR)));
       let s = shown.get(c.id);
@@ -823,8 +942,9 @@ function main(): void {
       const steps = Math.max(1, Math.ceil(step * 60));
       for (let n = 0; n < steps; n++) {
         const dt = step / steps;
-        // a can's outline is the same turned half way round, so its turns are compared that way
-        const turn = Math.atan2(Math.sin(2 * (target.angle - s.angle)), Math.cos(2 * (target.angle - s.angle))) / 2;
+        // a can's outline is the same turned half way round, so its turns are compared that way (the trophy's isn't)
+        const sym = c.can ? 2 : 1;
+        const turn = Math.atan2(Math.sin(sym * (target.angle - s.angle)), Math.cos(sym * (target.angle - s.angle))) / sym;
         const far = Math.hypot(target.x - s.x, target.y - s.y) > target.h * 0.45 || Math.abs(turn) > 0.6;
         if (far) {
           // somewhere else entirely: fade out here, then come back in there
@@ -837,6 +957,7 @@ function main(): void {
           s.angle += turn * f;
           s.w = target.w;
           s.h = target.h;
+          s.image = target.image;
           s.alpha += Math.max(-dt / 0.12, Math.min(dt / 0.18, visible - s.alpha));
         }
       }
@@ -878,9 +999,8 @@ function main(): void {
       }),
     );
     drawnGhosts = ghosts(drawnAt, frozen);
-    drawTrophy();
     shower?.draw();
-    renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha), drawnGhosts);
+    renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), [...canSprites(alpha), ...trophySprites()], drawnGhosts, dropSprites());
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -890,8 +1010,8 @@ function main(): void {
     __sandbox: {
       params,
       layout: () => layout,
-      balls: () =>
-        court.balls.map((b) => ({
+      balls: () => [
+        ...court.balls.map((b) => ({
           id: b.id,
           pinned: b.pinned,
           held: b.held,
@@ -901,7 +1021,14 @@ function main(): void {
           r: radiusPx,
           /** Whether a standing can leans on it, holding it still. */
           propping: court.isPropping(b.id),
+          behindLip: false,
         })),
+        // a ball dropping into the trophy's cup has left the court but is still on show until it is in
+        ...drops.map((d) => {
+          const { at, behindLip } = dropAt(d);
+          return { id: d.id, pinned: false, held: false, ...at, vx: 0, vy: 0, r: radiusPx, propping: false, behindLip };
+        }),
+      ],
       /** Whether each "i" has its dot right now. */
       dots: () => homes.map((h) => h.ballId !== null),
       /** The bag: how far its zip has run (0 to 1), whether it is open, whether the notebook is out, and where the pull is, page px. */
@@ -933,8 +1060,20 @@ function main(): void {
         const at = toMeters({ x, y });
         return court.addCan(at.x, at.y, (-degrees * Math.PI) / 180, balls, 1).id;
       },
-      /** The drop preview's shadows as last drawn, one per carried can (page px, radians clockwise, alpha 0 to 1). */
-      ghosts: () => drawnGhosts.map(({ id, x, y, angle, alpha }) => ({ id, x, y, angle, alpha })),
+      /** The drop preview's shadows as last drawn, one per carried can or trophy (page px, radians clockwise, alpha 0 to 1; the trophy's, id "trophy", has its size as drawn too). */
+      ghosts: () =>
+        drawnGhosts.map(({ id, x, y, angle, alpha, w, h }) =>
+          id === TROPHY_ID ? { id: "trophy", x, y, angle, alpha, width: w, height: h } : { id, x, y, angle, alpha },
+        ),
+      /** Where the carried trophy would come to rest if let go now (its foot, page px, radians clockwise), or null when it is not carried. */
+      trophyRest: () => {
+        const r = court.restOf(TROPHY_ID);
+        if (!r) return null;
+        const foot = court.footOf(r);
+        return { ...toScreen(foot.x, foot.y), angle: -foot.a };
+      },
+      /** The trophy's solid outline as the court has it now (page px). */
+      trophyHull: () => court.trophyHull().map((p) => toScreen(p.x, p.y)),
       /** Where a carried can would come to rest if let go now (page px, radians clockwise), or null when it is not carried. */
       rest: (id: number) => {
         const r = court.restOf(id);
@@ -963,10 +1102,24 @@ function main(): void {
         heard: [...heard],
         /** What the celebration did, in order, with the court's time in seconds (a glint says where, page px). */
         log: celebrationLog.map((e) => ({ ...e })),
-        /** The trophy once won: where its foot is, its size as drawn (px), its turn (radians clockwise), and whether it floats. */
+        /**
+         * The trophy once won: where its foot is, its size as drawn (px), its turn (radians clockwise), whether it floats, what it is doing
+         * ("floating", "held", "settling" or "placed") and where the middle of its rim is and how far it opens either side (page px).
+         */
         trophy: trophy && (() => {
-          const { at, k } = trophyAt();
-          return { x: at.x, y: at.y, width: TROPHY_ART.w * k, height: TROPHY_ART.h * k, angle: 0, floating: true };
+          const k = tk();
+          const m = court.trophyMouth();
+          const state = trophy.free ? (court.canState(TROPHY_ID) ?? "placed") : "floating";
+          return {
+            x: trophy.at.x,
+            y: trophy.at.y,
+            width: TROPHY_ART.w * k,
+            height: TROPHY_ART.h * k,
+            angle: trophy.angle,
+            floating: state === "floating",
+            state,
+            mouth: m ? { ...toScreen(m.x, m.y), half: m.half * pxPerMeter } : null,
+          };
         })(),
       }),
       /** Win a point as a counted throw would, once the game is found. */

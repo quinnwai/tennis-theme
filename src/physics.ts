@@ -119,6 +119,9 @@ function restingIn(at: Point, vel: Point, mouth: Mouth, r: number): boolean {
   return up > 0.6 * r && up < 1.3 * r && Math.abs(across) <= mouth.half;
 }
 
+/** The id the trophy goes by once it has been touched and is a thing in the court, carried and set down like a can. */
+export const TROPHY_ID = -1;
+
 /** How long a poured ball keeps out of the can it came from, seconds, unless a hand touches it. */
 const POURED_AWAY = 1.5;
 
@@ -197,6 +200,8 @@ interface Drive {
   rest: Pose | null;
   /** Settling: the balls as they were when it was let go, which it lands on (as the spec says, they hold still for it). */
   discs: Disc[] | null;
+  /** Standing on the trophy: where the trophy was then (meters). If the trophy moves, the can checks it still stands. */
+  onTrophy: Point | null;
 }
 
 const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
@@ -209,6 +214,8 @@ const POUR_WAIT = 0.12;
 const WIGGLE = 0.45;
 /** The most a carried can leans into a sideways move, radians: about 17 degrees. */
 const MAX_LEAN = 0.3;
+/** The most the heavy trophy leans in the hand, radians: about 2.9 degrees. */
+const TROPHY_LEAN = 0.05;
 /** A can this far past the side lines is out, as a ball is. */
 const CAN_OUT = 0.15;
 
@@ -303,12 +310,21 @@ export class Court {
   private sub = 0;
   private staticSolids: Solid[] | null = null;
   private settleK: SettleConstants | null = null;
+  /** The trophy: its body (kinematic while it floats, moved by `moveTrophy`) and its mouth, from the body's origin. */
+  private trophy: { body: Body; mouth: { x: number; y: number; half: number } } | null = null;
+  private trophyOutline: Point[] = [];
+  private trophyBox: { cx: number; cy: number; hw: number; hh: number } | null = null;
+  /** Once it has been touched, the trophy as a can-like thing: carried, let go, standing still (see `freeTrophy`). */
+  private trophyCan: Can | null = null;
+  private trophyFixture: Fixture | null = null;
   /** A can lifted out of the open bag to pour or wiggle is done and stands back in its place: the toy puts it back. */
   onBackInBag: (can: Can) => void = () => {};
   /** The cans standing in the open bag, which take balls too once they have room: which can, how many more it holds, and its mouth. Set by the toy. */
   bagMouths: { seed: number; room: number; mouth: Mouth }[] = [];
   /** A ball went into a can: `entry` says whether it won a point, and if not, why not. The ball has left the court. */
   onCanEntry: (can: Can, ball: Ball, entry: Entry) => void = () => {};
+  /** A ball went into the trophy, which keeps it: it has left the court. It scores like one into a can, by `entry`. */
+  onTrophyEntry: (ball: Ball, entry: Entry) => void = () => {};
   /** A ball went into a can standing in the open bag. */
   onBagEntry: (seed: number, ball: Ball, entry: Entry) => void = () => {};
   private target = { x: 0, y: 0 };
@@ -370,9 +386,10 @@ export class Court {
       if (this.settling.has(a.getBody()) || this.settling.has(b.getBody())) contact.setEnabled(false);
       // A can in the hand passes through everything (QWW-99, "Carry a can"): it never moves a ball, or pushes one through the floor.
       if (this.carried(a.getBody()) || this.carried(b.getBody())) contact.setEnabled(false);
-      // The bench's ends are dead next to its seat. A contact that pushes mostly sideways is an end: the ball comes back off it
-      // at benchEndRestitution, however hard it was pushed or thrown in. The seat keeps the usual bounce.
-      if (this.benchFixtures.has(a) || this.benchFixtures.has(b)) {
+      // The bench's ends are dead next to its seat, and so are the trophy's sides. A contact that pushes mostly sideways is an end: the
+      // ball comes back off it at benchEndRestitution, however hard it was pushed or thrown in. The seat keeps the usual bounce.
+      const trophySide = this.trophyFixture !== null && (a === this.trophyFixture || b === this.trophyFixture);
+      if (this.benchFixtures.has(a) || this.benchFixtures.has(b) || trophySide) {
         const normal = contact.getWorldManifold(null)?.normal;
         if (normal && Math.abs(normal.x) > 0.7) contact.setRestitution(params.benchEndRestitution);
         else contact.resetRestitution();
@@ -547,6 +564,7 @@ export class Court {
       previewAge: 0,
       rest: null,
       discs: null,
+      onTrophy: null,
     };
     this.drives.set(id, drive);
     if (state === "settling") {
@@ -703,7 +721,7 @@ export class Court {
     if (this.sub === 0) this.canFrame(back);
     this.driveCans((this.sub + 1) / 4);
     this.sub = (this.sub + 1) % 4;
-    for (const can of this.cans) {
+    for (const can of this.movers()) {
       can.prevX = can.x;
       can.prevY = can.y;
       can.prevAngle = can.angle;
@@ -730,8 +748,8 @@ export class Court {
     }
     for (const id of gone) this.remove(id);
 
-    for (const can of this.cans) {
-      const body = this.canBodies.get(can.id)!;
+    for (const can of this.movers()) {
+      const body = this.bodyOf(can.id)!;
       const p = body.getPosition();
       const v = body.getLinearVelocity();
       can.x = p.x / U;
@@ -794,6 +812,13 @@ export class Court {
         this.remove(ball.id);
         bag.room--;
         this.onBagEntry(bag.seed, { ...ball }, entry);
+        continue;
+      }
+      const mouth = this.trophyMouthOf();
+      if (mouth && into(mouth.mouth, mouth.v)) {
+        const entry = this.judge(ball, mouth.mouth);
+        this.remove(ball.id);
+        this.onTrophyEntry({ ...ball }, entry);
       }
     }
   }
@@ -912,7 +937,23 @@ export class Court {
   }
 
   private half(can: Can): [number, number] {
+    if (can.id === TROPHY_ID && this.trophyBox) return [this.trophyBox.hw, this.trophyBox.hh];
     return [(CAN_WIDTH / 2) * can.scale, (CAN_HEIGHT / 2) * can.scale];
+  }
+
+  /** The body of a can, or of the trophy once it is a thing in the court. */
+  private bodyOf(id: number): Body | undefined {
+    return id === TROPHY_ID ? this.trophy?.body : this.canBodies.get(id);
+  }
+
+  /** The can, or the trophy as a can-like thing. */
+  private canOf(id: number): Can | undefined {
+    return id === TROPHY_ID ? (this.trophyCan ?? undefined) : this.cans.find((c) => c.id === id);
+  }
+
+  /** Everything moved by can frames: the cans, and the trophy once it has been touched. */
+  private movers(): Can[] {
+    return this.trophyCan ? [...this.cans, this.trophyCan] : this.cans;
   }
 
   private constants(): SettleConstants {
@@ -935,7 +976,63 @@ export class Court {
       const [hw, hh] = this.half(c);
       return [canSolid(d.state === "placed" ? { x: c.x, y: c.y, a: c.angle } : this.homeOf(c.id)!, hw, hh)];
     });
-    return { width: this.width, height: this.height, floor: this.floor, solids: [...this.staticSolids, ...cans], discs };
+    // and the trophy, once it is there, floating or standing still (not while it is carried or falling, or for itself)
+    const td = this.drives.get(TROPHY_ID);
+    const trophy = except === TROPHY_ID || (td && td.state !== "placed") ? null : this.trophySolid();
+    return { width: this.width, height: this.height, floor: this.floor, solids: [...this.staticSolids, ...cans, ...(trophy ? [trophy] : [])], discs };
+  }
+
+  /** The trophy's outline where it is now, as a solid a can can land on. */
+  private trophySolid(): Solid | null {
+    const outline = this.trophyHull();
+    return outline.length < 3 ? null : makeSolid([outline]);
+  }
+
+  /** The solid outline balls meet, as the court has it now: turned and placed (meters, y up). Empty if there is no trophy. */
+  trophyHull(): Point[] {
+    if (!this.trophy) return [];
+    const p = this.trophy.body.getPosition();
+    const a = this.trophy.body.getAngle();
+    const [c, s] = [Math.cos(a), Math.sin(a)];
+    return this.trophyOutline.map((q) => ({ x: p.x / U + q.x * c - q.y * s, y: p.y / U + q.x * s + q.y * c }));
+  }
+
+  /** Whether a can stands on the trophy (so the toy holds the trophy still rather than bobbing it under the can). */
+  trophyHolds(): boolean {
+    return [...this.drives.values()].some((d) => d.state === "placed" && d.onTrophy);
+  }
+
+  /** The middle of the trophy's rim now (meters, y up) and how far it opens either side, or null if there is no trophy. */
+  trophyMouth(): { x: number; y: number; half: number } | null {
+    const m = this.trophyMouthOf();
+    return m && { x: m.mouth.x, y: m.mouth.y, half: m.mouth.half };
+  }
+
+  /** The trophy's mouth as a ball meets it (it may stand turned), and how fast the trophy moves (m/s). */
+  private trophyMouthOf(): { mouth: Mouth; v: Point } | null {
+    if (!this.trophy) return null;
+    const t = this.trophy.body.getPosition();
+    const tv = this.trophy.body.getLinearVelocity();
+    const a = this.trophy.body.getAngle();
+    const [c, s] = [Math.cos(a), Math.sin(a)];
+    const m = this.trophy.mouth;
+    return {
+      mouth: { x: t.x / U + m.x * c - m.y * s, y: t.y / U + m.x * s + m.y * c, ux: -s, uy: c, half: m.half },
+      v: { x: tv.x / U, y: tv.y / U },
+    };
+  }
+
+  /** Where the trophy's anchor (the middle of its foot) is and how it is turned (meters, radians counterclockwise). */
+  trophyAnchor(): Pose | null {
+    if (!this.trophy) return null;
+    const p = this.trophy.body.getPosition();
+    return this.footOf({ x: p.x / U, y: p.y / U, a: this.trophy.body.getAngle() });
+  }
+
+  /** Where the anchor is when the trophy's box has its middle at `pose`. */
+  footOf(pose: Pose): Pose {
+    const [ox, oy] = this.trophyBox ? [this.trophyBox.cx, this.trophyBox.cy] : [0, 0];
+    return { x: pose.x - (ox * Math.cos(pose.a) - oy * Math.sin(pose.a)), y: pose.y - (ox * Math.sin(pose.a) + oy * Math.cos(pose.a)), a: pose.a };
   }
 
   /**
@@ -946,11 +1043,13 @@ export class Court {
     const K = this.constants();
     const base = this.settleWorld(can.id, inputs.discs);
     const mine = newBody(clearSpot(inputs.pose, hw, hh, base), inputs.vx, inputs.vy, inputs.w, hw, hh, K);
-    if (!this.cans.some((c) => c.id !== can.id && this.drives.get(c.id)?.state === "settling")) {
+    // the trophy is heavy: it stands where it lands, no lean assist
+    if (can.id === TROPHY_ID) mine.lean = 0;
+    if (!this.movers().some((c) => c.id !== can.id && this.drives.get(c.id)?.state === "settling")) {
       for (let i = 0; i < 800; i++) if (settleFrame(mine, base, K)) break;
       return mine;
     }
-    const falling = this.cans.flatMap((c) => {
+    const falling = this.movers().flatMap((c) => {
       const d = this.drives.get(c.id);
       if (c.id === can.id) return [{ id: c.id, body: mine, discs: inputs.discs, hw, hh, done: false }];
       if (!d?.body || d.state !== "settling") return [];
@@ -980,7 +1079,7 @@ export class Court {
    */
   private recheck(): void {
     const K = this.constants();
-    for (const can of this.cans) {
+    for (const can of this.movers()) {
       const d = this.drives.get(can.id);
       if (!d || d.state !== "placed" || d.back) continue;
       const [hw, hh] = this.half(can);
@@ -994,12 +1093,13 @@ export class Court {
       if (!moved) continue;
       // it would fall: let it, from exactly where it stands. The balls it held stay held until it lands (it falls onto them as they
       // are); then those it no longer rests on come loose (see `stand`)
-      const body = this.canBodies.get(can.id)!;
+      const body = this.bodyOf(can.id)!;
       body.setKinematic();
       d.state = "settling";
       d.discs = discs;
       d.body = newBody(pose, 0, 0, 0, hw, hh, K);
       d.body.lean = 0;
+      d.onTrophy = null;
       d.from = d.to = pose;
       this.settling.add(body);
     }
@@ -1023,11 +1123,21 @@ export class Court {
 
   /** One can frame: each moving can works out where it will be one frame from now. Cans that are back in the bag once done go in `back`. */
   private canFrame(back: Can[]): void {
+    // a can standing on the trophy checks again once the trophy has moved from under it (carried off)
+    if (this.trophy) {
+      const p = this.trophy.body.getPosition();
+      for (const d of this.drives.values()) {
+        if (d.onTrophy && Math.hypot(d.onTrophy.x - p.x / U, d.onTrophy.y - p.y / U) > 0.001) {
+          d.onTrophy = null;
+          this.supportChanged = true;
+        }
+      }
+    }
     if (this.supportChanged) {
       this.supportChanged = false;
       this.recheck();
     }
-    for (const can of this.cans) {
+    for (const can of this.movers()) {
       const d = this.drives.get(can.id);
       if (!d) continue;
       d.from = d.to;
@@ -1048,9 +1158,9 @@ export class Court {
 
   /** Move each moving can `f` of the way through the current can frame, by its speed, so it pushes what it meets. */
   private driveCans(f: number): void {
-    for (const can of this.cans) {
+    for (const can of this.movers()) {
       const d = this.drives.get(can.id);
-      const body = this.canBodies.get(can.id);
+      const body = this.bodyOf(can.id);
       if (!d || !body || d.state === "placed") continue;
       const x = d.from.x + (d.to.x - d.from.x) * f;
       const y = d.from.y + (d.to.y - d.from.y) * f;
@@ -1067,7 +1177,7 @@ export class Court {
    * it (a pour keeps the ones it had), so it keeps its lean however hard it is hit.
    */
   private stand(can: Can, d: Drive): void {
-    const body = this.canBodies.get(can.id)!;
+    const body = this.bodyOf(can.id)!;
     // it fell (rather than finished a pour or a wiggle): it rests on what its fall ended touching
     const fell = !!d.body;
     const leansOn = d.body?.touching ?? [];
@@ -1090,6 +1200,13 @@ export class Court {
     can.vx = 0;
     can.vy = 0;
     if (d.back) return;
+    // standing on the trophy? then the trophy holds still under it, and if it is carried off the can falls
+    const trophy = can.id === TROPHY_ID ? null : this.trophySolid();
+    const [hw, hh] = this.half(can);
+    if (trophy && overlapsSolids(d.to, hw + 0.004, hh + 0.004, { width: this.width, height: this.height, solids: [trophy], discs: [] })) {
+      const p = this.trophy!.body.getPosition();
+      d.onTrophy = { x: p.x / U, y: p.y / U };
+    } else d.onTrophy = null;
     // after a pour it keeps the balls it had; after a fall, it holds the ones it now rests on, and lets the rest go
     const before = this.props.get(can.id) ?? [];
     const held: number[] = fell ? [] : [...before];
@@ -1110,15 +1227,19 @@ export class Court {
   private carryFrame(can: Can, d: Drive): void {
     const K = this.constants();
     const [hw, hh] = this.half(can);
-    d.vx += (d.target.x - d.from.x) * 0.2 - d.vx * 0.55;
-    d.vy += (d.target.y - d.from.y) * 0.2 - d.vy * 0.55;
+    // the trophy is heavy: it follows the hand more slowly and leans no more than about 3 degrees
+    const heavy = can.id === TROPHY_ID;
+    const pull = heavy ? 0.12 : 0.2;
+    const most = heavy ? TROPHY_LEAN : MAX_LEAN;
+    d.vx += (d.target.x - d.from.x) * pull - d.vx * 0.55;
+    d.vy += (d.target.y - d.from.y) * pull - d.vy * 0.55;
     let x = d.from.x + d.vx;
     let y = d.from.y + d.vy;
     // moving right tips its top to the right: clockwise, a falling angle
-    const lean = -clampTo((d.vx / K.px) * 0.02, -MAX_LEAN, MAX_LEAN);
+    const lean = -clampTo((d.vx / K.px) * (heavy ? 0.003 : 0.02), -most, most);
     d.av += (lean - d.from.a) * 0.18 - d.av * 0.35;
     // the spring alone would swing it past the lean it is aiming for, to about 21 degrees; the spec's limit is about 17
-    const a = clampTo(d.from.a + d.av, -MAX_LEAN, MAX_LEAN);
+    const a = clampTo(d.from.a + d.av, -most, most);
     if (a !== d.from.a + d.av) d.av = 0;
     const ca = Math.abs(Math.cos(a));
     const sa = Math.abs(Math.sin(a));
@@ -1155,6 +1276,7 @@ export class Court {
 
   /** Whether a body is a can in the hand. */
   private carried(body: Body): boolean {
+    if (this.trophy && this.trophy.body === body) return this.drives.get(TROPHY_ID)?.state === "held";
     for (const [id, b] of this.canBodies) if (b === body) return this.drives.get(id)?.state === "held";
     return false;
   }
@@ -1162,8 +1284,8 @@ export class Court {
   /** Pick a can up, pressed at a point (meters). A pouring or wiggling can can't be; a falling one can. Whether it was. */
   grabCan(id: number, at: Point): boolean {
     const d = this.drives.get(id);
-    const can = this.cans.find((c) => c.id === id);
-    const body = this.canBodies.get(id);
+    const can = this.canOf(id);
+    const body = this.bodyOf(id);
     if (!d || !can || !body || d.state === "pour" || d.state === "wiggle") return false;
     if (d.done) this.stand(can, d);
     this.settling.delete(body);
@@ -1171,6 +1293,7 @@ export class Court {
     this.freeProps(id);
     // another can may have been leaning on this one
     this.supportChanged = true;
+    d.onTrophy = null;
     // caught mid-tumble its turn can be whole turns round: from upright again, so the carry doesn't spin it back
     const a = Math.atan2(Math.sin(d.to.a), Math.cos(d.to.a));
     if (a !== d.to.a) {
@@ -1202,7 +1325,7 @@ export class Court {
   /** Let go of a carried can: it falls and settles from where it is, at the speed it was moving. */
   releaseCan(id: number): void {
     const d = this.drives.get(id);
-    const can = this.cans.find((c) => c.id === id);
+    const can = this.canOf(id);
     if (!d || !can || d.state !== "held") return;
     can.held = false;
     const [hw, hh] = this.half(can);
@@ -1210,10 +1333,107 @@ export class Court {
     const p = d.preview ?? { pose: d.to, vx: d.vx / FRAME, vy: d.vy / FRAME, w: d.av / FRAME, discs: this.ballSnapshot() };
     d.discs = p.discs;
     d.body = newBody(clearSpot(p.pose, hw, hh, this.settleWorld(id, p.discs)), p.vx, p.vy, p.w, hw, hh, K);
+    // the trophy is heavy: it stands where it lands, no lean assist
+    if (id === TROPHY_ID) d.body.lean = 0;
     d.state = "settling";
     d.preview = null;
     d.rest = null;
-    this.settling.add(this.canBodies.get(id)!);
+    this.settling.add(this.bodyOf(id)!);
+  }
+
+  // ---- The trophy ----
+
+  /**
+   * The trophy: a solid outline (meters, around its anchor) floating at `at` (its anchor) and moved only by `moveTrophy`. Its bowl opens at
+   * `mouth`: the middle of the rim, from the anchor, and how far it opens either side. `box`: the box it settles as once it has been
+   * touched (see `freeTrophy`), its middle from the anchor and its half sizes; the body then turns about that middle.
+   */
+  setTrophy(
+    outline: Point[],
+    mouth: { x: number; y: number; half: number },
+    at: Point,
+    box: { cx: number; cy: number; hw: number; hh: number },
+  ): void {
+    this.removeTrophy();
+    const rel = outline.map((p) => ({ x: p.x - box.cx, y: p.y - box.cy }));
+    const body = this.world.createBody({ type: "kinematic", position: { x: (at.x + box.cx) * U, y: (at.y + box.cy) * U } });
+    this.trophyFixture = body.createFixture(new Chain(rel.map((p) => ({ x: p.x * U, y: p.y * U })), true), { friction: params.friction });
+    this.trophy = { body, mouth: { ...mouth, x: mouth.x - box.cx, y: mouth.y - box.cy } };
+    this.trophyOutline = rel;
+    this.trophyBox = box;
+    this.supportChanged = true;
+  }
+
+  /** Bring the trophy to `at` (its anchor) over the next step, so it pushes balls aside rather than jumping through them. */
+  moveTrophy(at: Point): void {
+    if (!this.trophy || this.trophyCan) return;
+    const p = this.trophy.body.getPosition();
+    const { cx, cy } = this.trophyBox!;
+    this.trophy.body.setLinearVelocity({ x: ((at.x + cx) * U - p.x) / STEP, y: ((at.y + cy) * U - p.y) / STEP });
+  }
+
+  removeTrophy(): void {
+    if (this.trophy) {
+      this.settling.delete(this.trophy.body);
+      this.world.destroyBody(this.trophy.body);
+    }
+    if (this.trophyCan) {
+      this.freeProps(TROPHY_ID);
+      this.drives.delete(TROPHY_ID);
+    }
+    this.trophy = null;
+    this.trophyCan = null;
+    this.trophyFixture = null;
+    this.supportChanged = true;
+  }
+
+  /**
+   * The trophy has been touched. From now on it is a thing in the court like a can, only heavier: carried on a slow spring with hardly any
+   * lean, let go to fall and settle (no lean assist), standing still where it lands, with the balls it rests on held under it. `settle`:
+   * it starts falling from where it is (a new window size).
+   */
+  freeTrophy(settle = false): void {
+    if (!this.trophy || !this.trophyBox || this.trophyCan) return;
+    const body = this.trophy.body;
+    const p = body.getPosition();
+    const pose = { x: p.x / U, y: p.y / U, a: body.getAngle() };
+    this.trophyCan = { id: TROPHY_ID, seed: 0, x: pose.x, y: pose.y, angle: pose.a, prevX: pose.x, prevY: pose.y, prevAngle: pose.a, vx: 0, vy: 0, held: false, ballsLeft: 0, scale: 1 };
+    const drive: Drive = {
+      state: "placed",
+      from: pose,
+      to: pose,
+      vx: 0,
+      vy: 0,
+      av: 0,
+      target: { x: pose.x, y: pose.y },
+      offset: { x: 0, y: 0 },
+      body: null,
+      pour: null,
+      wiggle: null,
+      back: false,
+      done: false,
+      preview: null,
+      previewAge: 0,
+      rest: null,
+      discs: null,
+      onTrophy: null,
+    };
+    this.drives.set(TROPHY_ID, drive);
+    body.setLinearVelocity({ x: 0, y: 0 });
+    if (settle) {
+      const [hw, hh] = this.half(this.trophyCan);
+      drive.state = "settling";
+      drive.discs = this.ballSnapshot();
+      drive.body = newBody(clearSpot(pose, hw, hh, this.settleWorld(TROPHY_ID, drive.discs)), 0, 0, 0, hw, hh, this.constants());
+      drive.body.lean = 0;
+      this.settling.add(body);
+    } else body.setStatic();
+  }
+
+  /** Whether a can (or the trophy, `TROPHY_ID`) is in a hand, and how fast it moves (m/s). Null if there is none. */
+  motionOf(id: number): { held: boolean; vx: number; vy: number } | null {
+    const c = this.canOf(id);
+    return c ? { held: c.held, vx: c.vx, vy: c.vy } : null;
   }
 
   /**

@@ -458,16 +458,6 @@ a {
   pointer-events: none;
 }
 
-.trophy {
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 2;
-  pointer-events: none;
-  user-select: none;
-  transform-origin: 0 0;
-}
-
 .glint {
   position: fixed;
   z-index: 61;

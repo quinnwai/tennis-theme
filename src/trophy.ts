@@ -7,9 +7,30 @@ import type { Vec } from "./input";
 
 export const TROPHY_URL = artUrl;
 
-/** The rim's middle across (mm from the anchor), the whole trophy's height (mm), and the art's size and where the anchor sits in it. */
-export const TROPHY = { rimX: 28.7, rim: 334.1, h: 385 };
+/** The rim's middle across (mm from the anchor), how far it opens either side, the whole trophy's height (mm), and the art's size and where the anchor sits in it. */
+export const TROPHY = { rimX: 28.7, rim: 334.1, open: 105, h: 385 };
 export const TROPHY_ART = { w: 336, h: 387, ox: 139, oy: 385 };
+
+/**
+ * The outline balls bounce off (mm, y up, from the anchor): the base at half its depth, then the bowl's sides straight down to it, so
+ * there is no pocket beside the stem for a ball to wedge into. Its sides are dead, as the bench's ends are.
+ */
+export const TROPHY_HULL: [number, number][] = [
+  [-78.3, 24.1],
+  [135.7, 24.1],
+  [135.7, 94.1],
+  [140.7, 269.1],
+  [144.7, 334.1],
+  [-87.3, 334.1],
+  [-83.3, 269.1],
+  [-78.3, 94.1],
+];
+
+/** The box the trophy settles as once it has been touched (its base and cup; the handles hang over): its middle from the anchor, and half its width and height (mm). */
+export const TROPHY_BOX = { cx: 28.7, cy: 179.1, hw: 107, hh: 155 };
+
+/** The rim's opening as drawn, around (rimX, rim): an ellipse slanted by the camera (the art's skewX of -50 degrees), for hiding a ball as it drops in behind the cup's front lip. */
+export const TROPHY_LIP = { rx: 105, ry: 23.6, shear: Math.tan((50 * Math.PI) / 180) };
 
 /** How long it takes to come from above the top edge down to where it floats (ms), how far it bobs (px), and how long a bob takes (ms). */
 export const DESCENT_MS = 1600;

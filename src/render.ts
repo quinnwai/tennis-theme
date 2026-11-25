@@ -92,6 +92,8 @@ export interface Ghost {
   w: number;
   h: number;
   alpha: number;
+  /** The trophy's picture, drawn as a shadow of its own shape: where it sits about the point (x, y), px, unturned. */
+  image?: { img: CanvasImageSource; x: number; y: number; w: number; h: number };
 }
 
 export interface ImageSprite {
@@ -181,7 +183,15 @@ export class Renderer {
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
-  draw(now: number, balls: BallSprite[], rising: BallSprite[], shadows: ShadowSprite[] = [], props: ImageSprite[] = [], ghosts: Ghost[] = []): void {
+  draw(
+    now: number,
+    balls: BallSprite[],
+    rising: BallSprite[],
+    shadows: ShadowSprite[] = [],
+    props: ImageSprite[] = [],
+    ghosts: Ghost[] = [],
+    over: { sprite: BallSprite; hide: [number, number][] }[] = [],
+  ): void {
     const ctx = this.ctx;
     if (this.clearBackground) {
       ctx.clearRect(0, 0, this.width, this.height);
@@ -213,6 +223,17 @@ export class Renderer {
       ctx.drawImage(p.img, -p.ox, -p.oy, p.w, p.h);
       ctx.restore();
     }
+    // balls going into the trophy, over its picture, but not over the front of its cup
+    for (const o of over) {
+      ctx.save();
+      const clip = new Path2D();
+      clip.rect(0, 0, this.width, this.height);
+      o.hide.forEach(([x, y], i) => (i ? clip.lineTo(x, y) : clip.moveTo(x, y)));
+      clip.closePath();
+      ctx.clip(clip, "evenodd");
+      this.drawBall(o.sprite);
+      ctx.restore();
+    }
     for (const b of balls) this.drawBall(b);
   }
 
@@ -228,6 +249,14 @@ export class Renderer {
       ctx.save();
       ctx.translate(g.x, g.y);
       ctx.rotate(g.angle);
+      if (g.image) {
+        // the trophy: its own shape, handles and all
+        const { canvas, pad } = this.silhouette(g.image);
+        ctx.globalAlpha = this.ghostOpacity * g.alpha;
+        ctx.drawImage(canvas, g.image.x - pad, g.image.y - pad, g.image.w + 2 * pad, g.image.h + 2 * pad);
+        ctx.restore();
+        continue;
+      }
       ctx.beginPath();
       ctx.roundRect(-g.w / 2, -g.h / 2, g.w, g.h, g.w * 0.14);
       ctx.globalAlpha = this.ghostOpacity * g.alpha;
@@ -239,6 +268,45 @@ export class Renderer {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  private shape: { key: string; canvas: HTMLCanvasElement; pad: number } | null = null;
+
+  /**
+   * A picture's shape in the shadow colour, with the faint rim the cans' shadows have just outside it,
+   * made once for each size. `pad`: the room around the picture for the rim (px).
+   */
+  private silhouette(image: NonNullable<Ghost["image"]>): { canvas: HTMLCanvasElement; pad: number } {
+    const dpr = window.devicePixelRatio || 1;
+    const [w, h] = [Math.max(1, Math.round(image.w * dpr)), Math.max(1, Math.round(image.h * dpr))];
+    const key = `${w}x${h} ${this.shadowColor} ${this.palette.quiet}`;
+    if (this.shape?.key === key) return this.shape;
+    const edge = Math.max(1, Math.round(dpr));
+    const make = () => {
+      const c = document.createElement("canvas");
+      [c.width, c.height] = [w + 2 * edge, h + 2 * edge];
+      return [c, c.getContext("2d")!] as const;
+    };
+    // the rim: the shape grown by a pixel all round, less the shape
+    const [rim, r] = make();
+    for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]])
+      r.drawImage(image.img, edge + dx * edge, edge + dy * edge, w, h);
+    r.globalCompositeOperation = "destination-out";
+    r.drawImage(image.img, edge, edge, w, h);
+    r.globalCompositeOperation = "source-in";
+    r.fillStyle = this.palette.quiet || this.palette.white;
+    r.fillRect(0, 0, rim.width, rim.height);
+    // the shape, filled with the shadow colour, then the rim at its strength relative to the fill's
+    const [canvas, c] = make();
+    c.drawImage(image.img, edge, edge, w, h);
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = this.shadowColor;
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.globalCompositeOperation = "source-over";
+    c.globalAlpha = this.ghostRimOpacity / this.ghostOpacity;
+    c.drawImage(rim, 0, 0);
+    this.shape = { key, canvas, pad: edge / dpr };
+    return this.shape;
   }
 
   private drawShadows(shadows: ShadowSprite[]): void {

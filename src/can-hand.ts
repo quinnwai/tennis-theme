@@ -1,8 +1,8 @@
 import type { Vec } from "./input";
 import { params } from "./params";
 
-/** What a press landed on: a can standing in the court, or one standing in the open bag (by its place in the bag). */
-export type CanTarget = { kind: "can"; id: number } | { kind: "bag"; index: number };
+/** What a press landed on: a can standing in the court, one standing in the open bag (by its place in the bag), or the trophy. */
+export type CanTarget = { kind: "can"; id: number } | { kind: "bag"; index: number } | { kind: "trophy" };
 
 export interface CanActions {
   /** A quick press and let go without moving: the can pours, or wiggles if it is empty. */
