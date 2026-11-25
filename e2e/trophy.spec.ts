@@ -338,7 +338,7 @@ test.describe("carrying the trophy", () => {
     expect(Math.hypot(later.x - stood.x, later.y - stood.y)).toBeLessThan(0.5);
   });
 
-  test("set down, no ball wedges beside its stem: a ball touching its sides is on the floor", async ({ page }) => {
+  test("set down, no ball wedges beside its stem: a ball touching its sides rests on the floor or on another ball", async ({ page }) => {
     await wonTrophy(page);
     const t = await setDown(page);
     const floor = await floorY(page);
@@ -354,11 +354,17 @@ test.describe("carrying the trophy", () => {
     const hull = await sandbox<Pt[]>(page, "trophyHull()");
     expect(hull.length, "the court has its outline").toBeGreaterThanOrEqual(4);
     const rim = Math.min(...hull.map((p) => p.y));
-    for (const b of await balls(page)) {
-      if (b.pinned || b.held) continue;
+    // A wedged ball is held up by the trophy itself. One touching its side may rest on the floor or on another ball (balls stack in the
+    // gap to the bench), but never on nothing. (Changed on QWW-105: the first version read ordinary stacking as wedging.)
+    const all = (await balls(page)).filter((b) => !b.pinned && !b.held);
+    for (const b of all) {
       const { d, inside } = fromPolygon(b, hull);
       expect(inside, `ball ${b.id} is not inside the trophy`).toBe(false);
-      if (d < b.r + 3 && b.y > rim) expect(Math.abs(b.y - (floor - b.r)), `ball ${b.id} touches its side, so it is on the floor (px)`).toBeLessThan(3);
+      if (d < b.r + 3 && b.y > rim) {
+        const onFloor = Math.abs(b.y - (floor - b.r)) < 3;
+        const onBall = all.some((o) => o.id !== b.id && o.y > b.y + 2 && Math.hypot(o.x - b.x, o.y - b.y) < o.r + b.r + 3);
+        expect(onFloor || onBall, `ball ${b.id} touches its side, so it rests on the floor or on a ball beneath it`).toBe(true);
+      }
     }
   });
 
