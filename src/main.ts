@@ -972,7 +972,10 @@ function main(): void {
   // carries, and how old a trail or a pow is, are timed by the court's own clock, so a slow machine cannot change what a check sees.
   let frozen = false;
   const clock = (real: number) => (frozen ? simMs : real);
+  // How long each real-time frame's own work took (`__sandbox.frameWork()`); `advance` is not counted. Capped so an unread list cannot grow.
+  const work: number[] = [];
   function frame(now: number): void {
+    const began = performance.now();
     if (!frozen) {
       pending += Math.min(0.1, (now - last) / 1000);
       gestures.tick(now);
@@ -1001,6 +1004,7 @@ function main(): void {
     drawnGhosts = ghosts(drawnAt, frozen);
     shower?.draw();
     renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), [...canSprites(alpha), ...trophySprites()], drawnGhosts, dropSprites());
+    if (!frozen && work.length < 20000) work.push(performance.now() - began);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -1137,6 +1141,8 @@ function main(): void {
         const at = toMeters({ x, y });
         return court.addBall(at.x, at.y, false).id;
       },
+      /** The milliseconds each real-time frame took (from its start to the end of drawing) since the last call, oldest first; reading empties it. */
+      frameWork: () => work.splice(0),
       /** Run the simulation forward without waiting for frames. */
       advance(seconds: number) {
         for (let i = 0; i < Math.round(seconds / STEP); i++) {

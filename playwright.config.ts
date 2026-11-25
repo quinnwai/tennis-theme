@@ -26,7 +26,10 @@ const run = deployed ? undefined : (process.env.E2E_RUN ||= randomUUID());
 // the browser's own process it takes about 50 ms.
 // A headless browser still plays through the Mac's real speakers, and the feature flag above silences nothing,
 // so --disable-audio-output keeps every test browser off the speakers.
-const launchOptions = { args: ["--disable-features=AudioServiceOutOfProcess", "--disable-audio-output"] };
+// A frame-rate measurement (`npm run perf`, E2E_PERF=1) also lifts the headless browser's own frame limit: left alone it hands the page a frame
+// every 125 to 200 ms (5 to 8 a second), so each frame has to catch up 4 to 24 physics steps, and the time one frame takes says nothing about
+// whether the page keeps up at 60 a second.
+const launchOptions = { args: ["--disable-features=AudioServiceOutOfProcess", "--disable-audio-output", ...(process.env.E2E_PERF ? ["--disable-frame-rate-limit"] : [])] };
 
 // A phone, as Chromium plays one: the phone's window size, pixel density and user agent, a touch screen in
 // place of a mouse (so `(pointer: coarse)` holds), and a layout that follows the page's viewport tag. The size is

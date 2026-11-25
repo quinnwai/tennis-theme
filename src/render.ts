@@ -220,7 +220,7 @@ export class Renderer {
       }
       ctx.translate(p.x, p.y);
       ctx.rotate(p.angle);
-      ctx.drawImage(p.img, -p.ox, -p.oy, p.w, p.h);
+      ctx.drawImage(this.raster(p.img, p.w, p.h), -p.ox, -p.oy, p.w, p.h);
       ctx.restore();
     }
     // balls going into the trophy, over its picture, but not over the front of its cup
@@ -235,6 +235,28 @@ export class Renderer {
       ctx.restore();
     }
     for (const b of balls) this.drawBall(b);
+  }
+
+  private rasters = new Map<CanvasImageSource, HTMLCanvasElement>();
+
+  /**
+   * A picture drawn once, to draw from every frame after. Drawing the trophy's vector picture itself, turned, costs the browser a fresh
+   * render of all its shapes each frame; on a slow machine that made the frames of the trophy coming down and being carried take longer
+   * than a 60th of a second. The trophy changes size as it comes down and is fitted to the window, so the copy is made a quarter larger
+   * than asked and kept while the picture is shown between half and all of its size, so it is not remade every frame of a change.
+   * `w`, `h`: the size it is shown at (page px).
+   */
+  private raster(img: CanvasImageSource, w: number, h: number): CanvasImageSource {
+    const dpr = window.devicePixelRatio || 1;
+    const [pw, ph] = [Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr))];
+    const have = this.rasters.get(img);
+    if (have && have.width >= pw && have.width <= pw * 2) return have;
+    const canvas = have ?? document.createElement("canvas");
+    canvas.width = Math.round(pw * 1.25);
+    canvas.height = Math.round(ph * 1.25);
+    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    this.rasters.set(img, canvas);
+    return canvas;
   }
 
   /** How strongly the drop preview shows at full strength, and the faint rim that keeps it readable on the darkest things it can land on. */
