@@ -234,6 +234,30 @@ test.describe("v7 can controls", () => {
   });
 });
 
+test.describe("v7 can controls: a carried can passes through balls", () => {
+  // Found by the QWW-101 accuracy run at 750 x 280: a can carried low across the floor pushed a resting ball down through the (lifted)
+  // floor, and the ball fell forever. A carried can passes through things (QWW-99, "Carry a can"), so it must not move a ball at all.
+  test("a can carried low across the floor, over a resting ball, leaves the ball where it was and on the court", async ({ page }) => {
+    test.slow();
+    const { width } = page.viewportSize()!;
+    const floor = await floorY(page);
+    await sandbox(page, `drop(${width / 2}, ${floor - 60})`);
+    await run(page, 3);
+    const ball0 = (await balls(page)).filter((b) => !b.pinned).sort((a, b) => Math.abs(a.x - width / 2) - Math.abs(b.x - width / 2))[0];
+    const c0 = await standingCan(page, width - 100);
+    await page.mouse.move(c0.x, c0.y);
+    await page.mouse.down();
+    const low = { x: 100, y: c0.y };
+    await drag(page, { x: c0.x, y: c0.y }, low, 40);
+    const ball1 = (await balls(page)).find((b) => b.id === ball0.id)!;
+    expect(ball1.y, "the ball is still on the court, not through the floor").toBeLessThan(floor);
+    expect(Math.hypot(ball1.x - ball0.x, ball1.y - ball0.y), "and the carried can did not move it (px)").toBeLessThan(2);
+    await page.mouse.up();
+    await run(page, 2);
+    for (const b of await balls(page)) expect(b.y, `ball ${b.id} is above the floor`).toBeLessThan(floor);
+  });
+});
+
 test.describe("v7 cans in the bag", () => {
   /** Unzip the bag with the keyboard, and let what is in it come up. */
   async function openBag(page: Page) {
