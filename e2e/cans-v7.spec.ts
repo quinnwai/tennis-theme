@@ -181,7 +181,9 @@ test.describe("v7 can controls", () => {
 
   test("a falling can is caught by a drag, and a tap on a falling can does nothing", async ({ page }) => {
     const floor = await floorY(page);
-    const tapped = await addCan(page, 100, floor - 400);
+    // 400 px up, or as high as the window allows when it is shorter (a phone held sideways): the can has to be on the page to be pressed
+    const high = Math.max(floor - 400, 70);
+    const tapped = await addCan(page, 100, high);
     await run(page, 0.05);
     const t0 = await can(page, tapped);
     expect(t0.state).toBe("settling");
@@ -190,7 +192,7 @@ test.describe("v7 can controls", () => {
     expect(t1.state === "settling" || t1.state === "placed", "a tap does not pour or take it").toBe(true);
     expect(t1.ballsLeft).toBe(3);
 
-    const caught = await addCan(page, 240, floor - 400);
+    const caught = await addCan(page, 240, high);
     await run(page, 0.05);
     const c0 = await can(page, caught);
     await page.mouse.move(c0.x, c0.y);
@@ -203,7 +205,8 @@ test.describe("v7 can controls", () => {
   test("a can leaning on a ball falls when the ball is dragged away, before the ball moves", async ({ page }) => {
     test.slow();
     const L = await scene(page);
-    const bx = L.benchX + 200;
+    // 200 px along the bench; on a phone the bag's end is nearer, and the can would land against it and not against the ball
+    const bx = L.benchX + (L.width > 1200 ? 200 : 100);
     await sandbox(page, `drop(${bx}, ${L.benchSurfaceY - 30})`);
     await run(page, 5);
     const ball0 = (await balls(page)).filter((b) => !b.pinned).sort((a, b) => Math.abs(a.x - bx) - Math.abs(b.x - bx))[0];
@@ -238,6 +241,8 @@ test.describe("v7 cans in the bag", () => {
     await page.keyboard.press("Enter");
     await until(page, () => sandbox<{ open: boolean }>(page, "bag()"), (b) => b.open, "the bag opens", 3);
     await run(page, 1.3);
+    // what rises out of the bag is a page animation, which the court's clock does not run: wait for it to end, or the box measured below is a can still on its way up
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)).then(() => undefined));
   }
   const itemBox = (page: Page, i: number) =>
     page.evaluate((i) => {

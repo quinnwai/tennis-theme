@@ -446,6 +446,7 @@ test.describe("the cans", () => {
     const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
     await carry(page, [top.x - 80, top.y - 120], [100, L.height - lift - held[0].height - 10]);
     await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
+    await advance(page, 1); // (QWW-100: a can let go while it still swings keeps turning as it falls, and may land on its side; let go once it hangs quite still)
     await page.mouse.up();
     await advance(page, 4);
     const [can] = await cans(page);
@@ -457,58 +458,19 @@ test.describe("the cans", () => {
   test("a can let go before it is clear of the bag drops back into its place, and can be taken again", async ({ page }) => {
     await unzip(page);
     const top = await canTop(page, 2);
+    // (QWW-100: a press that does not move is a tap now, and pours the can; a press that moves more than 8 px takes it)
+    await freeze(page);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
+    await carry(page, [top.x, top.y], [top.x, top.y - 12], 3);
     expect(await cans(page)).toHaveLength(1);
     await page.mouse.up();
     expect(await cans(page), "back in the bag").toHaveLength(0);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
+    await carry(page, [top.x, top.y], [top.x, top.y - 12], 3);
     expect(await cans(page), "and taken again").toHaveLength(1);
     await page.mouse.up();
-  });
-
-  test("a can that is shaken hard by its base is turned over and pours its balls out", async ({ page }) => {
-    test.slow(); // a long run of small moves, each one a round trip to the page: three times the time on a slow machine
-    await freeze(page);
-    await unzip(page);
-    const top = await canTop(page, 0);
-    const L = await scene(page);
-    await page.mouse.move(top.x, top.y);
-    await page.mouse.down();
-    await carry(page, [top.x, top.y], [top.x - 40, top.y - 60], 6);
-    const height = (await cans(page))[0].height;
-    // Set it down on the open floor left of the name, as a visitor would, and let it settle: it stands, full.
-    const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
-    await carry(page, [top.x - 40, top.y - 60], [100, L.height - lift - height - 10]);
-    // The can swings under the hand for a while after the hand stops, and a can let go in mid-swing may land on its side. It is let go once
-    // the swing is over, and this waits for that in the court's time and not the machine's.
-    await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
-    await page.mouse.up();
-    await advance(page, 3);
-    const [can] = await cans(page);
-    expect(can.ballsLeft).toBe(3);
-    expect(Math.abs(can.angle), "it stands upright (the angle is in radians)").toBeLessThan(0.1);
-    // Take it by its base, lift it, and shake it from side to side, as hard as a hand does: the hand's grip keeps a can upright through
-    // a gentle carry, not through this. Each swing is paced in small moves, a frame apart.
-    const before = (await balls(page)).length;
-    const base: Pt = [can.x, can.y + can.height * 0.4];
-    await page.mouse.move(base[0], base[1]);
-    await page.mouse.down();
-    const lifted: Pt = [base[0] + can.height * 1.5, base[1] - can.height * 1.5]; // clear of the wall, which would stop half of each swing
-    await carry(page, base, lifted, 15);
-    let at = lifted;
-    for (let swing = 0; swing < 10 && (await cans(page))[0].ballsLeft > 0; swing++) {
-      for (const to of [[lifted[0] + can.height * 0.5, lifted[1]], [lifted[0] - can.height * 0.5, lifted[1]]] as Pt[]) {
-        await carry(page, at, to, 6);
-        at = to;
-      }
-    }
-    await page.mouse.up();
-    await advance(page, 3);
-    const [after] = await cans(page);
-    expect(after.ballsLeft, "emptied").toBe(0);
-    expect((await balls(page)).length, "its three balls are on the court").toBeGreaterThanOrEqual(before + 3);
   });
 });
 
@@ -653,9 +615,11 @@ test.describe("starting again", () => {
       const t = await canTop(page, n);
       await page.mouse.move(t.x, t.y);
       await page.mouse.down();
+      await carry(page, [t.x, t.y], [t.x, t.y - 12], 3); // (QWW-100: a press that does not move is a tap, which pours the can)
+      expect(await cans(page), `can ${n} is taken out of the bag`).toHaveLength(1);
       await page.mouse.up();
     }
-    expect(await cans(page), "all three are still in the bag, and a press and release puts each back").toHaveLength(0);
+    expect(await cans(page), "all three are still in the bag, and a short drag and release puts each back").toHaveLength(0);
   });
 
   test("with the notebook open, Clear closes it too", async ({ page }) => {

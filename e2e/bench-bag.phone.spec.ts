@@ -99,12 +99,15 @@ test.describe("a phone held sideways", () => {
     await unzip(page, fingers);
     const box = await itemBox(page, 1);
     const top = { x: box.left + box.width / 2, y: box.top + 8 };
+    // (QWW-100: a press that does not move is a tap now, which pours the can; a finger that moves more than 8 px takes it)
     await fingers.press(1, top);
+    await fingers.move(1, { x: top.x, y: top.y - 14 }, 3);
     await expect.poll(async () => (await cans(page)).length).toBe(1);
     await fingers.lift(1);
     expect(await cans(page), "let go in the bag: back in it").toHaveLength(0);
 
     await fingers.press(1, top);
+    await fingers.move(1, { x: top.x, y: top.y - 14 }, 3);
     await expect.poll(async () => (await cans(page)).length).toBe(1);
     await fingers.move(1, { x: top.x - 60, y: top.y - 60 }, 8);
     expect((await cans(page))[0].held, "carried by the finger").toBe(true);

@@ -152,6 +152,8 @@ const POUR_TIP = 2.6; // about 149 degrees: the mouth points down and a little s
 const POUR_GAP = 0.22;
 const POUR_WAIT = 0.12;
 const WIGGLE = 0.45;
+/** The most a carried can leans into a sideways move, radians: about 17 degrees. */
+const MAX_LEAN = 0.3;
 /** A can this far past the side lines is out, as a ball is. */
 const CAN_OUT = 0.15;
 
@@ -941,9 +943,11 @@ export class Court {
     let x = d.from.x + d.vx;
     let y = d.from.y + d.vy;
     // moving right tips its top to the right: clockwise, a falling angle
-    const lean = -clampTo((d.vx / K.px) * 0.02, -0.3, 0.3);
+    const lean = -clampTo((d.vx / K.px) * 0.02, -MAX_LEAN, MAX_LEAN);
     d.av += (lean - d.from.a) * 0.18 - d.av * 0.35;
-    const a = d.from.a + d.av;
+    // the spring alone would swing it past the lean it is aiming for, to about 21 degrees; the spec's limit is about 17
+    const a = clampTo(d.from.a + d.av, -MAX_LEAN, MAX_LEAN);
+    if (a !== d.from.a + d.av) d.av = 0;
     const ca = Math.abs(Math.cos(a));
     const sa = Math.abs(Math.sin(a));
     const across = hw * ca + hh * sa;

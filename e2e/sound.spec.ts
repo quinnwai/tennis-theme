@@ -516,7 +516,7 @@ test("Restart brings the dots back without the rising sound, and so does opening
   expect(await voicesOf(page, "rising"), "a dot that regrows after being knocked off keeps its pop").toHaveLength(1);
 });
 
-test("a can makes no sound when it lands, and a tap on it plays no hit and leaves it where it was", async ({ page }) => {
+test("a can makes no sound when it lands, and a tap on it plays no hit and puts it back where it stood", async ({ page }) => {
   test.setTimeout(90_000);
   await open(page);
   await unzipByKeyboard(page);
@@ -541,10 +541,10 @@ test("a can makes no sound when it lands, and a tap on it plays no hit and leave
   await advance(page, 3);
   expect(await voices(page), "a can that landed made no sound").toHaveLength(before);
   const can = (await page.evaluate(() => (window as any).__sandbox.cans()))[0] as { x: number; y: number; height: number };
-  await page.mouse.click(can.x, can.y + can.height * 0.25); // a tap on its body
-  await advance(page, 0.5);
+  await page.mouse.click(can.x, can.y + can.height * 0.25); // a tap on its body (QWW-100: it pours, and goes back where it stood)
+  await advance(page, 3);
   const after = (await page.evaluate(() => (window as any).__sandbox.cans()))[0] as { x: number; y: number };
-  expect(Math.abs(after.y - can.y), "the tap left it where it was").toBeLessThan(2);
+  expect(Math.abs(after.y - can.y), "the can is back where it stood").toBeLessThan(2);
   expect(Math.abs(after.x - can.x)).toBeLessThan(2);
   expect(await voicesOf(page, "hit"), "and played no hit").toHaveLength(0);
 });
