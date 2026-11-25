@@ -64,7 +64,7 @@ async function findGame(page: Page) {
 async function win(page: Page) {
   const from = (await game(page)).log.length;
   for (let i = 0; i < 3; i++) await sandbox(page, "scorePoint()");
-  const g = await until(page, () => game(page), (g) => g.log.slice(from).some((e) => e.event === "stats"), "the stats come down", 20);
+  const g = await until(page, () => game(page), (g) => g.log.slice(from).some((e) => e.event === "stats"), "the stats come down", 20, 0.25);
   return g.log.slice(from);
 }
 

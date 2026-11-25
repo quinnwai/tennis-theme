@@ -214,6 +214,16 @@ const POUR_WAIT = 0.12;
 const WIGGLE = 0.45;
 /** The most a carried can leans into a sideways move, radians: about 17 degrees. */
 const MAX_LEAN = 0.3;
+/**
+ * A ball slower than this (engine units a second: 1 cm a second) and turning slower than `STILL_SPIN` (radians a second) is still. It is
+ * looser than the engine's own tolerance because a ball jammed between strokes shivers at a few mm a second, which would keep it, and every
+ * ball resting against it, awake.
+ */
+const STILL_SPEED = 0.1;
+const STILL_SPIN = 0.5;
+/** How long a ball is still before it is put to sleep: half a second, as the engine's own. */
+const STILL_STEPS = Math.round(0.5 / STEP);
+
 /** The most the heavy trophy leans in the hand, radians: about 2.9 degrees. */
 const TROPHY_LEAN = 0.05;
 /** A can this far past the side lines is out, as a ball is. */
@@ -306,6 +316,8 @@ export class Court {
   private props = new Map<number, number[]>();
   /** Something that may have been holding a standing can up has gone (a ball taken away, a can moved, the bag zipped shut): each standing can checks it still stands, and falls if not (see `recheck`). */
   private supportChanged = false;
+  /** How many steps in a row each ball has been still (see `sleepStill`). */
+  private stillFor = new Map<number, number>();
   /** Physics steps into the current can frame (four to a frame). */
   private sub = 0;
   private staticSolids: Solid[] | null = null;
@@ -424,6 +436,11 @@ export class Court {
     }
     // Balls resting where a shape came or went should notice.
     for (const body of this.bodies.values()) body.setAwake(true);
+  }
+
+  /** How many balls are awake: moving, or held up by something the engine will not let go of (see `step`). Dots pinned in place do not count. */
+  awakeBalls(): number {
+    return this.balls.filter((b) => !b.pinned && this.bodies.get(b.id)!.isAwake()).length;
   }
 
   /** Whether a can is still on its way out of the bag. */
@@ -729,6 +746,7 @@ export class Court {
 
     this.world.step(dt, 8, 3);
     this.time += dt;
+    this.sleepStill();
     this.pickImpacts();
 
     const gone: number[] = [];
@@ -769,6 +787,55 @@ export class Court {
     this.enter();
     for (const can of back) this.onBackInBag(can);
     return gone;
+  }
+
+  /**
+   * Put balls to sleep once they have not moved for half a second. The engine does that itself, but never for a ball pressed between two
+   * strokes of the letters (or a letter and the trophy) harder than it can push back out: its position never comes right, so it is never
+   * allowed to sleep, and every step it costs the engine's continuous collision (QWW-107: nine such balls ran the court at a quarter of real
+   * time). Balls that touch are put to sleep together, as the engine does, once every one of them has been still for that long: a sleeping
+   * ball is woken by an awake one it touches. Sleeping leaves them where they are, and anything that hits them wakes them.
+   */
+  private sleepStill(): void {
+    const ready: Ball[] = [];
+    for (const ball of this.balls) {
+      const body = this.bodies.get(ball.id)!;
+      const v = body.getLinearVelocity();
+      const still = body.isAwake() && !ball.held && !ball.pinned && v.x * v.x + v.y * v.y < STILL_SPEED ** 2 && Math.abs(body.getAngularVelocity()) < STILL_SPIN;
+      if (!still) {
+        this.stillFor.delete(ball.id);
+        continue;
+      }
+      const steps = Math.min(STILL_STEPS, (this.stillFor.get(ball.id) ?? 0) + 1);
+      this.stillFor.set(ball.id, steps);
+      if (steps >= STILL_STEPS) ready.push(ball);
+    }
+    if (ready.length === 0) return;
+    const byId = new Map(this.balls.map((b) => [b.id, b]));
+    const done = new Set<number>();
+    for (const ball of ready) {
+      if (done.has(ball.id)) continue;
+      // the balls that touch this one, and those that touch them, as the engine counts it: whether it counts two balls pressed together at
+      // rest as touching flickers, so a ball it has in contact with this one (even one it holds a stale contact with) belongs too
+      const group = [ball];
+      done.add(ball.id);
+      let sleepy = true;
+      for (let i = 0; i < group.length && sleepy; i++) {
+        for (let edge = this.bodies.get(group[i].id)!.getContactList(); edge; edge = edge.next!) {
+          const other = byId.get(edge.other!.getUserData() as number);
+          if (!other || done.has(other.id) || other.pinned) continue;
+          done.add(other.id);
+          group.push(other);
+          // a ball still moving keeps them all awake; one asleep already does not
+          if (edge.other!.isAwake() && this.stillFor.get(other.id) !== STILL_STEPS) sleepy = false;
+        }
+      }
+      if (!sleepy) continue;
+      for (const member of group) {
+        this.bodies.get(member.id)!.setAwake(false);
+        this.stillFor.delete(member.id);
+      }
+    }
   }
 
   /** A mouth a little wider than the can, so a ball that would clip the rim on its way in rolls in instead. */
