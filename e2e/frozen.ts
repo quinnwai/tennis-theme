@@ -14,12 +14,14 @@ export const run = (page: Page, seconds: number) => page.evaluate(`window.__sand
 /**
  * Run the court forward a frame at a time until `read` gives something that `ok` accepts, and give that. Fails if it takes more than
  * `maxSeconds` of the court's time (never of the machine's), so a slow machine cannot make it fail and a broken toy cannot make it pass.
+ * `step` is how much court time passes between looks. Each look is a round trip to the browser (about 10 ms), so a wait of many seconds
+ * for something whose time is in the page's own log can look less often; the court still runs frame by frame in between.
  */
-export async function until<T>(page: Page, read: () => Promise<T>, ok: (value: T) => boolean, what: string, maxSeconds = 5): Promise<T> {
+export async function until<T>(page: Page, read: () => Promise<T>, ok: (value: T) => boolean, what: string, maxSeconds = 5, step = 1 / 60): Promise<T> {
   let value = await read();
-  for (let t = 0; !ok(value); t += 1 / 60) {
+  for (let t = 0; !ok(value); t += step) {
     expect(t, `${what}: within ${maxSeconds} s of the court's time (last seen: ${JSON.stringify(value)})`).toBeLessThan(maxSeconds);
-    await run(page, 1 / 60);
+    await run(page, step);
     value = await read();
   }
   return value;
