@@ -104,9 +104,7 @@ async function tap(page: Page, at: Pt) {
 
 /** Find the game: a full can put down near the bench and tapped, so it pours. Gives the can's id. */
 async function findGame(page: Page) {
-  const scene = await sandbox<{ benchX: number }>(page, "scene()");
-  const x = Math.max((await clearFloorX(page)) + 120, scene.benchX - 30);
-  const id = await sandbox<number>(page, `addCan(${x}, ${(await floorY(page)) - 200}, 3)`);
+  const id = await sandbox<number>(page, `addCan(120, ${(await floorY(page)) - 200}, 3)`);
   const c = await until(page, () => can(page, id), (c) => c.state === "placed", "the can stands", 4);
   await tap(page, c);
   await until(page, () => game(page), (g) => g.found, "the game is found", 6);
@@ -126,6 +124,12 @@ async function wonTrophy(page: Page) {
   await findGame(page);
   const log = await win(page);
   expect((await trophy(page)).state).toBe("floating");
+  // the balls the can poured are in the way of everything the tests set down: sweep them off, as the "whole match" test does
+  await page.evaluate(() => {
+    const s = (window as any).__sandbox;
+    for (const b of s.balls()) if (!b.pinned && !b.held) s.remove(b.id);
+    for (const c of s.cans()) s.removeCan(c.id); // and the can that was tapped, which stands where the tests set the trophy down
+  });
   return log;
 }
 
@@ -380,6 +384,7 @@ test.describe("carrying the trophy", () => {
   });
 
   test("a can stands in its cup and the floating trophy stops bobbing under it; carried off, the can falls", async ({ page }) => {
+    test.skip(page.viewportSize()!.height < 400, "a window this short has no room for a can above the trophy");
     await wonTrophy(page);
     const t = await trophy(page);
     const id = await sandbox<number>(page, `addCan(${t.mouth.x}, ${t.mouth.y - 120}, 0)`);
@@ -471,7 +476,9 @@ test.describe("a later win with the trophy moved", () => {
     const k = perMm(floating);
     const floor = await floorY(page);
     const x = await clearFloorX(page);
-    const id = await sandbox<number>(page, `drop(${x + 110 * k}, ${floor - 40})`);
+    // (in this window's own pixels: the trophy is drawn smaller than real in a small window and the ball is not, so the ball goes under the edge of its base, a radius in)
+    const r = (await balls(page))[0].r;
+    const id = await sandbox<number>(page, `drop(${x + 136 * k - r}, ${floor - 40})`);
     await until(page, () => balls(page), (bs) => Math.abs(bs.find((b) => b.id === id)!.vy) < 1, "the ball lies on the floor", 4);
     await run(page, 1);
     // carried by the left of its base, so the hand is clear of the ball
@@ -504,7 +511,8 @@ test.describe("the trophy by touch", () => {
       await freeze(page);
       await wonTrophy(page);
       const t = await trophy(page);
-      const loose = (await balls(page)).find((b) => b.pinned)!; // a dot: the second finger takes it off the "i"
+      // a dot: the second finger takes it off the "i" (the right one: the stats card covers the left one in a window this small)
+      const loose = (await balls(page)).filter((b) => b.pinned).sort((a, b) => b.x - a.x)[0];
       const cdp = await page.context().newCDPSession(page);
       const touch = (type: "touchStart" | "touchMove" | "touchEnd", pts: Pt[]) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i })) });
       const from = grabPoint(t);

@@ -1091,6 +1091,10 @@ function main(): void {
       remove(id: number) {
         court.remove(id);
       },
+      /** Take a can off the court. */
+      removeCan(id: number) {
+        court.removeCan(id);
+      },
       /** The cans game: whether it is found, the two calls on the board, whether it is championship point, how the last ball into a can was judged, and the crowd sounds started. */
       game: () => ({
         found: game.match.found,
