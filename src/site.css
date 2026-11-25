@@ -435,15 +435,15 @@ a {
 
   .credits-text {
     font-size: 13px;
-    line-height: 1.25;
+    line-height: 1.2;
   }
 
-  /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves. */
+  /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves (and the line for the point applause took the line spacing down from 1.25 to 1.2, and the gaps down a little more). */
   .credits-text li + li {
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
   }
 
   .credits-text li li + li {
-    margin-top: 0.1rem;
+    margin-top: 0.05rem;
   }
 }

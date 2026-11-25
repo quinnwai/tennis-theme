@@ -66,6 +66,7 @@ export const params = {
   soundHit: 0.25,
   soundBounce: 0.125, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter. Bounces are far more frequent than the rest
   soundRising: 0.25, // a fresh ball rising out of an "i"
+  soundApplause: 0.75, // a point's applause (QWW-102)
   soundOut: 0.5, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
@@ -90,6 +91,15 @@ export const params = {
   canTapPx: 8,
   canBallReachPx: 16,
   canReachPx: 14,
+
+  // Scoring (QWW-99). A ball let go at least throwSpeed m/s was thrown, slower it was only dropped. A throw scores when it goes into a can
+  // that is at least shotDistance of the window's width from where it was let go, in a straight line in any direction. A can leaning
+  // further than refillTilt degrees (lying flat or upside down) takes no balls. mouthGrace widens a can's mouth, in balls' radii, so a
+  // ball clipping the rim rolls in. Quinn-Wai's, from the playtests of the prototype.
+  throwSpeed: 0.8,
+  shotDistance: 1 / 5,
+  refillTilt: 89,
+  mouthGrace: 0.3,
 
   // The v6 scene (the bench, towel, bag and racquet; see src/v6). Its sizes are real and not tunable. These are its motion and its
   // light touch on the toy; all judged by eye, on the live site.

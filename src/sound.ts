@@ -1,10 +1,10 @@
 import { params, type Params } from "./params";
 import { SOUND_KEY, parseSound, type SoundSetting } from "./sound-setting"; // where the browser keeps how loud the visitor wants the sound, which the sound button writes
 
-/** The four things that make a sound. */
-export type SoundName = "hit" | "bounce" | "rising" | "out";
+/** The five things that make a sound. */
+export type SoundName = "hit" | "bounce" | "rising" | "out" | "applause";
 
-const NAMES: SoundName[] = ["hit", "bounce", "rising", "out"];
+const NAMES: SoundName[] = ["hit", "bounce", "rising", "out", "applause"];
 
 /**
  * The files, and the stretch of each that is worth playing, in seconds. Addresses are relative to the page so
@@ -13,11 +13,13 @@ const NAMES: SoundName[] = ["hit", "bounce", "rising", "out"];
  * adds and the browser's decoder does not take off again; skipping it is skipping a lag of 23 ms on the hit and
  * 46 ms on the bounce. The last 3 seconds of the hit are silence too, so it stops early.
  */
-export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number }> = {
+export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number; fadeAt?: number }> = {
   hit: { file: "./tennis/sounds/soundreality-tennis-ball-hit-151257.mp3", from: 1105 / 48000, to: 0.85 },
   bounce: { file: "./tennis/sounds/freesound_community-tennisball-44184-bounce.mp3", from: 1105 / 24000 },
   rising: { file: "./tennis/sounds/rising-2-suction-pop-freesound-523687.mp3", from: 0 },
   out: { file: "./tennis/sounds/out-1-soft-whoosh-freesound-682473.mp3", from: 0 },
+  // A point's applause (freesound 57587, CC0): a stadium crowd, faded out from 2.6 s so that it ends at 3.2 s.
+  applause: { file: "./tennis/sounds/applause-freesound-57587.mp3", from: 0, to: 3.2, fadeAt: 2.6 },
 };
 
 const VOLUME: Record<SoundName, keyof Params> = {
@@ -25,6 +27,7 @@ const VOLUME: Record<SoundName, keyof Params> = {
   bounce: "soundBounce",
   rising: "soundRising",
   out: "soundOut",
+  applause: "soundApplause",
 };
 
 /**
@@ -293,6 +296,8 @@ export class Sound {
       source.connect(gain);
       gain.connect(this.master!.input);
       source.start(now, from, length);
+      const fadeAt = SOUNDS[name].fadeAt;
+      if (fadeAt !== undefined && fadeAt - from < length) gain.gain.setTargetAtTime(0, now + fadeAt - from, 0.15);
       if (isHit) return; // the hit is never one of the voices that can give way, nor cut short
       this.voices.push({
         endsAt: now + length,

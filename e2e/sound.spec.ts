@@ -50,7 +50,7 @@ function fakeAudio() {
   };
 
   // How long each file is, found by a word in its name, so that a sound lasts as long as it really would.
-  const lengthOf = (url: string) => (url.includes("hit") ? 4.032 : url.includes("bounce") ? 0.888 : url.includes("pop") ? 0.189 : 0.708);
+  const lengthOf = (url: string) => (url.includes("hit") ? 4.032 : url.includes("bounce") ? 0.888 : url.includes("pop") ? 0.189 : url.includes("applause") ? 5.828 : 0.708);
 
   w.__RealOfflineAudioContext = w.OfflineAudioContext;
   w.OfflineAudioContext = class {
@@ -125,7 +125,7 @@ function fakeAudio() {
 }
 
 /** The word that tells each sound's file from the others, so that these checks do not just copy the table in sound.ts. */
-const FILE = { hit: "tennis-ball-hit", bounce: "bounce", rising: "suction-pop", out: "soft-whoosh" };
+const FILE = { hit: "tennis-ball-hit", bounce: "bounce", rising: "suction-pop", out: "soft-whoosh", applause: "applause" };
 
 interface Ball {
   id: number;
@@ -163,7 +163,7 @@ async function open(page: Page, options: { soundSetting?: string | null; address
   await page.goto(options.address ?? "./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   if (fullGain) await page.evaluate(() => ((window as any).__sandbox.params.soundGain = 1));
-  await page.waitForFunction("window.__audio.decoded === 4");
+  await page.waitForFunction("window.__audio.decoded === 5");
 }
 
 /**
@@ -241,10 +241,10 @@ test("the audio is made at the start and left asleep until the visitor does some
   expect(await voices(page)).toEqual([]);
 });
 
-test("the four sound files are fetched from addresses relative to the page, and every one is found", async ({ page }) => {
+test("the sound files are fetched from addresses relative to the page, and every one is found", async ({ page }) => {
   await open(page);
   const fetched = await page.evaluate(() => (window as any).__audio.fetched as AudioLog["fetched"]);
-  expect(fetched).toHaveLength(4);
+  expect(fetched).toHaveLength(5);
   const folder = new URL("./tennis/sounds/", page.url()).href;
   for (const sound of Object.values(FILE)) {
     expect(fetched.filter((f) => f.url.startsWith(folder) && f.url.includes(sound) && f.status === 200)).toHaveLength(1);

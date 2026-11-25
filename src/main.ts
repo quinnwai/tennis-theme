@@ -5,7 +5,7 @@ import { CAN_BALLS, CAN_HEIGHT, CAN_WIDTH } from "./cans";
 import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
 import { params } from "./params";
-import { Court, STEP, type Ball, type Can } from "./physics";
+import { Court, STEP, type Ball, type Can, type Entry } from "./physics";
 import { Renderer, type BallSprite, type Ghost, type ImageSprite, type ShadowSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { nextSound, readSound, writeSound } from "./sound-setting";
@@ -13,7 +13,9 @@ import { leavesTrail } from "./trail";
 import { mountTuner } from "./tune";
 import { CAN_IMAGE, SHADOW, SHADOW_OPACITY, SKEW, canImage } from "./v6/art";
 import { mountNotebook, type Notebook } from "./v6/notebook";
+import { Match } from "./v6/match";
 import { Scene } from "./v6/scene";
+import { mountScoreboard, type Scoreboard } from "./v6/scoreboard";
 import { layoutName, type NameLayout } from "./wordmark";
 import { WORDMARKS } from "./wordmark.data";
 
@@ -68,6 +70,12 @@ function main(): void {
   const toScreen = (x: number, y: number): Vec => ({ x: x * pxPerMeter, y: renderer.height - y * pxPerMeter });
 
   const noteInteraction = startMeasuring();
+
+  /** The cans game, found by emptying a can: its match and its scoreboard. Nothing of it shows until then. */
+  const game: { match: Match; board: Scoreboard } = { match: new Match(), board: mountScoreboard() };
+  /** How the last ball into a can was judged, and the crowd's sounds started so far (none with the sound off), for the browser checks. */
+  let lastEntry: Entry | null = null;
+  const heard: string[] = [];
 
   // The bench, the towel, the racquet and the bag are drawn around the canvas (see src/v6). The bag unzips when its pull is dragged; then
   // the cans and the notebook rise out of it. Balls land on the bench and on the bag; a can taken out of the bag is a can of the court.
@@ -165,6 +173,8 @@ function main(): void {
     applySceneSolids(scene.openSolids());
     court.canPourAt = (at) => !insideSolid(toScreen(at.x, at.y));
     court.onBackInBag = (can) => putBack(can.seed, can.ballsLeft, can.id);
+    court.onCanEntry = (_can, _ball, entry) => judged(entry);
+    court.onBagEntry = bagEntry;
 
     homes = layout.dots.map((dot, i) => {
       const at = toMeters(dot);
@@ -199,6 +209,44 @@ function main(): void {
   /** What stands in the open bag, as solids in the court. Page px in. */
   function applySceneSolids(loops: [number, number][][]): void {
     court?.setSolids(loops.map((loop) => loop.map(([x, y]) => toMeters({ x, y }))));
+    updateBagMouths();
+  }
+
+  /** The cans standing in the open bag take balls too, while they have room. */
+  function updateBagMouths(): void {
+    if (!court) return;
+    court.bagMouths = scene.canMouths().map((m) => {
+      const at = toMeters(m);
+      const t = (m.tilt * Math.PI) / 180;
+      return {
+        seed: m.seed,
+        room: CAN_BALLS - (bagBalls.get(m.seed) ?? CAN_BALLS),
+        mouth: { x: at.x, y: at.y, ux: Math.sin(t), uy: Math.cos(t), half: m.width / 2 / pxPerMeter },
+      };
+    });
+  }
+
+  /** A ball went into a can standing in the open bag. */
+  function bagEntry(seed: number, _ball: Ball, entry: Entry): void {
+    const balls = (bagBalls.get(seed) ?? CAN_BALLS) + 1;
+    bagBalls.set(seed, balls);
+    scene.setCanBalls(seed, balls);
+    updateBagMouths();
+    judged(entry);
+  }
+
+  /** A ball went into a can, judged `entry`: once the game is found, a throw that counts wins a point, to applause. */
+  function judged(entry: Entry): void {
+    lastEntry = entry;
+    if (game.match.found && entry === "point") scorePoint();
+  }
+
+  /** A counted throw: you win a point, to applause, and the score flashes. For now the score stops at 40-30 (winning the match is QWW-99's next step). */
+  function scorePoint(): void {
+    game.match.point();
+    game.board.update(game.match, true);
+    if (readSound() === "on") heard.push("applause");
+    sound.play("applause");
   }
 
   /** Whether a point (page px) is inside a letter, the bench, the bag or what stands in the open bag. */
@@ -349,6 +397,11 @@ function main(): void {
     for (const seed of court.cansGone) scene.returnCan(seed);
     simMs += STEP * 1000;
     supply();
+    // the game is found the moment a can is emptied
+    if (!game.match.found && court.cans.some((c) => c.ballsLeft === 0)) {
+      game.match.found = true;
+      game.board.show(game.match);
+    }
   }
 
   /** Sweep every ball off the court and let both dots rise again. The cans go back into the bag, full, and the bag is zipped, with the notebook inside. */
@@ -362,6 +415,9 @@ function main(): void {
     scene.reset();
     // the cans in the bag are full again
     bagBalls.clear();
+    game.match.reset();
+    game.board.hide();
+    lastEntry = null;
     for (const seed of [1, 2, 3]) scene.setCanBalls(seed, CAN_BALLS);
     restarted = true;
     for (const home of homes) {
@@ -388,6 +444,7 @@ function main(): void {
     bagBalls.set(seed, balls);
     scene.setCanBalls(seed, balls);
     scene.returnCan(seed);
+    updateBagMouths();
   }
 
   /** Take a can standing in the open bag out of it, as a can in the court where it stood. `pour`: only to pour or wiggle it, at the bag's size, standing still until the tap starts it. */
@@ -749,6 +806,26 @@ function main(): void {
         return r && { ...toScreen(r.x, r.y), angle: -r.a };
       },
       lastHit: () => lastHit,
+      /** Throw a ball from a point on the page, as a hand would (page px and px/s, y down). Gives its id. */
+      launch(x: number, y: number, vx: number, vy: number) {
+        const at = toMeters({ x, y });
+        return court.launch(at.x, at.y, vx / pxPerMeter, -vy / pxPerMeter).id;
+      },
+      /** The cans standing in the open bag that take balls: which, how many more, and where the mouth is (page px). */
+      bagMouths: () => court.bagMouths.map((m) => ({ seed: m.seed, room: m.room, ...toScreen(m.mouth.x, m.mouth.y), half: m.mouth.half * pxPerMeter })),
+      /** Take a ball off the court. */
+      remove(id: number) {
+        court.remove(id);
+      },
+      /** The cans game: whether it is found, the two calls on the board, whether it is championship point, how the last ball into a can was judged, and the crowd sounds started. */
+      game: () => ({
+        found: game.match.found,
+        you: game.match.call(game.match.you),
+        them: game.match.call(game.match.them),
+        championshipPoint: game.match.championshipPoint,
+        lastEntry,
+        heard: [...heard],
+      }),
       effects: () => renderer.effects(),
       pxPerMeter: () => pxPerMeter,
       /** Let a loose ball go at a point on screen (px). */

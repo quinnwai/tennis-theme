@@ -28,7 +28,7 @@ afterEach(() => {
 
 const NAMES = Object.keys(SOUNDS) as SoundName[];
 /** How long each file is, as a browser's decoder reports it. */
-const LENGTH: Record<SoundName, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708 };
+const LENGTH: Record<SoundName, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828 };
 const nameOf = (file: string) => NAMES.find((name) => SOUNDS[name].file === file)!;
 /** Let everything that is waiting on a promise run. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
@@ -551,7 +551,7 @@ describe("Sound", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { sound, started } = await awake({ failLoad: "bounce" });
     for (const name of NAMES) sound.play(name);
-    expect(started.map((s) => s.name)).toEqual(["hit", "rising", "out"]);
+    expect(started.map((s) => s.name)).toEqual(["hit", "rising", "out", "applause"]);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 

@@ -1,0 +1,326 @@
+/* Prototype (v6): the cans game's scoreboard and match stats (scoreboard.ts), in the design round's look B. */
+.v6-score {
+  position: fixed;
+  top: var(--edge, 12px);
+  left: var(--edge, 12px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-family: "Ubuntu Sans", "Ubuntu Condensed", Ubuntu, system-ui, sans-serif;
+  font-stretch: 75%;
+  pointer-events: none;
+  user-select: none;
+  animation: v6-score-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.v6-score[hidden],
+.v6-score-stats[hidden] {
+  display: none;
+}
+
+@keyframes v6-score-in {
+  from {
+    transform: translateY(-18px);
+    opacity: 0;
+  }
+}
+
+.v6-score-board {
+  display: inline-flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgba(4, 10, 16, 0.45);
+}
+
+.v6-score table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.v6-score th,
+.v6-score td {
+  height: 32px;
+  padding: 0;
+  background: #0b1721;
+}
+
+.v6-score tr.them th,
+.v6-score tr.them td {
+  border-top: 1px solid #1d3347;
+}
+
+.v6-score td.edge {
+  width: 4px;
+  background: #2e92b9;
+}
+
+.v6-score th {
+  width: 80px;
+  padding-left: 12px;
+  text-align: left;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 32px;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+}
+
+.v6-score td.serve {
+  width: 22px;
+  vertical-align: middle;
+}
+
+.v6-score td.serve img {
+  display: block;
+  width: 13px;
+  height: 13px;
+  margin: 0 auto;
+}
+
+.v6-score td.set,
+.v6-score td.game {
+  border-left: 1px solid #1d3347;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 32px;
+  font-variant-numeric: tabular-nums;
+}
+
+.v6-score td.set {
+  width: 26px;
+  color: #7d90a3;
+}
+
+.v6-score td.set.took {
+  color: #d5e645;
+}
+
+.v6-score td.set.live {
+  background: #1a3044;
+}
+
+.v6-score td.game {
+  width: 44px;
+  background: #27779a;
+  color: #ffffff;
+}
+
+.v6-score td.game img {
+  display: block;
+  height: 22px;
+  margin: 0 auto;
+}
+
+.v6-score td.game.flash {
+  animation: v6-score-flash 750ms ease-out;
+}
+
+@keyframes v6-score-flash {
+  from {
+    background: #d5e645;
+    color: #132637;
+  }
+}
+
+.v6-score .bar {
+  height: 26px;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 26px;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.v6-score .bar.cp {
+  background: #27779a;
+  color: #ffffff;
+  animation: v6-score-blink 1.1s ease-in-out infinite;
+}
+
+.v6-score .bar.won {
+  background: #d5e645;
+  color: #132637;
+}
+
+@keyframes v6-score-blink {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* After the win: how it went, dropping down under the board. */
+.v6-score-stats {
+  width: 298px;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 8px 12px 10px;
+  border-left: 4px solid #2e92b9;
+  border-radius: 4px;
+  background: #0b1721;
+  box-shadow: 0 6px 18px rgba(4, 10, 16, 0.45);
+  animation: v6-stats-in 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes v6-stats-in {
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+}
+
+.v6-score-stats .head {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #9fb0c0;
+}
+
+.v6-score-stats dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  margin: 0;
+}
+
+.v6-score-stats dt {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 25px;
+  color: #ffffff;
+}
+
+.v6-score-stats dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 25px;
+  text-align: right;
+  color: #d5e645;
+}
+
+/* v7: start a new match, at the foot of the stats. */
+.v6-score-stats .again {
+  display: block;
+  width: 100%;
+  height: 30px;
+  margin: 8px 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: #d5e645;
+  color: #132637;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.v6-score-stats .again:hover {
+  background: #e2f06a;
+}
+
+.v6-score-stats .again:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* The one-line version, for short windows only. */
+.v6-score-stats .line {
+  display: none;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #d5e645;
+}
+
+.v6-score-stats .line span {
+  color: #7d90a3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v6-score,
+  .v6-score-stats {
+    animation: v6-score-fade 300ms ease both;
+  }
+}
+
+@keyframes v6-score-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Phones held sideways: the design round's compact board. */
+@media (max-height: 420px) {
+  .v6-score th,
+  .v6-score td {
+    height: 22px;
+  }
+  .v6-score th {
+    width: 46px;
+    padding-left: 8px;
+    font-size: 14px;
+    line-height: 22px;
+  }
+  .v6-score td.edge {
+    width: 3px;
+  }
+  .v6-score td.serve {
+    width: 15px;
+  }
+  .v6-score td.serve img {
+    width: 9px;
+    height: 9px;
+  }
+  .v6-score td.set,
+  .v6-score td.game {
+    font-size: 15px;
+    line-height: 22px;
+  }
+  .v6-score td.set {
+    width: 17px;
+  }
+  .v6-score td.game {
+    width: 29px;
+  }
+  .v6-score td.game img {
+    height: 15px;
+  }
+  .v6-score .bar {
+    height: 18px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  /* the stats shrink to one line in the board's width, so they keep clear of the name */
+  .v6-score-stats {
+    width: auto;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border-left-width: 3px;
+  }
+  .v6-score-stats .head,
+  .v6-score-stats dl {
+    display: none;
+  }
+  .v6-score-stats .line {
+    display: block;
+  }
+  .v6-score-stats .again {
+    height: 22px;
+    margin: 3px 0 2px;
+    font-size: 11px;
+  }
+}
