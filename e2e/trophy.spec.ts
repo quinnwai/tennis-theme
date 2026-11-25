@@ -370,27 +370,34 @@ test.describe("carrying the trophy", () => {
     }
   });
 
-  test("set down with balls dropped around it, the court settles and stays cheap to run (QWW-107)", async ({ page }) => {
-    test.slow(); // it wins the match first, as every trophy test does, and runs 15 seconds of court time on top
-    await wonTrophy(page);
-    const t = await setDown(page);
-    // the wedge test's twenty seeded balls, let go just over the trophy's sides and its cup
-    let seed = 7;
-    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 20; i++) {
-      const x = t.x - t.width * 0.6 + rand() * t.width * 1.2;
-      await sandbox(page, `drop(${x}, ${t.y - t.height - 20 - rand() * 60})`);
-      await run(page, 0.15);
-    }
-    await run(page, 6);
-    // Balls pressed into a gap between letters, or beside the trophy, once never fell asleep, and each step ran the engine's continuous
-    // collision for them: six seconds of court time took 8 s of real time on a phone-sized window, with all the balls still.
-    const started = Date.now();
-    await run(page, 6);
-    const took = Date.now() - started;
-    expect(took, "six seconds of a court at rest take less than a second to run (ms)").toBeLessThan(1000);
-    expect((await balls(page)).every((b) => b.pinned || b.held || Math.hypot(b.vx, b.vy) < 1), "and every ball is still").toBe(true);
-  });
+  // Where a carried trophy comes to rest depends on a few pixels of how high it was bobbing when it was taken: let go over the same spot it has
+  // landed at x = 150 on one run and x = 120 on the next (and met 6 loose balls on one, 15 on the other). So the check is made from two
+  // places, and passes from either; the 15-ball court (trophy at 150, iphone-landscape) is the one that once crawled (QWW-107).
+  for (const over of [90, 150]) {
+    test(`set down near x = ${over} with balls dropped around it, the court settles and stays cheap to run (QWW-107)`, async ({ page }) => {
+      test.slow(); // it wins the match first, as every trophy test does, and runs 15 seconds of court time on top
+      await wonTrophy(page);
+      const t0 = await trophy(page);
+      await carryTo(page, { x: over, y: (await floorY(page)) - t0.height * 0.6 });
+      const t = await trophy(page);
+      // the wedge test's twenty seeded balls, let go just over the trophy's sides and its cup
+      let seed = 7;
+      const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      for (let i = 0; i < 20; i++) {
+        const x = t.x - t.width * 0.6 + rand() * t.width * 1.2;
+        await sandbox(page, `drop(${x}, ${t.y - t.height - 20 - rand() * 60})`);
+        await run(page, 0.15);
+      }
+      await run(page, 6);
+      // Balls shivering in a gap between letters never fell asleep, and each step ran the engine's continuous collision for them: six
+      // seconds of court time took 8 to 30 s of real time on a phone-sized window, with every ball seeming to be still.
+      const started = Date.now();
+      await run(page, 6);
+      const took = Date.now() - started;
+      expect(took, "six seconds of a court at rest take less than a second to run (ms)").toBeLessThan(1000);
+      expect((await balls(page)).every((b) => b.pinned || b.held || Math.hypot(b.vx, b.vy) < 1), "and every ball is still").toBe(true);
+    });
+  }
 
   test("a ball dropping into the cup is hidden below the front of the rim, then it is gone", async ({ page }, info) => {
     await wonTrophy(page);
