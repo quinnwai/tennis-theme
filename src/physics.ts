@@ -1,7 +1,24 @@
-import { Box, Chain, Circle, Edge, MouseJoint, Polygon, Settings, World, type Body, type Contact, type Fixture } from "planck";
-import { CAN_BALLS, CAN_BOTTOM_HEAVY, CAN_HEIGHT, CAN_WIDTH, isTipped, mouthDirection } from "./cans";
+import { Box, Chain, Circle, Edge, Polygon, Settings, World, type Body, type Contact, type Fixture } from "planck";
+import { CAN_BALLS, CAN_HEIGHT, CAN_WIDTH } from "./cans";
 import type { Point } from "./geometry";
 import { params } from "./params";
+import {
+  FRAME,
+  canSolid,
+  clearSpot,
+  makeSolid,
+  newBody,
+  overlapsSolids,
+  predictRest,
+  settleConstants,
+  settleFrame,
+  type Disc,
+  type Pose,
+  type SettleBody,
+  type SettleConstants,
+  type SettleWorld,
+  type Solid,
+} from "./settle";
 
 /**
  * The engine is tuned for bodies between 0.1 and 10 units across, and a tennis ball
@@ -54,9 +71,8 @@ export interface Ball {
 
 /**
  * A can of balls as the rest of the app sees it, in the same units as a ball. Its position is the middle of its body, and its angle
- * is counter-clockwise from upright, so that 0 has the mouth straight up. The balls inside are not balls yet: they are a count, and
- * each becomes a real ball at the can's mouth when the can is tipped (see `Court.step`). So a can that is upright, however it is
- * carried or thrown, keeps them.
+ * is counter-clockwise from upright, so that 0 has the mouth straight up. The balls inside are not balls: they are a count, and
+ * each becomes a real ball at the can's mouth when the can is tapped and pours (see `Court.tapCan`).
  */
 export interface Can {
   readonly id: number;
@@ -75,27 +91,67 @@ export interface Can {
   ballsLeft: number;
   /** Being carried by the pointer. */
   held: boolean;
+  /** Its size as a share of real size: 1, except a can lifted out of the bag drawn smaller (a phone held sideways) to pour, which keeps the bag's size. */
+  scale: number;
 }
 
-/** What a can is made of. A real can is a light tin; this one is as heavy as a few balls, which keeps it from being batted about. */
-const CAN_DENSITY = 1;
-const CAN_FRICTION = 0.4;
-const CAN_RESTITUTION = 0.1; // a can lands with a thud
-/** The turning of a can slows by itself, a little, as anything does in the air. */
-const CAN_ANGULAR_DAMPING = 1;
 /**
- * How a can is held. It hangs from the point it was taken by, on a spring that pulls that point to the pointer (so it is carried,
- * and thrown by what it was doing when let go), as stiff as a carried ball (`followRate`) and as hard to pull off as 800 times
- * its own weight. The hand also keeps it upright, with a torque that grows with the tilt and is at most `params.canGrip`:
- * a gentle carry never tips it, a hard shake does. The two numbers below turn `canGrip` into that stiffness and a damping against
- * the can's spin; they came from trying a can on the paths of a drag, a flick, a shake and a sway.
+ * What a can is doing, from Quinn-Wai's controls spec. `placed`: standing still where it came to rest, fixed. `held`: carried.
+ * `settling`: falling after it was let go (or put down). `pour` and `wiggle`: tapped.
  */
-const CAN_HOLD_HZ = 8;
-const CAN_HOLD_FORCE = 800;
-const GRIP_STIFFNESS = 1.7;
-const GRIP_DAMPING = 0.07;
-/** A ball is let out this far clear of the can's mouth, so that it does not start inside the can. */
-const MOUTH_CLEARANCE = 0.004;
+export type CanState = "placed" | "held" | "settling" | "pour" | "wiggle";
+
+/** A tapped can tipping its balls out. Times in seconds; `dir` 1 pours to the right, -1 to the left. */
+interface Pour {
+  t: number;
+  phase: "up" | "drop" | "down";
+  dir: number;
+  x0: number;
+  y0: number;
+  a0: number;
+  lift: number;
+  next: number;
+  /** Balls still to come out; one that has nowhere to go stays in. */
+  tries: number;
+}
+
+/**
+ * How a can moves. It is moved in can frames, 60 a second as in the spec, and in between it travels straight from where the last
+ * frame left it (`from`) to where the next one puts it (`to`), so the balls it meets on the way are pushed by it at the speed it
+ * really moves.
+ */
+interface Drive {
+  state: CanState;
+  from: Pose;
+  to: Pose;
+  /** Carried: the spring's speed, per can frame, where the hand wants its middle, and where it was pressed from it. */
+  vx: number;
+  vy: number;
+  av: number;
+  target: Point;
+  offset: Point;
+  body: SettleBody | null;
+  pour: Pour | null;
+  wiggle: { left: number; a0: number } | null;
+  /** Lifted out of the open bag to pour or wiggle: it goes back in when it is done. */
+  back: boolean;
+  /** The settle, pour or wiggle has ended: at the next can frame it stands where it is. */
+  done: boolean;
+  /** Carried: what the let go would start from (where it was, how it moved, the balls as they were), and can frames since. */
+  preview: { pose: Pose; vx: number; vy: number; w: number; discs: Disc[] } | null;
+  previewAge: number;
+  /** Settling: the balls as they were when it was let go, which it lands on (as the spec says, they hold still for it). */
+  discs: Disc[] | null;
+}
+
+const ease = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+const clampTo = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
+/** The spec's pour, in seconds and radians: up, a ball every so often, a wait, back down. */
+const POUR_UP = 0.3;
+const POUR_TIP = 2.6; // about 149 degrees: the mouth points down and a little sideways
+const POUR_GAP = 0.22;
+const POUR_WAIT = 0.12;
+const WIGGLE = 0.45;
 /** A can this far past the side lines is out, as a ball is. */
 const CAN_OUT = 0.15;
 
@@ -171,16 +227,27 @@ export class Court {
   private floor: number;
   private bodies = new Map<number, Body>();
   private canBodies = new Map<number, Body>();
-  /** For each can, how long it has been tipped since its last ball left. */
-  private pourClock = new Map<number, number>();
   /** Balls and cans share one run of numbers, so that an id says which one it is. */
   private nextId = 1;
   private heldId: number | null = null;
-  private heldCan: Can | null = null;
-  /** What carries the held can: a spring from the point it was taken by to the pointer. */
-  private hold: MouseJoint | null = null;
-  /** Where on the held can the hold takes it, from the can's middle, meters. */
-  private holdLocal = { x: 0, y: 0 };
+  private height: number;
+  private letterLoops: Point[][];
+  private pegDiscs: Disc[];
+  private benchLoops: Point[][] = [];
+  private solidLoops: Point[][] = [];
+  private drives = new Map<number, Drive>();
+  /** The bodies of the cans falling after being let go: balls pass through them (see the pre-solve handler). */
+  private settling = new Set<Body>();
+  /** The balls each standing can holds in place with it (the ones it leans on), by the can's id. */
+  private props = new Map<number, number[]>();
+  /** Something that may have been holding a standing can up has gone (a ball taken away, a can moved, the bag zipped shut): each standing can checks it still stands, and falls if not (see `recheck`). */
+  private supportChanged = false;
+  /** Physics steps into the current can frame (four to a frame). */
+  private sub = 0;
+  private staticSolids: Solid[] | null = null;
+  private settleK: SettleConstants | null = null;
+  /** A can lifted out of the open bag to pour or wiggle is done and stands back in its place: the toy puts it back. */
+  onBackInBag: (can: Can) => void = () => {};
   private target = { x: 0, y: 0 };
   private meetings: Meeting[] = [];
   private time = 0; // seconds of simulated time
@@ -204,6 +271,10 @@ export class Court {
   ) {
     Settings.velocityThreshold = deadBounceSpeed() * U;
     this.floor = floor;
+    this.height = height;
+    this.letterLoops = letters;
+    this.pegDiscs = pegs.map((p) => ({ x: p.x, y: p.y, r: p.radius }));
+    this.benchLoops = solids;
     this.world = new World({ gravity: { x: 0, y: -params.gravity * U } });
     const walls = (this.fixed = this.world.createBody());
     const surface = { friction: params.friction };
@@ -231,6 +302,9 @@ export class Court {
       if ((ofBag(a) && this.emerging.has(b.getBody())) || (ofBag(b) && this.emerging.has(a.getBody()))) {
         contact.setEnabled(false);
       }
+      // A falling can rests on the balls as they were and doesn't push them (they pass through it until it stands still), as in the
+      // spec's prototype, so that it lands exactly where it was going to.
+      if (this.settling.has(a.getBody()) || this.settling.has(b.getBody())) contact.setEnabled(false);
       // The bench's ends are dead next to its seat. A contact that pushes mostly sideways is an end: the ball comes back off it
       // at benchEndRestitution, however hard it was pushed or thrown in. The seat keeps the usual bounce.
       if (this.benchFixtures.has(a) || this.benchFixtures.has(b)) {
@@ -244,6 +318,7 @@ export class Court {
   /** The bag's outline, closed loops in meters. Balls bounce off it; a can being lifted out of it does not. */
   setBag(loops: Point[][]): void {
     this.bagLoops = loops;
+    this.staticSolids = null;
     const body = this.world.createBody();
     for (const loop of loops) {
       const points = loop.map((p) => ({ x: p.x * U, y: p.y * U }));
@@ -256,6 +331,9 @@ export class Court {
    * replaces the last set.
    */
   setSolids(loops: Point[][]): void {
+    this.solidLoops = loops;
+    this.staticSolids = null;
+    this.supportChanged = true;
     if (this.changing) this.world.destroyBody(this.changing);
     this.changing = this.world.createBody();
     for (const loop of loops) {
@@ -290,15 +368,15 @@ export class Court {
     );
   }
 
-  /** The can under a point (meters), if any, a little generously. */
-  canAt(at: Point): Can | null {
+  /** The can under a point (meters), if any, or within `margin` of it. The one drawn last (on top) wins. */
+  canAt(at: Point, margin = 0.01): Can | null {
     for (let i = this.cans.length - 1; i >= 0; i--) {
       const c = this.cans[i];
       const dx = at.x - c.x;
       const dy = at.y - c.y;
       const lx = dx * Math.cos(-c.angle) - dy * Math.sin(-c.angle);
       const ly = dx * Math.sin(-c.angle) + dy * Math.cos(-c.angle);
-      if (Math.abs(lx) <= CAN_WIDTH / 2 + 0.01 && Math.abs(ly) <= CAN_HEIGHT / 2 + 0.01) return c;
+      if (Math.abs(lx) <= (CAN_WIDTH * c.scale) / 2 + margin && Math.abs(ly) <= (CAN_HEIGHT * c.scale) / 2 + margin) return c;
     }
     return null;
   }
@@ -347,48 +425,82 @@ export class Court {
     return ball;
   }
 
-  /** Make room for one more ball: when the court is full (`MAX_BALLS`), the oldest loose ball goes. Balls in cans are not on the court, so never go. */
+  /** Make room for one more ball: when the court is full (`MAX_BALLS`), the oldest loose ball goes, one that holds a can up last. Balls in cans are not on the court, so never go. */
   makeRoom(): void {
     if (this.balls.length < MAX_BALLS) return;
-    const oldest = this.balls.find((b) => !b.pinned && !b.held);
+    const loose = (b: Ball) => !b.pinned && !b.held;
+    const oldest = this.balls.find((b) => loose(b) && !this.isPropping(b.id)) ?? this.balls.find(loose);
     if (oldest) this.remove(oldest.id);
   }
 
-  /** A can standing out of the bag, with its middle at (x, y), `angle` radians counter-clockwise from upright and `balls` in it. */
-  addCan(x: number, y: number, angle = 0, balls = CAN_BALLS, seed = 0, fromBag = false): Can {
+  /**
+   * A can with its middle at (x, y), `angle` radians counter-clockwise from upright and `balls` in it. It starts falling from where it
+   * is (`state` "settling") unless it is `placed` to stand there. `fromBag`: it is lifted out of the bag, so it passes through the bag's
+   * outline until it is clear of it. `scale`: its size as a share of real size.
+   */
+  addCan(x: number, y: number, angle = 0, balls = CAN_BALLS, seed = 0, fromBag = false, opts: { scale?: number; state?: "settling" | "placed" } = {}): Can {
     const id = this.nextId++;
+    const state = opts.state ?? "settling";
+    const scale = opts.scale ?? 1;
+    // A can is never pushed around by the balls. It is moved by the hand, its own settle or a pour (kinematic), or stands where it came
+    // to rest (static).
     const body = this.world.createBody({
-      type: "dynamic",
+      type: state === "placed" ? "static" : "kinematic",
       position: { x: x * U, y: y * U },
       angle,
-      angularDamping: CAN_ANGULAR_DAMPING,
       // (no userData: a can that lands makes no sound. A ball that meets a can still counts, through the ball's own.)
     });
-    body.createFixture(new Box((CAN_WIDTH / 2) * U, (CAN_HEIGHT / 2) * U), {
-      density: CAN_DENSITY,
-      friction: CAN_FRICTION,
-      restitution: CAN_RESTITUTION,
+    body.createFixture(new Box(((CAN_WIDTH * scale) / 2) * U, ((CAN_HEIGHT * scale) / 2) * U), {
+      density: 1,
+      friction: params.friction,
+      restitution: 0.1, // a ball bounces off a can with a thud
     });
-    // Its weight is low in it, from the balls: the same mass and turning, about a point below the middle.
-    const mass = body.getMass();
-    const middle = { x: 0, y: -CAN_BOTTOM_HEAVY * (CAN_HEIGHT / 2) * U };
-    body.setMassData({ mass, center: middle, I: body.getInertia() + mass * middle.y * middle.y });
     if (fromBag) this.emerging.add(body);
-    const can: Can = { id, seed, x, y, angle, prevX: x, prevY: y, prevAngle: angle, vx: 0, vy: 0, ballsLeft: balls, held: false };
+    const can: Can = { id, seed, x, y, angle, prevX: x, prevY: y, prevAngle: angle, vx: 0, vy: 0, ballsLeft: balls, held: false, scale };
     this.cans.push(can);
     this.canBodies.set(id, body);
+    const pose = { x, y, a: angle };
+    const drive: Drive = {
+      state,
+      from: pose,
+      to: pose,
+      vx: 0,
+      vy: 0,
+      av: 0,
+      target: { x, y },
+      offset: { x: 0, y: 0 },
+      body: null,
+      pour: null,
+      wiggle: null,
+      back: false,
+      done: false,
+      preview: null,
+      previewAge: 0,
+      discs: null,
+    };
+    this.drives.set(id, drive);
+    if (state === "settling") {
+      const [hw, hh] = this.half(can);
+      drive.discs = this.ballSnapshot();
+      drive.body = newBody(clearSpot(pose, hw, hh, this.settleWorld(id, drive.discs)), 0, 0, 0, hw, hh, this.constants());
+      this.settling.add(body);
+    }
     return can;
   }
 
   /** Take a can off the court. */
   removeCan(id: number): void {
-    if (this.heldCan?.id === id) this.letGoOfCan();
     const body = this.canBodies.get(id);
-    if (body) this.world.destroyBody(body);
-    this.emerging.delete(body ?? ({} as Body));
+    if (body) {
+      this.emerging.delete(body);
+      this.settling.delete(body);
+      this.world.destroyBody(body);
+    }
+    this.freeProps(id);
     this.canBodies.delete(id);
-    this.pourClock.delete(id);
+    this.drives.delete(id);
     this.lastMet.delete(id);
+    this.supportChanged = true;
     const index = this.cans.findIndex((c) => c.id === id);
     if (index >= 0) this.cans.splice(index, 1);
   }
@@ -398,11 +510,18 @@ export class Court {
     for (const can of [...this.cans]) this.removeCan(can.id);
   }
 
+  /** Whether a ball is held in place by a standing can that leans on it. */
+  isPropping(id: number): boolean {
+    const body = this.bodies.get(id);
+    return !!body && body.isStatic();
+  }
+
   /** Send a ball flying along a unit direction, as if struck. A can is not struck: a tap on it does nothing. */
   hit(id: number, dirX: number, dirY: number): void {
     const ball = this.balls.find((b) => b.id === id);
     const body = this.bodies.get(id);
     if (!ball || !body || ball.held) return;
+    this.loosen(id);
     this.unpin(ball, body);
     const v = body.getLinearVelocity();
     body.setLinearVelocity({
@@ -411,19 +530,12 @@ export class Court {
     });
   }
 
-  /**
-   * Pick a ball or a can up. It follows `carryTo` until `release`. A ball is carried by its middle, but a can hangs from the point
-   * `at` (in meters) where it was taken, so that is the one thing a can needs to be told.
-   */
-  grab(id: number, at?: Point): void {
-    const can = this.cans.find((c) => c.id === id);
-    if (can) {
-      this.grabCan(can, at ?? can);
-      return;
-    }
+  /** Pick a ball up. It follows `carryTo` until `release`. */
+  grab(id: number): void {
     const ball = this.balls.find((b) => b.id === id);
     const body = this.bodies.get(id);
     if (!ball || !body) return;
+    this.loosen(id);
     this.unpin(ball, body);
     ball.held = true;
     this.heldId = id;
@@ -439,38 +551,8 @@ export class Court {
     this.target = { x, y };
   }
 
-  /** Hang a can from the point of it nearest `at`, on a spring to the pointer. */
-  private grabCan(can: Can, at: Point): void {
-    const body = this.canBodies.get(can.id)!;
-    if (this.heldCan) return;
-    const local = body.getLocalPoint({ x: at.x * U, y: at.y * U });
-    local.x = Math.min((CAN_WIDTH / 2) * U, Math.max((-CAN_WIDTH / 2) * U, local.x));
-    local.y = Math.min((CAN_HEIGHT / 2) * U, Math.max((-CAN_HEIGHT / 2) * U, local.y));
-    this.hold = this.world.createJoint(
-      new MouseJoint(
-        { maxForce: CAN_HOLD_FORCE * body.getMass(), frequencyHz: CAN_HOLD_HZ, dampingRatio: 1 },
-        this.fixed,
-        body,
-        body.getWorldPoint(local),
-      ),
-    ) as MouseJoint;
-    this.holdLocal = { x: local.x / U, y: local.y / U };
-    this.heldCan = can;
-    can.held = true;
-    this.target = { x: at.x, y: at.y };
-    body.setAwake(true);
-  }
-
-  private letGoOfCan(): void {
-    if (this.hold) this.world.destroyJoint(this.hold);
-    this.hold = null;
-    if (this.heldCan) this.heldCan.held = false;
-    this.heldCan = null;
-  }
-
-  /** Let go of the carried ball or can. It keeps the speed it had, which is how a throw happens. */
+  /** Let go of the carried ball. It keeps the speed it had, which is how a throw happens. */
   release(): void {
-    if (this.heldCan) this.letGoOfCan();
     if (this.heldId === null) return;
     const ball = this.balls.find((b) => b.id === this.heldId);
     const body = this.bodies.get(this.heldId);
@@ -531,12 +613,16 @@ export class Court {
       }
     }
 
+    // Every fourth step is a can frame; each step moves the cans a quarter of the way through it.
+    const back: Can[] = [];
+    if (this.sub === 0) this.canFrame(back);
+    this.driveCans((this.sub + 1) / 4);
+    this.sub = (this.sub + 1) % 4;
     for (const can of this.cans) {
       can.prevX = can.x;
       can.prevY = can.y;
       can.prevAngle = can.angle;
     }
-    if (this.heldCan && this.hold) this.keepHolding(this.canBodies.get(this.heldCan.id)!, this.hold);
 
     this.world.step(dt, 8, 3);
     this.time += dt;
@@ -561,7 +647,6 @@ export class Court {
 
     for (const can of this.cans) {
       const body = this.canBodies.get(can.id)!;
-      if (can.held) this.capSpeed(body);
       const p = body.getPosition();
       const v = body.getLinearVelocity();
       can.x = p.x / U;
@@ -571,7 +656,6 @@ export class Court {
       can.vy = v.y / U;
       if (this.emerging.has(body) && !this.inBag(can)) this.emerging.delete(body);
     }
-    this.pourTippedCans();
     for (const can of [...this.cans]) {
       if (can.x < -CAN_OUT || can.x > this.width + CAN_OUT) {
         this.removeCan(can.id);
@@ -579,79 +663,8 @@ export class Court {
         gone.push(can.id);
       }
     }
+    for (const can of back) this.onBackInBag(can);
     return gone;
-  }
-
-  /**
-   * One step of carrying a can: the spring's far end goes where the pointer is, and the hand pushes the can back toward upright, as
-   * hard as `canGrip` allows and no harder.
-   */
-  private keepHolding(body: Body, hold: MouseJoint): void {
-    // The spring is pulled toward the pointer, which may be past a side wall or lower than the can's own length above the floor (it hangs
-    // below the point it is held by). Pulled there it would drag the can through the wall's or floor's thin edge, so the target stays
-    // where the can, hanging upright from its point, is still inside the court. The margins are fixed by that point alone, not by how
-    // the can is turned at the moment: a margin that followed the angle would move the target as the can swung, and spin it.
-    const { x: hx, y: hy } = this.holdLocal;
-    const reachX = 0.7 * Math.hypot(CAN_WIDTH / 2 + Math.abs(hx), CAN_HEIGHT / 2 + Math.abs(hy)); // 0.7 of the way to the farthest corner: the least that stops it spinning on the wall
-    const reachDown = CAN_HEIGHT / 2 + hy;
-    const x = Math.min(this.width - reachX, Math.max(reachX, this.target.x));
-    const y = Math.max(this.floor + reachDown, this.target.y);
-    hold.setTarget({ x: x * U, y: y * U });
-    const turned = Math.atan2(Math.sin(body.getAngle()), Math.cos(body.getAngle()));
-    const grip = params.canGrip;
-    const torque = -GRIP_STIFFNESS * grip * turned - GRIP_DAMPING * grip * body.getAngularVelocity();
-    body.applyTorque(Math.min(grip, Math.max(-grip, torque)), true);
-  }
-
-  /** A carried can goes no faster than a carried ball does, which is what limits a throw. */
-  private capSpeed(body: Body): void {
-    const v = body.getLinearVelocity();
-    const speed = Math.hypot(v.x, v.y) / U;
-    if (speed > params.carrySpeed) body.setLinearVelocity({ x: (v.x * params.carrySpeed) / speed, y: (v.y * params.carrySpeed) / speed });
-  }
-
-  /**
-   * Let balls out of every can that is tipped. A tipped can lets one out each `canPourInterval`, from its mouth along the way the mouth
-   * points, moving as the mouth is moving; an upright can lets out none. A ball that would start inside something waits, so that a can
-   * turned mouth down on the floor or the seat stays full until it is lifted. Each ball counts toward `MAX_BALLS` like any other.
-   */
-  private pourTippedCans(): void {
-    const radius = params.ballDiameter / 2;
-    for (const can of this.cans) {
-      if (can.ballsLeft <= 0 || !isTipped(can.angle, params.canPourAngle)) {
-        this.pourClock.set(can.id, 0);
-        continue;
-      }
-      const clock = (this.pourClock.get(can.id) ?? 0) + STEP;
-      this.pourClock.set(can.id, clock);
-      if (clock < params.canPourInterval) continue;
-      const mouth = mouthDirection(can.angle);
-      const reach = CAN_HEIGHT / 2 + radius + MOUTH_CLEARANCE;
-      const at = { x: can.x + mouth.x * reach, y: can.y + mouth.y * reach };
-      if (!this.roomFor(at, radius) || !this.canPourAt(at)) continue;
-      const v = this.canBodies.get(can.id)!.getLinearVelocityFromWorldPoint({ x: at.x * U, y: at.y * U });
-      this.makeRoom();
-      this.addBall(at.x, at.y, false, v.x / U + mouth.x * params.canPourSpeed, v.y / U + mouth.y * params.canPourSpeed);
-      can.ballsLeft--;
-      this.pourClock.set(can.id, 0);
-    }
-  }
-
-  /** Whether a ball of `radius` could be put at `at` without starting inside the floor, a wall or anything solid, or another ball. */
-  private roomFor(at: Point, radius: number): boolean {
-    if (at.x - radius < 0 || at.x + radius > this.width || at.y - radius < this.floor) return false;
-    const spot = (dx: number, dy: number) => ({ x: (at.x + dx) * U, y: (at.y + dy) * U });
-    const reach = radius * 0.8;
-    const samples = [spot(0, 0), spot(reach, 0), spot(-reach, 0), spot(0, reach), spot(0, -reach)];
-    let free = true;
-    this.world.queryAABB(
-      { lowerBound: spot(-radius, -radius), upperBound: spot(radius, radius) },
-      (fixture) => {
-        if (samples.some((s) => fixture.testPoint(s))) free = false;
-        return free;
-      },
-    );
-    return free;
   }
 
   /**
@@ -701,6 +714,8 @@ export class Court {
     ball.pinned = false;
     body.setGravityScale(1);
     body.setAwake(true);
+    // A can standing on the dot of an "i" may have nothing under it now.
+    this.supportChanged = true;
   }
 
   /** Take a ball off the court. */
@@ -712,5 +727,425 @@ export class Court {
     const index = this.balls.findIndex((b) => b.id === id);
     if (index >= 0) this.balls.splice(index, 1);
     if (this.heldId === id) this.heldId = null;
+    // It may have been holding a can up.
+    for (const [canId, held] of this.props) if (held.includes(id)) this.props.set(canId, held.filter((b) => b !== id));
+    this.supportChanged = true;
+  }
+
+  /** A ball held in place by a standing can comes loose (picked up, struck, or the can moved). */
+  private loosen(id: number): void {
+    const body = this.bodies.get(id);
+    if (body && !body.isDynamic()) {
+      body.setDynamic();
+      body.setAwake(true);
+      // A can it held up may have nothing under it now.
+      this.supportChanged = true;
+    }
+  }
+
+  /** Let go of the balls a standing can was holding in place. */
+  private freeProps(canId: number): void {
+    for (const id of this.props.get(canId) ?? []) this.loosen(id);
+    this.props.delete(canId);
+  }
+
+  // ---- The cans' controls (Quinn-Wai's spec): carry, let go to settle, props, tap to pour ----
+
+  /** What a can is doing, or null if there is no such can. */
+  canState(id: number): CanState | null {
+    return this.drives.get(id)?.state ?? null;
+  }
+
+  /**
+   * Where a can belongs if the court is built again (a new window size): where it stands, or where a pour or wiggle it is in the
+   * middle of started, which is cut short. Meters, angle counter-clockwise.
+   */
+  homeOf(id: number): Pose | null {
+    const d = this.drives.get(id);
+    const can = this.cans.find((c) => c.id === id);
+    if (!can) return null;
+    if (d?.pour) return { x: d.pour.x0, y: d.pour.y0, a: d.pour.a0 };
+    if (d?.wiggle) return { ...d.to, a: d.wiggle.a0 };
+    return { x: can.x, y: can.y, a: can.angle };
+  }
+
+  /** Whether a can is out of the bag only for the moment: on its way out, or lifted out to pour and going back. */
+  fromBag(id: number): boolean {
+    return this.isEmerging(id) || !!this.drives.get(id)?.back;
+  }
+
+  private half(can: Can): [number, number] {
+    return [(CAN_WIDTH / 2) * can.scale, (CAN_HEIGHT / 2) * can.scale];
+  }
+
+  private constants(): SettleConstants {
+    return (this.settleK ??= settleConstants(CAN_HEIGHT));
+  }
+
+  /**
+   * What a settling can meets: the name, the bench, the bag and what stands in it, the cans standing still (all but `except`), and
+   * `discs`, the balls and buttons, which hold still for it (see `ballSnapshot`).
+   */
+  private settleWorld(except: number, discs: Disc[]): SettleWorld {
+    if (!this.staticSolids) {
+      const groups = [this.letterLoops, ...this.benchLoops.map((l) => [l]), ...this.bagLoops.map((l) => [l]), ...this.solidLoops.map((l) => [l])];
+      this.staticSolids = groups.filter((g) => g.some((l) => l.length >= 3)).map((g) => makeSolid(g));
+    }
+    // the cans standing still, and the spots of those pouring or wiggling, which they come back down into
+    const cans = this.cans.flatMap((c) => {
+      const d = this.drives.get(c.id);
+      if (c.id === except || !d || d.back || !["placed", "pour", "wiggle"].includes(d.state)) return [];
+      const [hw, hh] = this.half(c);
+      return [canSolid(d.state === "placed" ? { x: c.x, y: c.y, a: c.angle } : this.homeOf(c.id)!, hw, hh)];
+    });
+    return { width: this.width, height: this.height, floor: this.floor, solids: [...this.staticSolids, ...cans], discs };
+  }
+
+  /**
+   * Something that may have held a standing can up has gone. Each can standing still runs its settle from where it is, without
+   * moving: one that stays put is left as it was; one that would fall starts falling, and lands, as if let go.
+   */
+  private recheck(): void {
+    const K = this.constants();
+    for (const can of this.cans) {
+      const d = this.drives.get(can.id);
+      if (!d || d.state !== "placed" || d.back) continue;
+      const [hw, hh] = this.half(can);
+      const discs = this.ballSnapshot();
+      const world = this.settleWorld(can.id, discs);
+      const pose = { x: can.x, y: can.y, a: can.angle };
+      const test = newBody(pose, 0, 0, 0, hw, hh, K);
+      test.lean = 0; // it already leans the way it chose; no new nudge
+      for (let i = 0; i < 24; i++) if (settleFrame(test, world, K)) break;
+      const moved = Math.hypot(test.x - pose.x, test.y - pose.y) > 0.002 || Math.abs(Math.atan2(Math.sin(test.a - pose.a), Math.cos(test.a - pose.a))) > 0.02;
+      if (!moved) continue;
+      // it would fall: let it, from exactly where it stands. The balls it held stay held until it lands (it falls onto them as they
+      // are); then those it no longer rests on come loose (see `stand`)
+      const body = this.canBodies.get(can.id)!;
+      body.setKinematic();
+      d.state = "settling";
+      d.discs = discs;
+      d.body = newBody(pose, 0, 0, 0, hw, hh, K);
+      d.body.lean = 0;
+      d.from = d.to = pose;
+      this.settling.add(body);
+    }
+  }
+
+  /**
+   * The balls a can can land on, as they are now, and the buttons. A ball flying or rolling fast is left out: it will be somewhere
+   * else by the time the can gets there (and it passes through a falling can, see the pre-solve handler).
+   */
+  private ballSnapshot(): Disc[] {
+    const r = params.ballDiameter / 2;
+    // (read from the bodies, not from the balls: a ball struck a moment ago has not been copied out of its body yet, and a can that
+    // counted it as still would stay where it is, in the air)
+    const still = this.balls.filter((b) => {
+      if (b.held) return false;
+      const v = this.bodies.get(b.id)!.getLinearVelocity();
+      return Math.hypot(v.x, v.y) / U < 0.25;
+    });
+    return [...still.map((b) => ({ x: b.x, y: b.y, r, id: b.id })), ...this.pegDiscs];
+  }
+
+  /** One can frame: each moving can works out where it will be one frame from now. Cans that are back in the bag once done go in `back`. */
+  private canFrame(back: Can[]): void {
+    if (this.supportChanged) {
+      this.supportChanged = false;
+      this.recheck();
+    }
+    for (const can of this.cans) {
+      const d = this.drives.get(can.id);
+      if (!d) continue;
+      d.from = d.to;
+      if (d.done) {
+        this.stand(can, d);
+        if (d.back) back.push(can);
+        continue;
+      }
+      if (d.state === "held") this.carryFrame(can, d);
+      else if (d.state === "settling") {
+        const done = settleFrame(d.body!, this.settleWorld(can.id, d.discs ?? this.ballSnapshot()), this.constants());
+        d.to = { x: d.body!.x, y: d.body!.y, a: d.body!.a };
+        if (done) d.done = true;
+      } else if (d.state === "pour") this.pourFrame(can, d);
+      else if (d.state === "wiggle") this.wiggleFrame(d);
+    }
+  }
+
+  /** Move each moving can `f` of the way through the current can frame, by its speed, so it pushes what it meets. */
+  private driveCans(f: number): void {
+    for (const can of this.cans) {
+      const d = this.drives.get(can.id);
+      const body = this.canBodies.get(can.id);
+      if (!d || !body || d.state === "placed") continue;
+      const x = d.from.x + (d.to.x - d.from.x) * f;
+      const y = d.from.y + (d.to.y - d.from.y) * f;
+      const a = d.from.a + (d.to.a - d.from.a) * f;
+      const p = body.getPosition();
+      body.setLinearVelocity({ x: (x * U - p.x) / STEP, y: (y * U - p.y) / STEP });
+      body.setAngularVelocity((a - body.getAngle()) / STEP);
+      body.setAwake(true);
+    }
+  }
+
+  /**
+   * It has come to rest (or finished pouring): it stands where it is, fixed. The balls its fall ended leaning on are held in place with
+   * it (a pour keeps the ones it had), so it keeps its lean however hard it is hit.
+   */
+  private stand(can: Can, d: Drive): void {
+    const body = this.canBodies.get(can.id)!;
+    // it fell (rather than finished a pour or a wiggle): it rests on what its fall ended touching
+    const fell = !!d.body;
+    const leansOn = d.body?.touching ?? [];
+    // after a tumble its turn can be whole turns round: count it from upright again, or a pour or a pick-up would spin it
+    const a = Math.atan2(Math.sin(d.to.a), Math.cos(d.to.a));
+    d.to = { ...d.to, a };
+    d.from = d.to;
+    d.state = "placed";
+    d.done = false;
+    d.body = null;
+    d.preview = null;
+    d.discs = null;
+    this.settling.delete(body);
+    body.setStatic();
+    body.setTransform({ x: d.to.x * U, y: d.to.y * U }, a);
+    can.x = can.prevX = d.to.x;
+    can.y = can.prevY = d.to.y;
+    can.angle = can.prevAngle = a;
+    can.vx = 0;
+    can.vy = 0;
+    if (d.back) return;
+    // after a pour it keeps the balls it had; after a fall, it holds the ones it now rests on, and lets the rest go
+    const before = this.props.get(can.id) ?? [];
+    const held: number[] = fell ? [] : [...before];
+    for (const id of leansOn) {
+      const ball = this.balls.find((b) => b.id === id);
+      if (!ball || ball.held || ball.pinned || held.includes(id)) continue;
+      this.bodies.get(id)?.setStatic();
+      held.push(id);
+    }
+    this.props.set(can.id, held);
+    for (const id of before) if (!held.includes(id)) this.loosen(id);
+  }
+
+  /**
+   * The spec's carry: a damped spring toward the hand, leaning up to about 17 degrees into sideways moves, kept on the page and above
+   * the floor. Speeds are per can frame.
+   */
+  private carryFrame(can: Can, d: Drive): void {
+    const K = this.constants();
+    const [hw, hh] = this.half(can);
+    d.vx += (d.target.x - d.from.x) * 0.2 - d.vx * 0.55;
+    d.vy += (d.target.y - d.from.y) * 0.2 - d.vy * 0.55;
+    let x = d.from.x + d.vx;
+    let y = d.from.y + d.vy;
+    // moving right tips its top to the right: clockwise, a falling angle
+    const lean = -clampTo((d.vx / K.px) * 0.02, -0.3, 0.3);
+    d.av += (lean - d.from.a) * 0.18 - d.av * 0.35;
+    const a = d.from.a + d.av;
+    const ca = Math.abs(Math.cos(a));
+    const sa = Math.abs(Math.sin(a));
+    const across = hw * ca + hh * sa;
+    const up = hw * sa + hh * ca;
+    x = clampTo(x, across + 4 * K.px, this.width - across - 4 * K.px);
+    if (y + up > this.height) y = this.height - up;
+    if (y - up < this.floor) y = this.floor + up;
+    d.to = { x, y, a };
+    // what a let go would start from, kept for it: worked out afresh every other frame while the can moves, kept while it doesn't. On
+    // its way out of the bag it would drop back in, which needs none.
+    if (this.isEmerging(can.id)) {
+      d.preview = null;
+      return;
+    }
+    d.previewAge++;
+    const p = d.preview;
+    const unchanged = p && p.pose.x === x && p.pose.y === y && p.pose.a === a && p.vx === d.vx / FRAME && p.vy === d.vy / FRAME;
+    if (p && (unchanged || d.previewAge < 2)) return;
+    d.preview = { pose: d.to, vx: d.vx / FRAME, vy: d.vy / FRAME, w: d.av / FRAME, discs: this.ballSnapshot() };
+    d.previewAge = 0;
+  }
+
+  /** Pick a can up, pressed at a point (meters). A pouring or wiggling can can't be; a falling one can. Whether it was. */
+  grabCan(id: number, at: Point): boolean {
+    const d = this.drives.get(id);
+    const can = this.cans.find((c) => c.id === id);
+    const body = this.canBodies.get(id);
+    if (!d || !can || !body || d.state === "pour" || d.state === "wiggle") return false;
+    if (d.done) this.stand(can, d);
+    this.settling.delete(body);
+    body.setKinematic();
+    this.freeProps(id);
+    // another can may have been leaning on this one
+    this.supportChanged = true;
+    // caught mid-tumble its turn can be whole turns round: from upright again, so the carry doesn't spin it back
+    const a = Math.atan2(Math.sin(d.to.a), Math.cos(d.to.a));
+    if (a !== d.to.a) {
+      d.to = { ...d.to, a };
+      body.setTransform(body.getPosition(), a);
+      can.angle = can.prevAngle = a;
+    }
+    d.from = d.to;
+    d.state = "held";
+    d.body = null;
+    d.discs = null;
+    d.preview = null;
+    d.vx = 0;
+    d.vy = 0;
+    d.av = 0;
+    d.offset = { x: at.x - d.to.x, y: at.y - d.to.y };
+    d.target = { x: d.to.x, y: d.to.y };
+    can.held = true;
+    return true;
+  }
+
+  /** Where the hand is now (meters): the carried can follows it. */
+  carryCan(id: number, at: Point): void {
+    const d = this.drives.get(id);
+    if (d?.state === "held") d.target = { x: at.x - d.offset.x, y: at.y - d.offset.y };
+  }
+
+  /** Let go of a carried can: it falls and settles from where it is, at the speed it was moving. */
+  releaseCan(id: number): void {
+    const d = this.drives.get(id);
+    const can = this.cans.find((c) => c.id === id);
+    if (!d || !can || d.state !== "held") return;
+    can.held = false;
+    const [hw, hh] = this.half(can);
+    const K = this.constants();
+    const p = d.preview ?? { pose: d.to, vx: d.vx / FRAME, vy: d.vy / FRAME, w: d.av / FRAME, discs: this.ballSnapshot() };
+    d.discs = p.discs;
+    d.body = newBody(clearSpot(p.pose, hw, hh, this.settleWorld(id, p.discs)), p.vx, p.vy, p.w, hw, hh, K);
+    d.state = "settling";
+    d.preview = null;
+    this.settling.add(this.canBodies.get(id)!);
+  }
+
+  /**
+   * A tap on a can standing still: it lifts, tips its balls out one at a time, and comes back down to exactly where it was. An empty
+   * one wiggles instead. `back`: it was lifted out of the open bag for this and goes back in after, lifted clear of the bag and what
+   * stands in it first. Returns whether anything happened.
+   */
+  tapCan(id: number, back = false): boolean {
+    const d = this.drives.get(id);
+    const can = this.cans.find((c) => c.id === id);
+    const body = this.canBodies.get(id);
+    if (!d || !can || !body || d.state !== "placed") return false;
+    d.back = back;
+    body.setKinematic();
+    if (can.ballsLeft <= 0) {
+      d.state = "wiggle";
+      d.wiggle = { left: WIGGLE, a0: d.to.a };
+      return true;
+    }
+    const K = this.constants();
+    const [hw, hh] = this.half(can);
+    let lift = 36 * K.px * can.scale;
+    if (back) {
+      // clear of the bag and the tops of what stands in it, as far either side as the tipped can reaches
+      let top = -Infinity;
+      for (const loop of [...this.bagLoops, ...this.solidLoops]) for (const p of loop) if (Math.abs(p.x - can.x) <= 2 * hh) top = Math.max(top, p.y);
+      const foot = can.y - hh * Math.abs(Math.cos(can.angle)) - hw * Math.abs(Math.sin(can.angle));
+      lift += Math.max(0, top - foot);
+    }
+    // toward its lean if it leans, else toward the middle of the page; the other way if the balls would have nowhere to go
+    const lean = -Math.atan2(Math.sin(can.angle), Math.cos(can.angle));
+    let dir = Math.abs(lean) > 0.2 ? Math.sign(lean) : can.x < this.width / 2 ? 1 : -1;
+    const blocked = (dir: number, lift: number) => !this.pourRoom(can, { x: can.x, y: can.y + lift, a: -dir * POUR_TIP }, 0);
+    // and higher if need be: a can lying on its side, tipped, points its mouth at what it lies on
+    for (let extra = 0; extra <= 0.3; extra += 0.02) {
+      if (!blocked(dir, lift + extra)) {
+        lift += extra;
+        break;
+      }
+      if (!blocked(-dir, lift + extra)) {
+        dir = -dir;
+        lift += extra;
+        break;
+      }
+    }
+    d.pour = { t: 0, phase: "up", dir, x0: d.to.x, y0: d.to.y, a0: d.to.a, lift, next: 0, tries: can.ballsLeft };
+    d.state = "pour";
+    return true;
+  }
+
+  /** Where a ball poured from a can at `pose` comes out, `u` across the mouth (meters), if it has room there: on the page and not inside anything. */
+  private pourRoom(can: Can, pose: Pose, u: number): Point | null {
+    const r = params.ballDiameter / 2;
+    const [, hh] = this.half(can);
+    const v = hh + r + 2 * this.constants().px;
+    const c = Math.cos(pose.a);
+    const s = Math.sin(pose.a);
+    const x = pose.x + u * c - v * s;
+    const y = pose.y + u * s + v * c;
+    if (x < r || x > this.width - r || y < r + this.floor || !this.canPourAt({ x, y })) return null;
+    for (const other of this.cans) {
+      if (other.id === can.id) continue;
+      const [hw2, hh2] = this.half(other);
+      const dx = x - other.x;
+      const dy = y - other.y;
+      const lu = dx * Math.cos(other.angle) + dy * Math.sin(other.angle);
+      const lv = -dx * Math.sin(other.angle) + dy * Math.cos(other.angle);
+      if (Math.abs(lu) < hw2 + r && Math.abs(lv) < hh2 + r) return null;
+    }
+    return { x, y };
+  }
+
+  /** One can frame of a pour: up, the balls out one at a time, back down to exactly where it started. */
+  private pourFrame(can: Can, d: Drive): void {
+    const p = d.pour!;
+    p.t += FRAME;
+    const tipped = -p.dir * POUR_TIP;
+    const pose = (k: number) => ({ x: p.x0, y: p.y0 + p.lift * k, a: p.a0 + (tipped - p.a0) * k });
+    if (p.phase === "up") {
+      d.to = pose(ease(Math.min(p.t / POUR_UP, 1)));
+      if (p.t >= POUR_UP) {
+        p.phase = "drop";
+        p.t = 0;
+        p.next = 0.02;
+      }
+    } else if (p.phase === "drop") {
+      if (p.tries > 0 && p.t >= p.next) {
+        this.pourOne(can, d.to);
+        p.tries--;
+        p.next += POUR_GAP;
+      }
+      if (p.tries === 0 && p.t >= p.next + POUR_WAIT) {
+        p.phase = "down";
+        p.t = 0;
+      }
+    } else {
+      d.to = pose(1 - ease(Math.min(p.t / POUR_UP, 1)));
+      if (p.t >= POUR_UP) {
+        d.to = { x: p.x0, y: p.y0, a: p.a0 };
+        d.pour = null;
+        d.done = true;
+      }
+    }
+  }
+
+  /** One ball out of a pouring can's mouth, moving out of it (the spec's 160 px/s, give or take 20 sideways). */
+  private pourOne(can: Can, pose: Pose): void {
+    const K = this.constants();
+    const at = this.pourRoom(can, pose, (Math.random() - 0.5) * 4 * K.px * can.scale);
+    if (!at) return;
+    this.makeRoom();
+    const speed = 160 * K.px * K.tf;
+    const side = (Math.random() - 0.5) * 40 * K.px * K.tf;
+    this.addBall(at.x, at.y, false, -Math.sin(pose.a) * speed + side, Math.cos(pose.a) * speed);
+    can.ballsLeft--;
+  }
+
+  /** One can frame of the empty can's wiggle: a quick shake that dies away, then exactly as it was. */
+  private wiggleFrame(d: Drive): void {
+    const w = d.wiggle!;
+    w.left -= FRAME;
+    if (w.left <= 0) {
+      d.to = { ...d.from, a: w.a0 };
+      d.wiggle = null;
+      d.done = true;
+    } else {
+      d.to = { ...d.from, a: w.a0 + Math.sin(w.left * 45) * 0.1 * (w.left / WIGGLE) };
+    }
   }
 }

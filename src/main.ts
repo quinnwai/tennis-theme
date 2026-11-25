@@ -1,10 +1,11 @@
 import { floorLiftFor, iconSizeFor } from "./controls";
 import { Gestures, canGap, type BallView, type CanView, type Vec } from "./input";
-import { CAN_HEIGHT, CAN_WIDTH } from "./cans";
+import { CanHand, type CanTarget } from "./can-hand";
+import { CAN_BALLS, CAN_HEIGHT, CAN_WIDTH } from "./cans";
 import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
 import { params } from "./params";
-import { Court, STEP, type Ball } from "./physics";
+import { Court, STEP, type Ball, type Can } from "./physics";
 import { Renderer, type BallSprite, type ImageSprite, type ShadowSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { nextSound, readSound, writeSound } from "./sound-setting";
@@ -110,16 +111,19 @@ function main(): void {
             return { x: (s.x - layout.origin.x) / layout.emPx, y: (layout.origin.y - s.y) / layout.emPx };
           })
       : [];
-    // Cans out of the bag keep their place the same way, and keep their balls.
+    // Cans out of the bag keep their place the same way, and keep their balls. One in the middle of a pour or a wiggle goes back to where
+    // it started, and one that was out of the bag only for the moment goes back in it.
     const cansBefore = court
       ? court.cans.map((c) => {
-          const s = toScreen(c.x, c.y);
+          const home = court.homeOf(c.id) ?? { x: c.x, y: c.y, a: c.angle };
+          const s = toScreen(home.x, home.y);
           return {
             x: (s.x - layout.origin.x) / layout.emPx,
             y: (layout.origin.y - s.y) / layout.emPx,
-            angle: c.angle,
+            angle: Math.atan2(Math.sin(home.a), Math.cos(home.a)),
             balls: c.ballsLeft,
             seed: c.seed,
+            toBag: court.fromBag(c.id),
           };
         })
       : [];
@@ -160,6 +164,7 @@ function main(): void {
     court.setBag([placed.bag.map(([x, y]) => toMeters({ x, y }))]);
     applySceneSolids(scene.openSolids());
     court.canPourAt = (at) => !insideSolid(toScreen(at.x, at.y));
+    court.onBackInBag = (can) => putBack(can.seed, can.ballsLeft, can.id);
 
     homes = layout.dots.map((dot, i) => {
       const at = toMeters(dot);
@@ -182,6 +187,10 @@ function main(): void {
       court.addBall(Math.min(width - radius, Math.max(radius, at.x)), Math.max(radius + floor, at.y), false);
     }
     for (const c of cansBefore) {
+      if (c.toBag) {
+        putBack(c.seed, c.balls);
+        continue;
+      }
       const at = toMeters({ x: layout.origin.x + c.x * layout.emPx, y: layout.origin.y - c.y * layout.emPx });
       court.addCan(Math.min(width - CAN_WIDTH, Math.max(CAN_WIDTH, at.x)), Math.max(CAN_HEIGHT / 2 + floor, at.y), c.angle, c.balls, c.seed);
     }
@@ -231,13 +240,15 @@ function main(): void {
 
   /** The cans out of the bag, drawn over the balls. */
   function canSprites(alpha: number): ImageSprite[] {
-    const k = pxPerMeter / 1000;
     return court.cans.flatMap((c) => {
+      const k = (pxPerMeter / 1000) * c.scale;
       const img = canImages.get(`${c.seed}:${c.ballsLeft}`);
       if (!img?.complete) return [];
       const at = toScreen(c.prevX + (c.x - c.prevX) * alpha, c.prevY + (c.y - c.prevY) * alpha);
       const angle = -(c.prevAngle + (c.angle - c.prevAngle) * alpha);
-      return [{ img, ...at, angle, w: CAN_IMAGE.w * k, h: CAN_IMAGE.h * k, ox: CAN_IMAGE.ox * k, oy: CAN_IMAGE.oy * k }];
+      // a can on its way out of the bag, or lifted out to pour and going back, is behind the bag's front
+      const behind = court.fromBag(c.id) ? scene.frontFace() : undefined;
+      return [{ img, ...at, angle, w: CAN_IMAGE.w * k, h: CAN_IMAGE.h * k, ox: CAN_IMAGE.ox * k, oy: CAN_IMAGE.oy * k, behind }];
     });
   }
 
@@ -274,7 +285,6 @@ function main(): void {
     views,
     {
       hit(id, dir, at) {
-        if (court.cans.some((c) => c.id === id)) return; // a tap on a can does nothing
         noteInteraction();
         court.hit(id, dir.x, -dir.y);
         renderer.burst(at.x, at.y, clock(performance.now()));
@@ -284,7 +294,7 @@ function main(): void {
       grab(id, at) {
         noteInteraction();
         const p = toMeters(at);
-        court.grab(id, p);
+        court.grab(id);
         court.carryTo(p.x, p.y);
       },
       carry(at) {
@@ -297,7 +307,6 @@ function main(): void {
         court.release();
       },
     },
-    canViews,
   );
 
   /** Keep each "i" dotted: whenever its dot is gone, a fresh ball rises out of the stem. */
@@ -345,12 +354,15 @@ function main(): void {
   /** Sweep every ball off the court and let both dots rise again. The cans go back into the bag, full, and the bag is zipped, with the notebook inside. */
   function reset(): void {
     gestures.cancel();
-    canPointer = null;
+    canHand.cancel();
     finger = null;
     if (notebook.isOpen()) notebook.close();
     for (const ball of [...court.balls]) court.remove(ball.id);
     court.clearCans();
     scene.reset();
+    // the cans in the bag are full again
+    bagBalls.clear();
+    for (const seed of [1, 2, 3]) scene.setCanBalls(seed, CAN_BALLS);
     restarted = true;
     for (const home of homes) {
       home.ballId = null;
@@ -359,82 +371,138 @@ function main(): void {
     }
   }
 
-  // A hand can put down more than one finger: a thumb resting on the screen, or a second finger that taps another ball.
-  // The gestures follow one press at a time, so the finger that began the current one is the only finger they listen
-  // to until it lets go. Without that, a second finger would pull a carried ball to where it is, and its lifting would
-  // drop the ball the first finger is still holding. (A mouse has no second pointer, and the browser tests steer with
-  // events of their own that carry no finger, so only a finger is filtered.)
+  // A hand can put down more than one finger: a thumb resting on the screen, or a second finger that taps another ball. The ball
+  // gestures follow one press at a time, so the finger that began the current one is the only finger they listen to until it lets
+  // go. Without that, a second finger would pull a carried ball to where it is, and its lifting would drop the ball the first finger is
+  // still holding. A can is the other hand's: one finger can carry a can while another throws a ball. (A mouse has no second pointer,
+  // and the browser tests steer with events of their own that carry no finger, so only a finger is filtered.)
   let finger: number | null = null;
   const stray = (e: PointerEvent) => e.pointerType === "touch" && finger !== null && e.pointerId !== finger;
 
-  /** The pointer carrying a can taken out of the bag (the gestures carry the cans that are already out). */
-  let canPointer: number | null = null;
+  /** How many balls each can standing in the bag holds, by which can it is: three until it has been poured. */
+  const bagBalls = new Map<number, number>();
 
-  /** A press on a can standing in the open bag takes it out and picks it up by that point. */
-  function takeCanAt(x: number, y: number): boolean {
-    const i = scene.canAt(x, y);
-    if (i < 0) return false;
-    const pose = scene.takeCan(i);
-    const middle = toMeters({ x: pose.x, y: pose.y });
-    const can = court.addCan(middle.x, middle.y, (-pose.tilt * Math.PI) / 180, undefined, pose.seed, true);
-    const at = toMeters({ x, y });
-    court.grab(can.id, at);
-    court.carryTo(at.x, at.y);
-    noteInteraction();
-    return true;
+  /** A can goes back to its place in the open bag, holding `balls` (`canId`: the can out of the bag it was). */
+  function putBack(seed: number, balls: number, canId?: number): void {
+    if (canId !== undefined) court.removeCan(canId);
+    bagBalls.set(seed, balls);
+    scene.setCanBalls(seed, balls);
+    scene.returnCan(seed);
   }
 
+  /** Take a can standing in the open bag out of it, as a can in the court where it stood. `pour`: only to pour or wiggle it, at the bag's size, standing still until the tap starts it. */
+  function outOfBag(index: number, pour: boolean): Can {
+    const pose = scene.takeCan(index);
+    const at = toMeters({ x: pose.x, y: pose.y });
+    return court.addCan(at.x, at.y, (-pose.tilt * Math.PI) / 180, bagBalls.get(pose.seed) ?? CAN_BALLS, pose.seed, true, {
+      scale: pour ? scene.layout.scale : 1,
+      state: "placed",
+    });
+  }
+
+  /** What a press at a point (page px) lands on among the cans: the nearest one within reach of its outline, else one standing in the open bag. */
+  function pickCan(at: Vec): CanTarget | null {
+    let best: CanView | undefined;
+    let bestGap = Infinity;
+    for (const can of canViews()) {
+      const gap = canGap(can, at);
+      if (gap <= params.canReachPx && gap <= bestGap) {
+        best = can;
+        bestGap = gap;
+      }
+    }
+    if (best) return { kind: "can", id: best.id };
+    const index = scene.canAt(at.x, at.y);
+    return index >= 0 ? { kind: "bag", index } : null;
+  }
+
+  /** Whether a ball is within reach of a press, which then belongs to the ball: balls are looked for before cans. */
+  function ballAt(at: Vec): boolean {
+    return views().some((b) => Math.hypot(b.x - at.x, b.y - at.y) < b.r + params.canBallReachPx);
+  }
+
+  const canHand = new CanHand({
+    tap(target) {
+      noteInteraction();
+      if (target.kind === "can") court.tapCan(target.id);
+      else {
+        const can = outOfBag(target.index, true);
+        if (!court.tapCan(can.id, true)) putBack(can.seed, can.ballsLeft, can.id);
+      }
+    },
+    grab(target, from, at) {
+      noteInteraction();
+      const id = target.kind === "can" ? target.id : outOfBag(target.index, false).id;
+      if (!court.grabCan(id, toMeters(from))) return null;
+      court.carryCan(id, toMeters(at));
+      return id;
+    },
+    move(id, at) {
+      court.carryCan(id, toMeters(at));
+    },
+    drop(id) {
+      noteInteraction();
+      const held = court.cans.find((c) => c.id === id);
+      court.releaseCan(id);
+      // let go before it was clear of the bag, it drops back into its place
+      if (held && court.isEmerging(id)) putBack(held.seed, held.ballsLeft, id);
+    },
+  });
+
   canvas.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || stray(e)) return;
+    if (e.button !== 0) return;
+    const at = { x: e.clientX, y: e.clientY };
     const touch = e.pointerType === "touch";
+    const target = ballAt(at) ? null : pickCan(at);
+    if (target) {
+      if (!canHand.free) return;
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // a scripted press (browser checks) has no pointer to capture
+      }
+      canHand.down(e.pointerId, target, at, clock(e.timeStamp));
+      return;
+    }
+    if (stray(e)) return;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
       // a scripted press (browser checks) has no pointer to capture
     }
-    if (takeCanAt(e.clientX, e.clientY)) {
-      canPointer = e.pointerId;
-      if (touch) finger = e.pointerId;
-    } else if (gestures.down(e.clientX, e.clientY, clock(e.timeStamp), touch) && touch) {
-      finger = e.pointerId;
-    }
+    if (gestures.down(e.clientX, e.clientY, clock(e.timeStamp), touch) && touch) finger = e.pointerId;
   });
   canvas.addEventListener("pointermove", (e) => {
-    if (stray(e)) return;
-    if (canPointer === e.pointerId) {
-      const p = toMeters({ x: e.clientX, y: e.clientY });
-      court.carryTo(p.x, p.y);
+    if (canHand.has(e.pointerId)) {
+      canHand.move(e.pointerId, { x: e.clientX, y: e.clientY });
       return;
     }
+    if (stray(e)) return;
     gestures.move(e.clientX, e.clientY);
     if (e.buttons === 0) canvas.style.cursor = hoverCursor(e.clientX, e.clientY);
   });
-  /** Let go of a can taken out of the bag. One let go before it is clear of the bag drops back into its place. */
-  function endCanCarry(e: PointerEvent): boolean {
-    if (canPointer !== e.pointerId) return false;
-    canPointer = null;
-    const held = court.cans.find((c) => c.held);
-    court.release();
-    if (held && court.isEmerging(held.id)) {
-      court.removeCan(held.id);
-      scene.returnCan(held.seed);
-    }
+  const endCanPress = (e: PointerEvent, cancelled: boolean): boolean => {
+    if (!canHand.has(e.pointerId)) return false;
+    if (cancelled) canHand.cancel();
+    else canHand.up(e.pointerId, clock(e.timeStamp));
     return true;
-  }
+  };
   canvas.addEventListener("pointerup", (e) => {
+    if (endCanPress(e, false)) return;
     if (stray(e)) return;
     finger = null;
-    if (!endCanCarry(e)) gestures.up(clock(e.timeStamp));
+    gestures.up(clock(e.timeStamp));
   });
   canvas.addEventListener("pointercancel", (e) => {
+    if (endCanPress(e, true)) return;
     if (stray(e)) return;
     finger = null;
-    if (!endCanCarry(e)) gestures.cancel();
+    gestures.cancel();
   });
 
   function hoverCursor(x: number, y: number): string {
     if (scene.canAt(x, y) >= 0) return "grab";
-    for (const can of canViews()) if (canGap(can, { x, y }) <= params.minGrabReachPx) return "grab";
+    for (const can of canViews()) if (canGap(can, { x, y }) <= params.canReachPx) return "grab";
     let nearest = Infinity;
     for (const b of views()) nearest = Math.min(nearest, Math.hypot(b.x - x, b.y - y));
     if (nearest <= Math.max(radiusPx * params.grabReach, params.minGrabReachPx)) return "grab";
@@ -500,6 +568,7 @@ function main(): void {
     clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => {
       gestures.cancel();
+      canHand.cancel(); // what is carried is let go first (it lands in the new layout), so no press is left holding a stale can
       build();
     }, 150);
   });
@@ -508,8 +577,7 @@ function main(): void {
   build();
   if (query.has("tune")) {
     // The credits' look and the buttons' tone are only CSS, the trail and the poof are only drawing, the sounds'
-    // numbers are read at the moment a sound plays, a finger's reaches at the moment of a press, a can's pour and grip as it
-    // is poured and held, and the bag's and the notebook's motion as they move, so changing any of them needs no new court (a
+    // numbers are read at the moment a sound plays, a finger's and a can's reaches at the moment of a press, and the bag's and the notebook's motion as they move, so changing any of them needs no new court (a
     // new court would stop every ball in the air); every other number does. The buttons' size is CSS too (build sets it for the
     // window), but each button is also a solid disc in the court, so the court is made again to measure them, which is what
     // moving the icon size or share does.
@@ -521,12 +589,13 @@ function main(): void {
         !changed.startsWith("poof") &&
         !changed.startsWith("sound") &&
         !changed.startsWith("touch") &&
-        !changed.startsWith("canPour") &&
+        !changed.startsWith("canTap") &&
+        changed !== "canBallReachPx" &&
+        changed !== "canReachPx" &&
         !changed.startsWith("zip") &&
         !changed.startsWith("rise") &&
         !changed.startsWith("sink") &&
         !changed.startsWith("notebook") &&
-        changed !== "canGrip" &&
         changed !== "ballShadows"
       )
         build();
@@ -555,6 +624,16 @@ function main(): void {
     court.balls.forEach((b, i) => {
       if (leavesTrail(b)) renderer.trail(sprites[i], drawnAt);
     });
+    // the zip pull's and the notebook's buttons give way where a can out of the bag stands in front of them
+    scene.giveWayTo(
+      court.cans.map((c) => {
+        const at = toScreen(c.x, c.y);
+        const k = pxPerMeter * c.scale;
+        const ex = (Math.abs(Math.cos(c.angle)) * CAN_WIDTH + Math.abs(Math.sin(c.angle)) * CAN_HEIGHT) * k * 0.5;
+        const ey = (Math.abs(Math.sin(c.angle)) * CAN_WIDTH + Math.abs(Math.cos(c.angle)) * CAN_HEIGHT) * k * 0.5;
+        return { x0: at.x - ex, y0: at.y - ey, x1: at.x + ex, y1: at.y + ey };
+      }),
+    );
     renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha));
     requestAnimationFrame(frame);
   }
@@ -574,6 +653,8 @@ function main(): void {
           vx: b.vx * pxPerMeter,
           vy: -b.vy * pxPerMeter,
           r: radiusPx,
+          /** Whether a standing can leans on it, holding it still. */
+          propping: court.isPropping(b.id),
         })),
       /** Whether each "i" has its dot right now. */
       dots: () => homes.map((h) => h.ballId !== null),
@@ -596,9 +677,16 @@ function main(): void {
           vy: -c.vy * pxPerMeter,
           held: c.held,
           ballsLeft: c.ballsLeft,
-          width: CAN_WIDTH * pxPerMeter,
-          height: CAN_HEIGHT * pxPerMeter,
+          width: CAN_WIDTH * pxPerMeter * c.scale,
+          height: CAN_HEIGHT * pxPerMeter * c.scale,
+          /** `placed` (standing, fixed), `held`, `settling` (falling), `pour` or `wiggle`. */
+          state: court.canState(c.id),
         })),
+      /** Put a can on the court at a point (page px), turned `degrees` clockwise, with `balls` in it. It falls from there. Gives its id. */
+      addCan(x: number, y: number, balls = CAN_BALLS, degrees = 0) {
+        const at = toMeters({ x, y });
+        return court.addCan(at.x, at.y, (-degrees * Math.PI) / 180, balls, 1).id;
+      },
       lastHit: () => lastHit,
       effects: () => renderer.effects(),
       pxPerMeter: () => pxPerMeter,

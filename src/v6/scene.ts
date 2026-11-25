@@ -25,6 +25,7 @@ import {
   notebookArt,
   pullAt,
   racquet,
+  sampleF,
   sinkDepth,
   towel,
   type Art,
@@ -474,6 +475,32 @@ export class Scene {
     this.rises[i].style.visibility = this.open ? "visible" : "hidden";
     this.rises[i].style.transform = this.open ? this.upTransform() : `translateY(${sinkDepth(ITEMS[i]).toFixed(1)}px)`;
     this.opts.onSolids(this.openSolids());
+  }
+
+  /** Draw a can standing in the bag holding `balls` balls: empty once it has been poured. */
+  setCanBalls(seed: number, balls: number): void {
+    const i = ITEMS.findIndex((it) => it.kind === "can" && it.seed === seed);
+    if (i >= 0) this.rises[i].innerHTML = can(seed, Math.max(0, Math.min(3, balls)));
+  }
+
+  /**
+   * The zip pull's and the notebook's invisible buttons step aside (let presses through to the toy) wherever a can out of the bag
+   * covers them, page px boxes, so a can standing in front of them can still be tapped and carried. The keyboard still reaches them.
+   */
+  giveWayTo(boxes: { x0: number; y0: number; x1: number; y1: number }[]): void {
+    for (const b of [this.pullButton, this.notebookButton]) {
+      const s = b.style;
+      const [x0, y0] = [parseFloat(s.left), parseFloat(s.top)];
+      const [x1, y1] = [x0 + parseFloat(s.width), y0 + parseFloat(s.height)];
+      const covered = boxes.some((q) => q.x0 < x1 && q.x1 > x0 && q.y0 < y1 && q.y1 > y0);
+      const want = covered ? "none" : "";
+      if (s.pointerEvents !== want) s.pointerEvents = want;
+    }
+  }
+
+  /** The bag's front panel on the page (px): what stands in the bag is behind it. */
+  frontFace(): P[] {
+    return this.layout ? sampleF().map((p) => bagToPage(this.layout, p)) : [];
   }
 
   /** The surface straight below a point, if any: the top of the bag or the bench, page px. For the balls' shadows. */

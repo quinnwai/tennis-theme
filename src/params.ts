@@ -83,14 +83,13 @@ export const params = {
   // this makes them 28 px there. Judged by eye, on a phone. (The stylesheet starts from the same two numbers.)
   iconShare: 0.1,
 
-  // The cans of balls. A can holds 3 balls and keeps them while it is upright. Tipped past canPourAngle it lets them out one
-  // after another, each leaving its mouth along the way the mouth points. A can that is carried hangs from the point it was
-  // taken by, like anything held by one point, and canGrip is how firmly the hand keeps it upright: a hard shake overcomes it,
-  // and 0 would be a can that swings like a pendulum. Judged by feel.
-  canPourAngle: 100, // degrees from upright; 90 is lying on its side, so a little more is mouth down
-  canPourInterval: 0.15, // s between one ball leaving and the next
-  canPourSpeed: 0.6, // m/s; how fast a ball is let out of the mouth, on top of the can's own movement
-  canGrip: 70, // the most torque the hand puts into keeping a carried can upright
+  // The cans of balls (Quinn-Wai's controls spec). A can holds 3 balls. Drag moves a can and a tap acts on it: a press that moves more
+  // than canTapPx is a drag, one that lets go within canTapMs without moving is a tap (it pours the can, or wiggles it if it is empty).
+  // A press lands on a ball if one is within canBallReachPx of its edge, else on a can if its outline is within canReachPx. Judged by feel.
+  canTapMs: 450,
+  canTapPx: 8,
+  canBallReachPx: 16,
+  canReachPx: 14,
 
   // The v6 scene (the bench, towel, bag and racquet; see src/v6). Its sizes are real and not tunable. These are its motion and its
   // light touch on the toy; all judged by eye, on the live site.

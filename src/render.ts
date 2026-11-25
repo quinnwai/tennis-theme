@@ -92,6 +92,8 @@ export interface ImageSprite {
   h: number;
   ox: number;
   oy: number;
+  /** An outline on the page (px) it is hidden behind, such as the bag's front for a can coming out of it. */
+  behind?: [number, number][];
 }
 
 /** A ball's shadow on the surface under it: a flat ellipse seen at the scene camera's angle. */
@@ -184,6 +186,14 @@ export class Renderer {
     ctx.fill(this.letters, "evenodd");
     for (const p of props) {
       ctx.save();
+      if (p.behind) {
+        // everything but the outline it is behind
+        const clip = new Path2D();
+        clip.rect(0, 0, this.width, this.height);
+        p.behind.forEach(([x, y], i) => (i ? clip.lineTo(x, y) : clip.moveTo(x, y)));
+        clip.closePath();
+        ctx.clip(clip, "evenodd");
+      }
       ctx.translate(p.x, p.y);
       ctx.rotate(p.angle);
       ctx.drawImage(p.img, -p.ox, -p.oy, p.w, p.h);
