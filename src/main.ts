@@ -769,6 +769,21 @@ function main(): void {
       freeze() {
         frozen = true;
         pending = 0;
+        // Whatever the page did on its own clock before this call (how many frames ran, how far the dots had risen) depends on how fast the
+        // machine was. The balls start again from the same place every time: swept off, then both dots refilled and run until they have
+        // risen and settled, so that a seeded check gives the same answer on any machine. (The bag, the notebook and the cans are left as
+        // they are.)
+        gestures.cancel();
+        for (const ball of [...court.balls]) court.remove(ball.id);
+        restarted = true;
+        for (const home of homes) {
+          home.ballId = null;
+          home.risingSince = null;
+          home.emptySince = simMs - REFILL_DELAY_MS;
+        }
+        for (let i = 0; i < 600 && homes.some((h) => h.ballId === null); i++) stepOnce();
+        for (let i = 0; i < 120; i++) stepOnce();
+        gestures.tick(simMs);
       },
     },
   });

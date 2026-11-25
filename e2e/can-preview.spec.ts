@@ -66,13 +66,28 @@ function seeded(seed: number) {
   };
 }
 
-/** A point on the can to press it by: on its long axis, out of every ball's reach (a ball near the pointer is taken first). */
+/** How far a point is from a can's outline (0 on it or inside it): the court's own rule, `canGap` in src/input.ts. */
+function gap(c: Can, width: number, p: { x: number; y: number }) {
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  const across = Math.abs(dx * Math.cos(c.angle) + dy * Math.sin(c.angle));
+  const along = Math.abs(-dx * Math.sin(c.angle) + dy * Math.cos(c.angle));
+  return Math.hypot(Math.max(across - width / 2, 0), Math.max(along - c.height / 2, 0));
+}
+
+/**
+ * A point on the can to press it by: on its long axis, out of every ball's reach (a ball near the pointer is taken first), and where the
+ * court would give the press to this can, not to another one standing there (the nearest outline wins, and the later can when two tie).
+ */
 async function pressPoint(page: Page, c: Can) {
   const all = await balls(page);
+  const others = (await cans(page)).filter((o) => o.id !== c.id);
   const len = c.height / 2;
   for (const f of [0, 0.35, -0.35, 0.7, -0.7, 0.85, -0.85]) {
     const p = { x: c.x - Math.sin(c.angle) * len * f, y: c.y + Math.cos(c.angle) * len * f };
-    if (all.every((b) => Math.hypot(b.x - p.x, b.y - p.y) > b.r + 18)) return p;
+    if (!all.every((b) => Math.hypot(b.x - p.x, b.y - p.y) > b.r + 18)) continue;
+    const mine = gap(c, c.width, p);
+    if (others.every((o) => (o.id > c.id ? gap(o, o.width, p) > mine : gap(o, o.width, p) >= mine))) return p;
   }
   return null;
 }
@@ -95,12 +110,18 @@ async function accuracy(page: Page, seed: number, trials: number, still: (i: num
   let hits = 0;
   const misses: unknown[] = [];
   for (let i = 0; i < trials; i++) {
-    const id = ids[i % ids.length];
-    const c = await can(page, id);
-    const at = await pressPoint(page, c);
+    // the can whose turn it is, or the next one if nobody can press it; a miss only when no can can be pressed
+    let id = ids[i % ids.length];
+    let c = await can(page, id);
+    let at = await pressPoint(page, c);
+    for (let k = 1; !at && k < ids.length; k++) {
+      id = ids[(i + k) % ids.length];
+      c = await can(page, id);
+      at = await pressPoint(page, c);
+    }
     if (!at) {
-      // balls all round it: knock them about and count it as a miss, so a crowded can cannot pass by being skipped
-      misses.push({ i, note: "no clear point to press" });
+      // balls and cans all round: knock them about and count it as a miss, so a crowded court cannot pass by being skipped
+      misses.push({ i, note: "no can has a clear point to press" });
       await sandbox(page, `drop(${c.x}, ${Math.max(20, c.y - 200)})`);
       await run(page, 2);
       continue;
