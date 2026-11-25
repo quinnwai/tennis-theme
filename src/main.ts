@@ -1,6 +1,7 @@
 import { floorLiftFor, iconSizeFor } from "./controls";
 import { Gestures, canGap, type BallView, type CanView, type Vec } from "./input";
 import { CanHand, type CanTarget } from "./can-hand";
+import { Confetti, flash } from "./celebrate";
 import { CAN_BALLS, CAN_HEIGHT, CAN_WIDTH } from "./cans";
 import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
@@ -10,6 +11,7 @@ import { Renderer, type BallSprite, type Ghost, type ImageSprite, type ShadowSpr
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { nextSound, readSound, writeSound } from "./sound-setting";
 import { leavesTrail } from "./trail";
+import { DESCENT_MS, TROPHY_ART, TROPHY_URL, glintAt, keepTrophyIn, trophyAnchor, trophyFit } from "./trophy";
 import { mountTuner } from "./tune";
 import { CAN_IMAGE, SHADOW, SHADOW_OPACITY, SKEW, canImage } from "./v6/art";
 import { mountNotebook, type Notebook } from "./v6/notebook";
@@ -78,9 +80,24 @@ function main(): void {
   const rules = mountRulesCard(document.querySelector<HTMLElement>(".v6-score")!);
   /** How the match is going, for the stats card: since the game was found (sim ms), and when the stats are due after the win (0: not due). */
   let tally = { thrown: 0, inCans: 0, since: 0, wonAt: 0 };
-  let statsDue = 0;
-  /** How long after the win the stats drop down (sim ms). */
-  const STATS_DELAY_MS = 1200;
+  /**
+   * The win's celebration, on the court's clock: the confetti falls; once half of it has passed, the trophy comes down (the first win only)
+   * and the glint is due 1.6 s on, when it would have settled; then the stats drop down. `glintDue` is 0 until half the confetti has passed.
+   */
+  let celebration: { glintDue: number; half: boolean } | null = null;
+  let shower: Confetti | null = null;
+  /** The trophy, once it has been won: kept through Play again and Restart, never past leaving the page. `rest` is where its foot floats. */
+  let trophy: { rest: Vec; scale: number; since: number } | null = null;
+  const trophyImg = document.createElement("img");
+  trophyImg.className = "trophy";
+  trophyImg.alt = "";
+  trophyImg.setAttribute("aria-hidden", "true");
+  trophyImg.src = TROPHY_URL;
+  trophyImg.hidden = true;
+  document.body.append(trophyImg);
+  /** What the celebration did and when, for the browser checks: the court's time in seconds, and where a glint is. */
+  const celebrationLog: { event: string; t: number; x?: number; y?: number }[] = [];
+  const logEvent = (event: string, at?: Vec) => celebrationLog.push({ event, t: simMs / 1000, ...at });
   /** How the last ball into a can was judged, and the crowd's sounds started so far (none with the sound off), for the browser checks. */
   let lastEntry: Entry | null = null;
   const heard: string[] = [];
@@ -212,6 +229,7 @@ function main(): void {
       const at = toMeters({ x: layout.origin.x + c.x * layout.emPx, y: layout.origin.y - c.y * layout.emPx });
       court.addCan(Math.min(width - CAN_WIDTH, Math.max(CAN_WIDTH, at.x)), Math.max(CAN_HEIGHT / 2 + floor, at.y), c.angle, c.balls, c.seed);
     }
+    fitTrophy();
   }
 
   /** What stands in the open bag, as solids in the court. Page px in. */
@@ -259,7 +277,88 @@ function main(): void {
     sound.play("applause");
     if (result === "won") {
       tally.wonAt = simMs;
-      statsDue = simMs + STATS_DELAY_MS;
+      celebrate();
+    }
+  }
+
+  /** The match is won: the cheer, and confetti over the window. The rest follows from `stepCelebration`. */
+  function celebrate(): void {
+    logEvent("won");
+    if (readSound() === "on") heard.push("cheer");
+    sound.preload("cheer");
+    sound.play("cheer");
+    shower?.remove();
+    shower = reducedMotion ? null : new Confetti(renderer.width, renderer.height);
+    celebration = { glintDue: 0, half: false };
+  }
+
+  /** Where the trophy floats here, and how big (px per mm as drawn). */
+  function fitTrophy(): void {
+    if (!trophy) return;
+    const k = pxPerMeter / 1000;
+    const nameTop = Math.min(...layout.letters.flatMap((l) => l.loops.flat().map((p) => p.y)));
+    const fit = trophyFit(k, nameTop, renderer.width, renderer.height);
+    trophy.scale = fit.scale;
+    trophy.rest = keepTrophyIn(fit.rest, k * fit.scale, renderer.width, renderer.height);
+  }
+
+  /** Where the middle of the trophy's foot is now, and its px per mm as drawn. */
+  const trophyAt = () => ({ at: trophyAnchor(trophy!.rest, simMs - trophy!.since, reducedMotion), k: (pxPerMeter / 1000) * trophy!.scale });
+
+  function drawTrophy(): void {
+    trophyImg.hidden = !trophy;
+    if (!trophy) return;
+    const { at, k } = trophyAt();
+    Object.assign(trophyImg.style, {
+      width: `${TROPHY_ART.w * k}px`,
+      height: `${TROPHY_ART.h * k}px`,
+      transform: `translate(${at.x - TROPHY_ART.ox * k}px, ${at.y - TROPHY_ART.oy * k}px)`,
+    });
+  }
+
+  /**
+   * One step of the win: the confetti falls; once half of it has passed the trophy comes down (a later win brings none: the one already
+   * won stays where it is); 1.6 s on, when a new one would have settled, a glint plays on its rim, and then the stats drop down.
+   */
+  function stepCelebration(): void {
+    if (shower) {
+      if (Math.round(simMs / (1000 * STEP)) % 4 === 0) shower.step(STEP * 4);
+      if (shower.done()) {
+        shower.remove();
+        shower = null;
+      }
+    }
+    const c = celebration;
+    if (!c) return;
+    if (!c.half && (!shower || shower.halfPassed())) {
+      c.half = true;
+      logEvent("confetti-half");
+      if (!trophy) {
+        trophy = { rest: { x: renderer.width / 2, y: 0 }, scale: 1, since: simMs };
+        fitTrophy();
+        logEvent("trophy-in");
+      }
+      c.glintDue = simMs + (reducedMotion ? 0 : DESCENT_MS);
+    }
+    if (c.half && simMs >= c.glintDue) {
+      celebration = null;
+      logEvent("trophy-settled");
+      const { at, k } = trophyAt();
+      const rim = glintAt(at, k);
+      flash(rim.x, rim.y, 120 * k);
+      logEvent("glint", rim);
+      rules.hide();
+      game.board.showStats(
+        {
+          thrown: Math.max(tally.thrown, game.match.pointsWon),
+          inCans: tally.inCans,
+          points: game.match.pointsWon,
+          streak: game.match.pointsWon,
+          ms: tally.wonAt - tally.since,
+        },
+        playAgain,
+      );
+      logEvent("stats");
     }
   }
 
@@ -269,7 +368,7 @@ function main(): void {
     game.board.show(game.match);
     rules.show();
     tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
-    statsDue = 0;
+    celebration = null;
     lastEntry = null;
   }
 
@@ -428,25 +527,12 @@ function main(): void {
     // the game is found the moment a can is emptied
     if (!game.match.found && court.cans.some((c) => c.ballsLeft === 0)) {
       game.match.found = true;
+      sound.preload("cheer");
       game.board.show(game.match);
       rules.show();
       tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
     }
-    // after the win, the stats take How to play's place under the board
-    if (statsDue > 0 && simMs >= statsDue) {
-      statsDue = 0;
-      rules.hide();
-      game.board.showStats(
-        {
-          thrown: Math.max(tally.thrown, game.match.pointsWon),
-          inCans: tally.inCans,
-          points: game.match.pointsWon,
-          streak: game.match.pointsWon,
-          ms: tally.wonAt - tally.since,
-        },
-        playAgain,
-      );
-    }
+    stepCelebration();
   }
 
   /** Sweep every ball off the court and let both dots rise again. The cans go back into the bag, full, and the bag is zipped, with the notebook inside. */
@@ -463,7 +549,7 @@ function main(): void {
     game.match.reset();
     game.board.hide();
     rules.hide();
-    statsDue = 0;
+    celebration = null; // the trophy stays, and the confetti already in the air finishes falling
     lastEntry = null;
     for (const seed of [1, 2, 3]) scene.setCanBalls(seed, CAN_BALLS);
     restarted = true;
@@ -792,6 +878,8 @@ function main(): void {
       }),
     );
     drawnGhosts = ghosts(drawnAt, frozen);
+    drawTrophy();
+    shower?.draw();
     renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha), drawnGhosts);
     requestAnimationFrame(frame);
   }
@@ -873,6 +961,13 @@ function main(): void {
         championshipPoint: game.match.championshipPoint,
         lastEntry,
         heard: [...heard],
+        /** What the celebration did, in order, with the court's time in seconds (a glint says where, page px). */
+        log: celebrationLog.map((e) => ({ ...e })),
+        /** The trophy once won: where its foot is, its size as drawn (px), its turn (radians clockwise), and whether it floats. */
+        trophy: trophy && (() => {
+          const { at, k } = trophyAt();
+          return { x: at.x, y: at.y, width: TROPHY_ART.w * k, height: TROPHY_ART.h * k, angle: 0, floating: true };
+        })(),
       }),
       /** Win a point as a counted throw would, once the game is found. */
       scorePoint() {

@@ -67,6 +67,7 @@ export const params = {
   soundBounce: 0.125, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter. Bounces are far more frequent than the rest
   soundRising: 0.25, // a fresh ball rising out of an "i"
   soundApplause: 0.75, // a point's applause (QWW-102)
+  cheerVolume: 0.95, // the win's cheer (QWW-104), Quinn-Wai's own
   soundOut: 0.5, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes

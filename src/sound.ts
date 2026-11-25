@@ -22,7 +22,16 @@ export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number
   applause: { file: "./tennis/sounds/applause-freesound-57587.mp3", from: 0, to: 3.2, fadeAt: 2.6 },
 };
 
-const VOLUME: Record<SoundName, keyof Params> = {
+/**
+ * The win's cheer (Quinn-Wai's own, `successful-event.wav`, 3 s). It is not one of the sounds above: nothing fetches it until the game is
+ * found (`Sound.preload`), since most visitors never get that far.
+ */
+const CHEER = { file: "./tennis/sounds/successful-event.wav", from: 0 };
+type Playable = SoundName | "cheer";
+const spec = (name: Playable): { file: string; from: number; to?: number; fadeAt?: number } => (name === "cheer" ? CHEER : SOUNDS[name]);
+
+const VOLUME: Record<Playable, keyof Params> = {
+  cheer: "cheerVolume",
   hit: "soundHit",
   bounce: "soundBounce",
   rising: "soundRising",
@@ -218,7 +227,8 @@ export class Sound {
   private sleepTimer: ReturnType<typeof setTimeout> | undefined;
   /** Where every sound goes on its way out: the limiter (see `buildMaster`). */
   private master: { input: AudioNodeLike } | null = null;
-  private buffers = new Map<SoundName, AudioBufferLike>();
+  private buffers = new Map<Playable, AudioBufferLike>();
+  private loading = new Set<Playable>();
   private voices: Voice[] = [];
 
   /**
@@ -269,13 +279,24 @@ export class Sound {
     }, SLEEP_AFTER);
   }
 
+  /** Start fetching the cheer, which is not fetched with the rest. Safe to call again and again. */
+  preload(name: "cheer"): void {
+    if (this.loading.has(name)) return;
+    this.loading.add(name);
+    this.env
+      .load(spec(name).file)
+      .then((data) => this.env.decode(data))
+      .then((buffer) => void this.buffers.set(name, buffer))
+      .catch((error) => console.warn(`The "${name}" sound could not be loaded.`, error));
+  }
+
   /** Play a sound at `loudness` (0 to 1) of its own volume. */
-  play(name: SoundName, loudness = 1): void {
+  play(name: Playable, loudness = 1): void {
     const ctx = this.ctx;
     const buffer = this.buffers.get(name);
     if (!this.interacted || !ctx || !buffer || this.env.muted()) return;
     const volume = Math.min(1, loudness * params[VOLUME[name]] * this.env.gain());
-    const { from, to } = SOUNDS[name];
+    const { from, to } = spec(name);
     const length = Math.min(to ?? Infinity, buffer.duration) - from;
     if (!(volume > 0 && length > 0)) return;
 
@@ -296,7 +317,7 @@ export class Sound {
       source.connect(gain);
       gain.connect(this.master!.input);
       source.start(now, from, length);
-      const fadeAt = SOUNDS[name].fadeAt;
+      const fadeAt = spec(name).fadeAt;
       if (fadeAt !== undefined && fadeAt - from < length) gain.gain.setTargetAtTime(0, now + fadeAt - from, 0.15);
       if (isHit) return; // the hit is never one of the voices that can give way, nor cut short
       this.voices.push({

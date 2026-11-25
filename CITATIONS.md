@@ -10,6 +10,7 @@ inspo…
 - the bag: Wilson racquet bags
 - the racquet: Wilson Blade
 - the towel: 2014 Australian Open towel
+- the trophy: Norman Brookes Challenge Cup
 - sfx: Pixabay and freesound
    - hit: ([Jurij](https://pixabay.com/users/soundreality-31074404/) from Pixabay)
    - bounce: ([freesound_community](https://pixabay.com/users/freesound_community-46691455/) from Pixabay)
