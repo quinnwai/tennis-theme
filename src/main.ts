@@ -6,7 +6,7 @@ import { startMeasuring } from "./measure";
 import { readPalette } from "./palette";
 import { params } from "./params";
 import { Court, STEP, type Ball, type Can } from "./physics";
-import { Renderer, type BallSprite, type ImageSprite, type ShadowSprite } from "./render";
+import { Renderer, type BallSprite, type Ghost, type ImageSprite, type ShadowSprite } from "./render";
 import { Sound, browserEnv, wakeOnGesture } from "./sound";
 import { nextSound, readSound, writeSound } from "./sound-setting";
 import { leavesTrail } from "./trail";
@@ -602,6 +602,59 @@ function main(): void {
     });
   }
 
+  // The drop preview: while a can is carried, a shadow shows where it would come to rest if it were let go now. Where that is can change a
+  // lot from one moment to the next (onto the other side of a ball, off the edge of a letter), so the shadow is drawn calmly: it glides
+  // after the place, fades while the can is swung fast, and fades out and back in rather than leaping. Held still, it sits on the place.
+  const GHOST_CLEAR = 0.45; // m/s: fully shown below this, not at all above GHOST_GONE
+  const GHOST_GONE = 1.4;
+  const shown = new Map<number, Ghost>();
+  let ghostClock = 0;
+  /** What the last frame drew, for the browser checks. */
+  let drawnGhosts: Ghost[] = [];
+  function ghosts(now: number, frozenNow: boolean): Ghost[] {
+    // a stalled real frame is not let to jump the glide; a frozen court's clock moves only when a check says, so it runs whole
+    const dt = Math.max(0, (now - ghostClock) / 1000);
+    ghostClock = now;
+    const step = frozenNow ? dt : Math.min(0.05, dt);
+    const out: Ghost[] = [];
+    for (const c of court.cans) {
+      const rest = c.held ? court.restOf(c.id) : null;
+      if (!rest) {
+        shown.delete(c.id);
+        continue;
+      }
+      const target = { id: c.id, ...toScreen(rest.x, rest.y), angle: -rest.a, w: CAN_WIDTH * pxPerMeter * c.scale, h: CAN_HEIGHT * pxPerMeter * c.scale, alpha: 1 };
+      const speed = Math.hypot(c.vx, c.vy);
+      const visible = Math.max(0, Math.min(1, 1 - (speed - GHOST_CLEAR) / (GHOST_GONE - GHOST_CLEAR)));
+      let s = shown.get(c.id);
+      if (!s) shown.set(c.id, (s = { ...target, alpha: 0 }));
+      // a long stretch of a frozen court's time (a check's `advance`) is taken in frame-sized steps, so fading out, jumping and fading in
+      // all happen as they would have frame by frame
+      const steps = Math.max(1, Math.ceil(step * 60));
+      for (let n = 0; n < steps; n++) {
+        const dt = step / steps;
+        // a can's outline is the same turned half way round, so its turns are compared that way
+        const turn = Math.atan2(Math.sin(2 * (target.angle - s.angle)), Math.cos(2 * (target.angle - s.angle))) / 2;
+        const far = Math.hypot(target.x - s.x, target.y - s.y) > target.h * 0.45 || Math.abs(turn) > 0.6;
+        if (far) {
+          // somewhere else entirely: fade out here, then come back in there
+          s.alpha = Math.max(0, s.alpha - dt / 0.09);
+          if (s.alpha === 0) Object.assign(s, target, { alpha: 0 });
+        } else {
+          const f = 1 - Math.exp(-dt / 0.06);
+          s.x += (target.x - s.x) * f;
+          s.y += (target.y - s.y) * f;
+          s.angle += turn * f;
+          s.w = target.w;
+          s.h = target.h;
+          s.alpha += Math.max(-dt / 0.12, Math.min(dt / 0.18, visible - s.alpha));
+        }
+      }
+      out.push({ ...s });
+    }
+    return out;
+  }
+
   let last = performance.now();
   let pending = 0;
   // A browser check can freeze the real-time loop (`__sandbox.freeze()`): from then on only `advance` moves the court, and taps, holds and
@@ -634,7 +687,8 @@ function main(): void {
         return { x0: at.x - ex, y0: at.y - ey, x1: at.x + ex, y1: at.y + ey };
       }),
     );
-    renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha));
+    drawnGhosts = ghosts(drawnAt, frozen);
+    renderer.draw(drawnAt, sprites, risingSprites(), ballShadows(sprites), canSprites(alpha), drawnGhosts);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -687,6 +741,13 @@ function main(): void {
         const at = toMeters({ x, y });
         return court.addCan(at.x, at.y, (-degrees * Math.PI) / 180, balls, 1).id;
       },
+      /** The drop preview's shadows as last drawn, one per carried can (page px, radians clockwise, alpha 0 to 1). */
+      ghosts: () => drawnGhosts.map(({ id, x, y, angle, alpha }) => ({ id, x, y, angle, alpha })),
+      /** Where a carried can would come to rest if let go now (page px, radians clockwise), or null when it is not carried. */
+      rest: (id: number) => {
+        const r = court.restOf(id);
+        return r && { ...toScreen(r.x, r.y), angle: -r.a };
+      },
       lastHit: () => lastHit,
       effects: () => renderer.effects(),
       pxPerMeter: () => pxPerMeter,
@@ -701,6 +762,8 @@ function main(): void {
           stepOnce();
           if (frozen) gestures.tick(simMs);
         }
+        // the shadow's glide and fade run on the court's clock too, so what `ghosts()` reports follows `advance` and not the page's frames
+        if (frozen) drawnGhosts = ghosts(simMs, true);
       },
       /** Stop the real-time loop: the court then moves only when `advance` is called, and presses are timed by the court's clock. */
       freeze() {

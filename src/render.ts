@@ -81,6 +81,19 @@ interface Point {
 }
 
 /** A picture turned about a point, such as a can of balls out of the bag. */
+/** The drop preview: a can's shadow where it would come to rest. Its middle (page px), its turn (radians clockwise), its size (px)
+ * and how strongly it shows (0 to 1). */
+export interface Ghost {
+  /** The can it is the shadow of. */
+  id: number;
+  x: number;
+  y: number;
+  angle: number;
+  w: number;
+  h: number;
+  alpha: number;
+}
+
 export interface ImageSprite {
   img: CanvasImageSource;
   /** The point it turns about, page px, and its turn, radians clockwise. */
@@ -168,7 +181,7 @@ export class Renderer {
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
-  draw(now: number, balls: BallSprite[], rising: BallSprite[], shadows: ShadowSprite[] = [], props: ImageSprite[] = []): void {
+  draw(now: number, balls: BallSprite[], rising: BallSprite[], shadows: ShadowSprite[] = [], props: ImageSprite[] = [], ghosts: Ghost[] = []): void {
     const ctx = this.ctx;
     if (this.clearBackground) {
       ctx.clearRect(0, 0, this.width, this.height);
@@ -184,6 +197,7 @@ export class Renderer {
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
+    this.drawGhosts(ghosts);
     for (const p of props) {
       ctx.save();
       if (p.behind) {
@@ -200,6 +214,31 @@ export class Renderer {
       ctx.restore();
     }
     for (const b of balls) this.drawBall(b);
+  }
+
+  /** How strongly the drop preview shows at full strength, and the faint rim that keeps it readable on the darkest things it can land on. */
+  ghostOpacity = 0.55;
+  ghostRimOpacity = 0.16;
+
+  /** The drop preview: a can's dark shadow in the scene's shadow colour, with a faint rim of the page's quiet grey. */
+  private drawGhosts(ghosts: Ghost[]): void {
+    const ctx = this.ctx;
+    for (const g of ghosts) {
+      if (g.alpha <= 0.01) continue;
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.rotate(g.angle);
+      ctx.beginPath();
+      ctx.roundRect(-g.w / 2, -g.h / 2, g.w, g.h, g.w * 0.14);
+      ctx.globalAlpha = this.ghostOpacity * g.alpha;
+      ctx.fillStyle = this.shadowColor;
+      ctx.fill();
+      ctx.globalAlpha = this.ghostRimOpacity * g.alpha;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = this.palette.quiet || this.palette.white;
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   private drawShadows(shadows: ShadowSprite[]): void {

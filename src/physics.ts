@@ -9,7 +9,6 @@ import {
   makeSolid,
   newBody,
   overlapsSolids,
-  predictRest,
   settleConstants,
   settleFrame,
   type Disc,
@@ -140,6 +139,8 @@ interface Drive {
   /** Carried: what the let go would start from (where it was, how it moved, the balls as they were), and can frames since. */
   preview: { pose: Pose; vx: number; vy: number; w: number; discs: Disc[] } | null;
   previewAge: number;
+  /** Carried: where a let go from `preview` ends up, the drop preview. */
+  rest: Pose | null;
   /** Settling: the balls as they were when it was let go, which it lands on (as the spec says, they hold still for it). */
   discs: Disc[] | null;
 }
@@ -478,6 +479,7 @@ export class Court {
       done: false,
       preview: null,
       previewAge: 0,
+      rest: null,
       discs: null,
     };
     this.drives.set(id, drive);
@@ -804,6 +806,42 @@ export class Court {
   }
 
   /**
+   * Where a can let go from `inputs` will come to rest: the same settle a let go runs, ahead of time. Cans already falling are settled
+   * with it a frame at a time, as the court does, so one that lands first is something this one meets, and one that lands after is not.
+   */
+  private landing(can: Can, inputs: NonNullable<Drive["preview"]>, hw: number, hh: number): Pose {
+    const K = this.constants();
+    const base = this.settleWorld(can.id, inputs.discs);
+    const mine = newBody(clearSpot(inputs.pose, hw, hh, base), inputs.vx, inputs.vy, inputs.w, hw, hh, K);
+    if (!this.cans.some((c) => c.id !== can.id && this.drives.get(c.id)?.state === "settling")) {
+      for (let i = 0; i < 800; i++) if (settleFrame(mine, base, K)) break;
+      return mine;
+    }
+    const falling = this.cans.flatMap((c) => {
+      const d = this.drives.get(c.id);
+      if (c.id === can.id) return [{ id: c.id, body: mine, discs: inputs.discs, hw, hh, done: false }];
+      if (!d?.body || d.state !== "settling") return [];
+      const [w, h] = this.half(c);
+      return [{ id: c.id, body: { ...d.body, touching: [...d.body.touching] }, discs: d.discs ?? inputs.discs, hw: w, hh: h, done: false }];
+    });
+    const landed: { id: number; solid: Solid }[] = [];
+    const me = falling.find((f) => f.body === mine)!;
+    for (let i = 0; i < 800 && !me.done; i++) {
+      const finished: typeof landed = [];
+      for (const f of falling) {
+        if (f.done) continue;
+        const world = { ...base, discs: f.discs, solids: [...base.solids, ...landed.filter((l) => l.id !== f.id).map((l) => l.solid)] };
+        if (settleFrame(f.body, world, K)) {
+          f.done = true;
+          finished.push({ id: f.id, solid: canSolid({ x: f.body.x, y: f.body.y, a: f.body.a }, f.hw, f.hh) });
+        }
+      }
+      landed.push(...finished);
+    }
+    return mine;
+  }
+
+  /**
    * Something that may have held a standing can up has gone. Each can standing still runs its settle from where it is, without
    * moving: one that stays put is left as it was; one that would fall starts falling, and lands, as if let go.
    */
@@ -908,6 +946,7 @@ export class Court {
     d.done = false;
     d.body = null;
     d.preview = null;
+    d.rest = null;
     d.discs = null;
     this.settling.delete(body);
     body.setStatic();
@@ -960,14 +999,25 @@ export class Court {
     // its way out of the bag it would drop back in, which needs none.
     if (this.isEmerging(can.id)) {
       d.preview = null;
+      d.rest = null;
       return;
     }
     d.previewAge++;
     const p = d.preview;
     const unchanged = p && p.pose.x === x && p.pose.y === y && p.pose.a === a && p.vx === d.vx / FRAME && p.vy === d.vy / FRAME;
     if (p && (unchanged || d.previewAge < 2)) return;
-    d.preview = { pose: d.to, vx: d.vx / FRAME, vy: d.vy / FRAME, w: d.av / FRAME, discs: this.ballSnapshot() };
+    const inputs = { pose: d.to, vx: d.vx / FRAME, vy: d.vy / FRAME, w: d.av / FRAME, discs: this.ballSnapshot() };
+    // the same sim from the same inputs that a let go runs (see `releaseCan`), so the can lands where this says
+    const rest = this.landing(can, inputs, hw, hh);
+    // a tumble can end whole turns round; a can stands (see `stand`) with its turn counted from upright again, so that is the turn it shows
+    d.rest = { x: rest.x, y: rest.y, a: Math.atan2(Math.sin(rest.a), Math.cos(rest.a)) };
+    d.preview = inputs;
     d.previewAge = 0;
+  }
+
+  /** Where the carried can would come to rest if it were let go now: the drop preview. Meters, angle counterclockwise. */
+  restOf(id: number): Pose | null {
+    return this.drives.get(id)?.rest ?? null;
   }
 
   /** Pick a can up, pressed at a point (meters). A pouring or wiggling can can't be; a falling one can. Whether it was. */
@@ -994,6 +1044,7 @@ export class Court {
     d.body = null;
     d.discs = null;
     d.preview = null;
+    d.rest = null;
     d.vx = 0;
     d.vy = 0;
     d.av = 0;
@@ -1022,6 +1073,7 @@ export class Court {
     d.body = newBody(clearSpot(p.pose, hw, hh, this.settleWorld(id, p.discs)), p.vx, p.vy, p.w, hw, hh, K);
     d.state = "settling";
     d.preview = null;
+    d.rest = null;
     this.settling.add(this.canBodies.get(id)!);
   }
 
