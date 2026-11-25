@@ -308,6 +308,8 @@ export class Court {
       // A falling can rests on the balls as they were and doesn't push them (they pass through it until it stands still), as in the
       // spec's prototype, so that it lands exactly where it was going to.
       if (this.settling.has(a.getBody()) || this.settling.has(b.getBody())) contact.setEnabled(false);
+      // A can in the hand passes through everything (QWW-99, "Carry a can"): it never moves a ball, or pushes one through the floor.
+      if (this.carried(a.getBody()) || this.carried(b.getBody())) contact.setEnabled(false);
       // The bench's ends are dead next to its seat. A contact that pushes mostly sideways is an end: the ball comes back off it
       // at benchEndRestitution, however hard it was pushed or thrown in. The seat keeps the usual bounce.
       if (this.benchFixtures.has(a) || this.benchFixtures.has(b)) {
@@ -1018,6 +1020,12 @@ export class Court {
   /** Where the carried can would come to rest if it were let go now: the drop preview. Meters, angle counterclockwise. */
   restOf(id: number): Pose | null {
     return this.drives.get(id)?.rest ?? null;
+  }
+
+  /** Whether a body is a can in the hand. */
+  private carried(body: Body): boolean {
+    for (const [id, b] of this.canBodies) if (b === body) return this.drives.get(id)?.state === "held";
+    return false;
   }
 
   /** Pick a can up, pressed at a point (meters). A pouring or wiggling can can't be; a falling one can. Whether it was. */
