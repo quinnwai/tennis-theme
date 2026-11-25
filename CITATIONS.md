@@ -15,3 +15,4 @@ inspo…
    - bounce: ([freesound_community](https://pixabay.com/users/freesound_community-46691455/) from Pixabay)
    - ball rising: ([JoBot__](https://freesound.org/people/JoBot__/) from freesound)
    - ball out: ([SimoSC](https://freesound.org/people/SimoSC/) from freesound)
+   - point applause: ([cognito perceptu](https://freesound.org/people/cognito%20perceptu/sounds/57587/) from freesound)

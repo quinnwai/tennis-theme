@@ -66,7 +66,61 @@ export interface Ball {
   pinned: boolean;
   /** Being carried by the pointer. */
   held: boolean;
+  /** Where it was last thrown or hit from (meters), or null if it was let go slowly, poured or new: it never scores. */
+  shot: { x: number; y: number } | null;
+  /** Whether a hand has carried or hit it since it appeared. */
+  handled: boolean;
+  /** Which can it was poured from (by its seed), if it was, and when (the court's seconds): for a moment it does not go straight back into it. */
+  pouredFrom: number | null;
+  pouredAt: number;
 }
+
+/** Why a ball that went into a can did or did not win a point (QWW-99, "A point"). */
+export type Entry = "point" | "dropped" | "too close";
+
+/** An opening balls go into: its middle (meters), the way out of it (a unit vector), and its half width. */
+interface Mouth {
+  x: number;
+  y: number;
+  ux: number;
+  uy: number;
+  half: number;
+}
+
+function canMouth(can: Can): Mouth {
+  const ux = -Math.sin(can.angle);
+  const uy = Math.cos(can.angle);
+  const h = CAN_HEIGHT * can.scale;
+  return { x: can.x + (ux * h) / 2, y: can.y + (uy * h) / 2, ux, uy, half: (CAN_WIDTH * can.scale) / 2 };
+}
+
+/**
+ * Whether a ball of radius `r` at `at`, moving at `vel`, comes down into `mouth` (itself moving at `mv`) within the next step:
+ * heading in, over the opening, and about to reach the height where it would touch the rim.
+ */
+function comingIn(at: Point, vel: Point, mouth: Mouth, mv: Point, r: number): boolean {
+  const dx = at.x - mouth.x;
+  const dy = at.y - mouth.y;
+  const up = dx * mouth.ux + dy * mouth.uy;
+  const across = dx * mouth.uy - dy * mouth.ux;
+  const vUp = (vel.x - mv.x) * mouth.ux + (vel.y - mv.y) * mouth.uy;
+  const vAcross = (vel.x - mv.x) * mouth.uy - (vel.y - mv.y) * mouth.ux;
+  if (vUp >= 0 || up < -0.25 * r) return false;
+  return up + vUp * STEP <= r * 1.02 && Math.abs(across + vAcross * STEP) <= mouth.half;
+}
+
+/** Whether a ball of radius `r` has come to rest on `mouth` (an open lid), over its opening. */
+function restingIn(at: Point, vel: Point, mouth: Mouth, r: number): boolean {
+  if (Math.hypot(vel.x, vel.y) > 0.1) return false;
+  const dx = at.x - mouth.x;
+  const dy = at.y - mouth.y;
+  const up = dx * mouth.ux + dy * mouth.uy;
+  const across = dx * mouth.uy - dy * mouth.ux;
+  return up > 0.6 * r && up < 1.3 * r && Math.abs(across) <= mouth.half;
+}
+
+/** How long a poured ball keeps out of the can it came from, seconds, unless a hand touches it. */
+const POURED_AWAY = 1.5;
 
 /**
  * A can of balls as the rest of the app sees it, in the same units as a ball. Its position is the middle of its body, and its angle
@@ -251,6 +305,12 @@ export class Court {
   private settleK: SettleConstants | null = null;
   /** A can lifted out of the open bag to pour or wiggle is done and stands back in its place: the toy puts it back. */
   onBackInBag: (can: Can) => void = () => {};
+  /** The cans standing in the open bag, which take balls too once they have room: which can, how many more it holds, and its mouth. Set by the toy. */
+  bagMouths: { seed: number; room: number; mouth: Mouth }[] = [];
+  /** A ball went into a can: `entry` says whether it won a point, and if not, why not. The ball has left the court. */
+  onCanEntry: (can: Can, ball: Ball, entry: Entry) => void = () => {};
+  /** A ball went into a can standing in the open bag. */
+  onBagEntry: (seed: number, ball: Ball, entry: Entry) => void = () => {};
   private target = { x: 0, y: 0 };
   private meetings: Meeting[] = [];
   private time = 0; // seconds of simulated time
@@ -424,6 +484,10 @@ export class Court {
       vy,
       pinned,
       held: false,
+      shot: null,
+      handled: false,
+      pouredFrom: null,
+      pouredAt: 0,
     };
     this.balls.push(ball);
     this.bodies.set(ball.id, body);
@@ -522,6 +586,14 @@ export class Court {
     return !!body && body.isStatic();
   }
 
+  /** For browser checks: a new ball let go by a hand at (x, y) (meters, y up) at (vx, vy) m/s. Thrown from there if it is fast enough to count as a throw. */
+  launch(x: number, y: number, vx: number, vy: number): Ball {
+    const ball = this.addBall(x, y, false, vx, vy);
+    ball.handled = true;
+    ball.shot = Math.hypot(vx, vy) >= params.throwSpeed ? { x, y } : null;
+    return ball;
+  }
+
   /** Send a ball flying along a unit direction, as if struck. A can is not struck: a tap on it does nothing. */
   hit(id: number, dirX: number, dirY: number): void {
     const ball = this.balls.find((b) => b.id === id);
@@ -529,6 +601,8 @@ export class Court {
     if (!ball || !body || ball.held) return;
     this.loosen(id);
     this.unpin(ball, body);
+    ball.shot = { x: ball.x, y: ball.y };
+    ball.handled = true;
     const v = body.getLinearVelocity();
     body.setLinearVelocity({
       x: dirX * params.hitSpeed * U + v.x * params.hitCarryOver,
@@ -544,6 +618,8 @@ export class Court {
     this.loosen(id);
     this.unpin(ball, body);
     ball.held = true;
+    ball.shot = null;
+    ball.handled = true;
     this.heldId = id;
     body.setGravityScale(0);
     // A ball in the hand does not bounce. It chases the pointer at a speed set by the gap, and if the
@@ -565,6 +641,9 @@ export class Court {
     this.heldId = null;
     if (!ball || !body) return;
     ball.held = false;
+    // let go while moving, it was thrown from here; let go slowly, it was only dropped
+    const v = body.getLinearVelocity();
+    ball.shot = Math.hypot(v.x, v.y) / U >= params.throwSpeed ? { x: ball.x, y: ball.y } : null;
     body.setGravityScale(1);
     this.setBounce(body, params.restitution);
     body.setAwake(true);
@@ -669,8 +748,60 @@ export class Court {
         gone.push(can.id);
       }
     }
+    this.enter();
     for (const can of back) this.onBackInBag(can);
     return gone;
+  }
+
+  /** A mouth a little wider than the can, so a ball that would clip the rim on its way in rolls in instead. */
+  private wide(mouth: Mouth): Mouth {
+    return { ...mouth, half: mouth.half + (params.mouthGrace * params.ballDiameter) / 2 };
+  }
+
+  /** Whether a can would take a ball: carried or standing (not falling or pouring), leaning less than `refillTilt`, with room in it. */
+  private takes(can: Can): boolean {
+    const tilt = Math.abs(Math.atan2(Math.sin(can.angle), Math.cos(can.angle)));
+    const state = this.drives.get(can.id)?.state;
+    return state !== "settling" && state !== "pour" && can.ballsLeft < CAN_BALLS && tilt <= (params.refillTilt * Math.PI) / 180;
+  }
+
+  /**
+   * Balls coming down into an upright can with room go in, from any height, thrown or dropped. Each is caught the step before it
+   * would touch the lid or the rim, so it never bounces off them.
+   */
+  private enter(): void {
+    const r = params.ballDiameter / 2;
+    for (const ball of [...this.balls]) {
+      if (ball.held || ball.pinned) continue;
+      const body = this.bodies.get(ball.id)!;
+      if (!body.isDynamic()) continue; // one holding a can up stays where it is
+      const at = { x: ball.x, y: ball.y };
+      const vel = { x: ball.vx, y: ball.vy };
+      // a ball just poured out of a can does not bounce straight back into it, unless a hand has touched it since
+      const back = (seed: number) => ball.pouredFrom === seed && !ball.handled && this.time - ball.pouredAt < POURED_AWAY;
+      const into = (mouth: Mouth, mv: Point) => comingIn(at, vel, this.wide(mouth), mv, r) || restingIn(at, vel, mouth, r);
+      const can = this.cans.find((c) => this.takes(c) && !back(c.seed) && into(canMouth(c), { x: c.vx, y: c.vy }));
+      if (can) {
+        const entry = this.judge(ball, canMouth(can));
+        this.remove(ball.id);
+        can.ballsLeft++;
+        this.onCanEntry(can, { ...ball }, entry);
+        continue;
+      }
+      const bag = this.bagMouths.find((m) => m.room > 0 && !back(m.seed) && into(m.mouth, { x: 0, y: 0 }));
+      if (bag) {
+        const entry = this.judge(ball, bag.mouth);
+        this.remove(ball.id);
+        bag.room--;
+        this.onBagEntry(bag.seed, { ...ball }, entry);
+      }
+    }
+  }
+
+  /** Whether a ball going into a can wins a point: a hand threw or hit it from at least `shotDistance` of the court's width away, in a straight line in any direction. */
+  private judge(ball: Ball, mouth: Mouth): Entry {
+    if (!ball.shot) return "dropped";
+    return Math.hypot(ball.shot.x - mouth.x, ball.shot.y - mouth.y) >= params.shotDistance * this.width ? "point" : "too close";
   }
 
   /**
@@ -1196,7 +1327,9 @@ export class Court {
     this.makeRoom();
     const speed = 160 * K.px * K.tf;
     const side = (Math.random() - 0.5) * 40 * K.px * K.tf;
-    this.addBall(at.x, at.y, false, -Math.sin(pose.a) * speed + side, Math.cos(pose.a) * speed);
+    const ball = this.addBall(at.x, at.y, false, -Math.sin(pose.a) * speed + side, Math.cos(pose.a) * speed);
+    ball.pouredFrom = can.seed;
+    ball.pouredAt = this.time;
     can.ballsLeft--;
   }
 

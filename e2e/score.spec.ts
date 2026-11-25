@@ -171,7 +171,8 @@ test.describe("points", () => {
     await expect(page.getByText("+1")).toHaveCount(0);
 
     await tidy(page);
-    expect(await shoot(page, id, { x: m.x + width / 10, y: m.y - 40 }, 0.4), "the ball goes in").toBe(true);
+    // (a tenth of the width straight above the can. Beside it, 40 px up, is where a phone's "i" dot hangs: the ball would start inside it.)
+    expect(await shoot(page, id, { x: m.x + 10, y: m.y - width / 10 }, 0.4), "the ball goes in").toBe(true);
     g = await game(page);
     expect(g.lastEntry).toBe("too close");
     expect([g.you, g.them], "no point").toEqual(["30", "30"]);
@@ -233,10 +234,19 @@ test.describe("points", () => {
     await run(page, 6); // it pours, which finds the game, and goes back into its place
     expect((await game(page)).found).toBe(true);
     await tidy(page);
+    // On a phone held sideways the bag's cans stand 13 px under the name's baseline, so no ball can be thrown into one without passing
+    // through the letters: there, what is shown is that the poured can has room (the throw itself is shown on the desktop).
+    if (test.info().project.use.hasTouch) {
+      const mouths = await sandbox<{ seed: number; room: number }[]>(page, "bagMouths()");
+      expect(mouths.filter((m) => m.room === 3), "the poured can takes balls again").toHaveLength(1);
+      return;
+    }
     const mouth = { x: box.x, y: box.top };
     const ppm = await sandbox<number>(page, "pxPerMeter()");
-    const from = { x: Math.max(30, mouth.x - width / 3), y: 40 };
-    const v = aim(ppm, from, mouth, 0.6);
+    // (thrown from above and to the right, 0.21 of the width away: from the top and the left, a third of the width away, the throw
+    // crosses the name, whose "i" dot hangs right above the first can, and bounces off it; and from level, a high lob hits the ceiling of a short window)
+    const from = { x: mouth.x + 0.12 * width, y: mouth.y - 0.172 * width };
+    const v = aim(ppm, from, mouth, 0.5);
     await sandbox(page, `launch(${from.x}, ${from.y}, ${v.vx}, ${v.vy})`);
     await run(page, 2.5);
     const g = await game(page);

@@ -429,6 +429,17 @@ export class Scene {
     return ITEMS.filter((it, i) => !this.isOut(i)).map((it) => itemBox(it, this.layout.sink).map((p) => bagToPage(this.layout, p)));
   }
 
+  /** The cans standing in the open bag, each with the middle of its mouth (page px), its tilt (degrees, clockwise) and its width (page px): they take balls too. */
+  canMouths(): { seed: number; x: number; y: number; tilt: number; width: number }[] {
+    if (!this.open || !this.layout) return [];
+    return ITEMS.flatMap((it, i) => {
+      if (it.kind !== "can" || this.taken.has(i)) return [];
+      // the box runs foot left, foot right, top right, top left
+      const box = itemBox(it, this.layout.sink).map((p) => bagToPage(this.layout, p));
+      return [{ seed: it.seed, x: (box[2][0] + box[3][0]) / 2, y: (box[2][1] + box[3][1]) / 2, tilt: it.tilt, width: CAN.w * this.layout.k }];
+    });
+  }
+
   /** Where an item stands when it is up, as the transform of its rising group. */
   private upTransform(): string {
     return `translateY(${(this.layout?.sink ?? 0).toFixed(1)}px)`;
