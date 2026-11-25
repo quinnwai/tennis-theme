@@ -16,6 +16,7 @@ import { mountNotebook, type Notebook } from "./v6/notebook";
 import { Match } from "./v6/match";
 import { Scene } from "./v6/scene";
 import { mountScoreboard, type Scoreboard } from "./v6/scoreboard";
+import { mountRulesCard } from "./v6/rules-card";
 import { layoutName, type NameLayout } from "./wordmark";
 import { WORDMARKS } from "./wordmark.data";
 
@@ -73,6 +74,13 @@ function main(): void {
 
   /** The cans game, found by emptying a can: its match and its scoreboard. Nothing of it shows until then. */
   const game: { match: Match; board: Scoreboard } = { match: new Match(), board: mountScoreboard() };
+  /** How to play: a card tucked behind the scoreboard, there only once the game is found. */
+  const rules = mountRulesCard(document.querySelector<HTMLElement>(".v6-score")!);
+  /** How the match is going, for the stats card: since the game was found (sim ms), and when the stats are due after the win (0: not due). */
+  let tally = { thrown: 0, inCans: 0, since: 0, wonAt: 0 };
+  let statsDue = 0;
+  /** How long after the win the stats drop down (sim ms). */
+  const STATS_DELAY_MS = 1200;
   /** How the last ball into a can was judged, and the crowd's sounds started so far (none with the sound off), for the browser checks. */
   let lastEntry: Entry | null = null;
   const heard: string[] = [];
@@ -238,15 +246,31 @@ function main(): void {
   /** A ball went into a can, judged `entry`: once the game is found, a throw that counts wins a point, to applause. */
   function judged(entry: Entry): void {
     lastEntry = entry;
+    if (game.match.found) tally.inCans += 1;
     if (game.match.found && entry === "point") scorePoint();
   }
 
-  /** A counted throw: you win a point, to applause, and the score flashes. For now the score stops at 40-30 (winning the match is QWW-99's next step). */
+  /** A counted throw: you win a point, to applause, and the score flashes. The third wins the match, and the stats follow. */
   function scorePoint(): void {
-    game.match.point();
+    const result = game.match.point();
+    if (result === "over") return;
     game.board.update(game.match, true);
     if (readSound() === "on") heard.push("applause");
     sound.play("applause");
+    if (result === "won") {
+      tally.wonAt = simMs;
+      statsDue = simMs + STATS_DELAY_MS;
+    }
+  }
+
+  /** A new match from the stats: back to 15-30 with the board and How to play up. Everything on the court stays where it is. */
+  function playAgain(): void {
+    game.match.playAgain();
+    game.board.show(game.match);
+    rules.show();
+    tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
+    statsDue = 0;
+    lastEntry = null;
   }
 
   /** Whether a point (page px) is inside a letter, the bench, the bag or what stands in the open bag. */
@@ -334,6 +358,7 @@ function main(): void {
     {
       hit(id, dir, at) {
         noteInteraction();
+        if (game.match.found) tally.thrown += 1;
         court.hit(id, dir.x, -dir.y);
         renderer.burst(at.x, at.y, clock(performance.now()));
         sound.play("hit");
@@ -352,7 +377,10 @@ function main(): void {
       },
       release() {
         noteInteraction();
+        const held = court.balls.find((b) => b.held);
         court.release();
+        // let go while moving, it was thrown
+        if (game.match.found && held && Math.hypot(held.vx, held.vy) > 0.8) tally.thrown += 1;
       },
     },
   );
@@ -401,6 +429,23 @@ function main(): void {
     if (!game.match.found && court.cans.some((c) => c.ballsLeft === 0)) {
       game.match.found = true;
       game.board.show(game.match);
+      rules.show();
+      tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
+    }
+    // after the win, the stats take How to play's place under the board
+    if (statsDue > 0 && simMs >= statsDue) {
+      statsDue = 0;
+      rules.hide();
+      game.board.showStats(
+        {
+          thrown: Math.max(tally.thrown, game.match.pointsWon),
+          inCans: tally.inCans,
+          points: game.match.pointsWon,
+          streak: game.match.pointsWon,
+          ms: tally.wonAt - tally.since,
+        },
+        playAgain,
+      );
     }
   }
 
@@ -417,6 +462,8 @@ function main(): void {
     bagBalls.clear();
     game.match.reset();
     game.board.hide();
+    rules.hide();
+    statsDue = 0;
     lastEntry = null;
     for (const seed of [1, 2, 3]) scene.setCanBalls(seed, CAN_BALLS);
     restarted = true;
@@ -820,12 +867,17 @@ function main(): void {
       /** The cans game: whether it is found, the two calls on the board, whether it is championship point, how the last ball into a can was judged, and the crowd sounds started. */
       game: () => ({
         found: game.match.found,
+        won: game.match.won,
         you: game.match.call(game.match.you),
         them: game.match.call(game.match.them),
         championshipPoint: game.match.championshipPoint,
         lastEntry,
         heard: [...heard],
       }),
+      /** Win a point as a counted throw would, once the game is found. */
+      scorePoint() {
+        if (game.match.found) scorePoint();
+      },
       effects: () => renderer.effects(),
       pxPerMeter: () => pxPerMeter,
       /** Let a loose ball go at a point on screen (px). */

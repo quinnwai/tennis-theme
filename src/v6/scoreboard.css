@@ -311,6 +311,11 @@
     padding: 2px 8px;
     border-left-width: 3px;
   }
+  .v6-score-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
   .v6-score-stats .head,
   .v6-score-stats dl {
     display: none;
@@ -319,8 +324,11 @@
     display: block;
   }
   .v6-score-stats .again {
+    flex: none;
+    width: auto;
     height: 22px;
-    margin: 3px 0 2px;
+    margin: 0;
+    padding: 0 8px;
     font-size: 11px;
   }
 }
