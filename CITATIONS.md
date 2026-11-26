@@ -17,3 +17,5 @@ inspo…
    - ball rising: ([JoBot__](https://freesound.org/people/JoBot__/) from freesound)
    - ball out: ([SimoSC](https://freesound.org/people/SimoSC/) from freesound)
    - point applause: ([cognito perceptu](https://freesound.org/people/cognito%20perceptu/sounds/57587/) from freesound)
+   - bag zip: ([Kodack](https://freesound.org/people/Kodack/sounds/256404/) from freesound)
+   - notebook: ([yatoimtop](https://freesound.org/people/yatoimtop/sounds/346835/) from freesound)

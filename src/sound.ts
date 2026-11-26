@@ -2,9 +2,9 @@ import { params, type Params } from "./params";
 import { SOUND_KEY, parseSound, type SoundSetting } from "./sound-setting"; // where the browser keeps how loud the visitor wants the sound, which the sound button writes
 
 /** The five things that make a sound. */
-export type SoundName = "hit" | "bounce" | "rising" | "out" | "applause";
+export type SoundName = "hit" | "bounce" | "rising" | "out" | "applause" | "zipper" | "paper";
 
-const NAMES: SoundName[] = ["hit", "bounce", "rising", "out", "applause"];
+const NAMES: SoundName[] = ["hit", "bounce", "rising", "out", "applause", "zipper", "paper"];
 
 /**
  * The files, and the stretch of each that is worth playing, in seconds. Addresses are relative to the page so
@@ -20,6 +20,11 @@ export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number
   out: { file: "./tennis/sounds/out-1-soft-whoosh-freesound-682473.mp3", from: 0 },
   // A point's applause (freesound 57587, CC0): a stadium crowd, faded out from 2.6 s so that it ends at 3.2 s.
   applause: { file: "./tennis/sounds/applause-freesound-57587.mp3", from: 0, to: 3.2, fadeAt: 2.6 },
+  // The bag's zip (freesound 256404, CC0): one even pull, 0.73 s. Scrubbed, not played through (see `Sound.zipper`).
+  // These two files carry the encoder's own note of its delay, so the browser has already taken it off: they are played from 0.
+  zipper: { file: "./tennis/sounds/zipper-freesound-256404.mp3", from: 0 },
+  // The notebook's page turn (freesound 346835, CC0): soft, 0.36 s.
+  paper: { file: "./tennis/sounds/paper-freesound-346835.mp3", from: 0 },
 };
 
 /**
@@ -37,6 +42,8 @@ const VOLUME: Record<Playable, keyof Params> = {
   rising: "soundRising",
   out: "soundOut",
   applause: "soundApplause",
+  zipper: "soundZipper",
+  paper: "soundPaper",
 };
 
 /**
@@ -89,7 +96,12 @@ export interface AudioNodeLike {
 }
 
 export interface GainNodeLike extends AudioNodeLike {
-  readonly gain: { value: number; setTargetAtTime(target: number, startTime: number, timeConstant: number): unknown };
+  readonly gain: {
+    value: number;
+    setTargetAtTime(target: number, startTime: number, timeConstant: number): unknown;
+    setValueAtTime?(value: number, startTime: number): unknown;
+    cancelScheduledValues?(startTime: number): unknown;
+  };
 }
 
 export interface CompressorLike extends AudioNodeLike {
@@ -102,6 +114,7 @@ export interface CompressorLike extends AudioNodeLike {
 
 export interface BufferSourceLike extends AudioNodeLike {
   buffer: AudioBufferLike | null;
+  readonly playbackRate?: { value: number };
   start(when: number, offset: number, duration: number): void;
   stop(when: number): void;
 }
@@ -195,6 +208,12 @@ function buildMaster(ctx: AudioContextLike) {
   return { input: limiter as AudioNodeLike };
 }
 
+/** The playback rates the zipper's scrub is held to, and how far (seconds) its playhead may stray from the pull before a new voice starts. */
+const ZIP_RATE = [0.5, 2] as const;
+const ZIP_DRIFT = 0.12;
+/** How long, seconds, the zipper goes on after the pull's last move: the 50 ms it may take to stop, less the fade's three time constants. */
+const ZIP_HOLD = 0.03;
+
 /** A sound that is playing: when it ends, and how to cut it short. */
 interface Voice {
   endsAt: number;
@@ -231,6 +250,9 @@ export class Sound {
   private loading = new Set<Playable>();
   /** The patter: the sounds that share `soundMaxVoices` places, and give way to each other. */
   private voices: Voice[] = [];
+  /** The zipper's voice, while the pull is moving (see `zipper`), and where the pull was last heard. */
+  private zipVoice: { source: BufferSourceLike; gain: GainNodeLike; dir: 1 | -1; offset: number; at: number; rate: number; volume: number } | null = null;
+  private zipLast = { pos: 0, ms: 0 };
   /** When the longest kept sound ends, on the context's clock, so that the audio is not put to sleep inside it. */
   private keptEndsAt = 0;
 
@@ -348,6 +370,82 @@ export class Sound {
       console.warn("The sound broke, and is switched off.", error);
       this.ctx = null;
     }
+  }
+
+  /**
+   * The bag's zip moved to `pos` (0 shut, 1 open): the zipper rasps while it moves and stops within about 50 ms of its stopping. The file is
+   * one even pull and does not loop, so it is scrubbed: the voice starts at the offset of the pull's position (opening) or of its mirror
+   * (closing; the file always plays forward), at a rate that follows the pull's speed (a whole pull in the file's length is rate 1, clamped to
+   * `ZIP_RATE`). Each move pushes the fade-out back to `hold` seconds on, so a pull that stops falls silent by itself. A voice is started
+   * afresh when the direction turns, when the sound has run out, or when it has drifted from the pull. A kept sound (never cut, not counted).
+   */
+  zipper(pos: number, hold = ZIP_HOLD): void {
+    const ctx = this.ctx;
+    const buffer = this.buffers.get("zipper");
+    const ms = performance.now();
+    const last = this.zipLast;
+    this.zipLast = { pos, ms };
+    if (!this.interacted || !ctx || !buffer || this.env.muted() || pos === last.pos) return;
+    const volume = Math.min(1, params.soundZipper * this.env.gain());
+    const length = buffer.duration;
+    if (!(volume > 0 && length > 0)) return;
+    const dir = pos > last.pos ? 1 : -1;
+    const seconds = (ms - last.ms) / 1000;
+    const rate = seconds > 0 && seconds < 0.2 ? Math.min(ZIP_RATE[1], Math.max(ZIP_RATE[0], (Math.abs(pos - last.pos) / seconds) * length)) : 1;
+    const offset = Math.min(length - 0.02, Math.max(0, (dir > 0 ? pos : 1 - pos) * length));
+
+    this.wake();
+    const now = ctx.currentTime;
+    let voice = this.zipVoice;
+    if (voice) {
+      const playhead = voice.offset + (now - voice.at) * voice.rate;
+      if (voice.dir !== dir || playhead >= length - 0.02 || Math.abs(playhead - offset) > ZIP_DRIFT) {
+        this.stopZipper(0.01);
+        voice = null;
+      } else {
+        voice.offset = playhead;
+        voice.at = now;
+        voice.rate = rate;
+        if (voice.source.playbackRate) voice.source.playbackRate.value = rate;
+      }
+    }
+    try {
+      if (!voice) {
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        source.buffer = buffer;
+        gain.gain.value = volume;
+        if (source.playbackRate) source.playbackRate.value = rate;
+        source.connect(gain);
+        gain.connect(this.master!.input);
+        source.start(now, offset, length - offset);
+        voice = this.zipVoice = { source, gain, dir, offset, at: now, rate, volume };
+      }
+      this.keptEndsAt = Math.max(this.keptEndsAt, now + hold + 0.1);
+      this.fadeZipper(voice, now + hold, 0.01);
+    } catch (error) {
+      console.warn("The sound broke, and is switched off.", error);
+      this.ctx = null;
+    }
+  }
+
+  /** Let the zipper fall silent, `after` seconds from now (at once if the pull has just stopped, as a run of the zip has ended). */
+  stopZipper(after = 0.03): void {
+    const voice = this.zipVoice;
+    if (!voice || !this.ctx) return;
+    this.zipVoice = null;
+    const now = this.ctx.currentTime;
+    this.fadeZipper(voice, now + after, 0.01);
+    voice.source.stop(now + after + 0.05);
+  }
+
+  private fadeZipper(voice: { gain: GainNodeLike; volume: number }, at: number, timeConstant: number): void {
+    const param = voice.gain.gain;
+    if (param.cancelScheduledValues && param.setValueAtTime) {
+      param.cancelScheduledValues(0);
+      param.setValueAtTime(voice.volume, this.ctx!.currentTime);
+    }
+    param.setTargetAtTime(0, at, timeConstant);
   }
 
   /** A ball struck something at `speed` m/s. */
