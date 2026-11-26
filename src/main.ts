@@ -25,6 +25,7 @@ import { WORDMARKS } from "./wordmark.data";
 const REFILL_DELAY_MS = 1200; // longer than a tapped ball takes to go straight up and come back down
 const RISE_MS = 260; // how long a fresh ball takes to rise out of the stem
 const DROP_MS = 200; // how long a ball let go over the trophy's mouth takes to drop in
+const ZIP_RUN_HOLD = 0.1; // s the zipper goes on after a frame of a run of the zip, so a slow frame leaves no gap; the end of the run stops it at once
 
 /** An "i": the spot where its dot sits. Its stem never runs out of balls. Meters, y up. */
 interface Home {
@@ -115,7 +116,12 @@ function main(): void {
     {
       reducedMotion,
       onSolids: (loops) => applySceneSolids(loops),
-      onNotebook: (box, opener) => notebook.open(box, opener),
+      onNotebook: (box, opener) => {
+        if (!notebook.isOpen()) sound.play("paper", 1, true); // as the cover opens; closing and turning a page are silent
+        notebook.open(box, opener);
+      },
+      onZip: (zip, running) => (running ? sound.zipper(zip, ZIP_RUN_HOLD) : sound.zipper(zip)),
+      onZipStop: () => sound.stopZipper(),
       onInteraction: () => noteInteraction(),
     },
     canvas,

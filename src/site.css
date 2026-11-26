@@ -403,8 +403,8 @@ a {
   }
 
   .credits-text {
-    font-size: 14px;
-    line-height: 1.22; /* (1.35 before the line for the trophy) */
+    font-size: 13px; /* (14 before the lines for the bag's zip and the notebook's paper, QWW-109) */
+    line-height: 1.15; /* (1.35 before the line for the trophy, 1.22 before those two) */
   }
 
   .credits-text p {
@@ -434,8 +434,8 @@ a {
   }
 
   .credits-text {
-    font-size: 13px;
-    line-height: 1.12; /* (1.2 before the line for the trophy) */
+    font-size: 12px; /* (13 before the lines for the bag's zip and the notebook's paper, QWW-109) */
+    line-height: 1.1; /* (1.2 before the line for the trophy, 1.12 before the lines for the bag's zip and the notebook's paper, QWW-109) */
   }
 
   /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves (and the line for the point applause took the line spacing down from 1.25 to 1.2, and the gaps down a little more). */

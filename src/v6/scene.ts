@@ -266,6 +266,10 @@ export interface SceneOptions {
   onNotebook(box: NotebookBox, opener: HTMLElement): void;
   /** The visitor did something: unzipped, opened the notebook. For the analytics. */
   onInteraction(kind: "unzip" | "notebook"): void;
+  /** The zip moved to `zip` (0 shut, 1 open), by a drag, a key or a run (`running`: by itself, frame by frame). */
+  onZip(zip: number, running: boolean): void;
+  /** A run of the zip is over or was cut short: the sound of it ends now. */
+  onZipStop(): void;
 }
 
 const svgNS = "http://www.w3.org/2000/svg";
@@ -573,8 +577,10 @@ export class Scene {
 
   // ---- the zip ----
 
-  private setZip(zip: number): void {
+  private setZip(zip: number, running = false): void {
+    const before = this.zip;
     this.zip = Math.max(0, Math.min(1, zip));
+    if (this.zip !== before) this.opts.onZip(this.zip, running);
     this.drawBag();
     this.placePull();
     if (this.open && this.zip < 1) this.setOpen(false);
@@ -583,15 +589,19 @@ export class Scene {
   /** Run the zip to `to` by itself, then open or close the bag. */
   private runZip(to: number, quick = false): void {
     cancelAnimationFrame(this.zipAnim);
+    this.opts.onZipStop();
     const from = this.zip;
     const ms = (this.opts.reducedMotion ? 0 : params.zipMs * (quick ? 0.6 : 1)) * Math.abs(to - from);
     const start = performance.now();
     const tick = (now: number) => {
       const t = ms ? Math.min(1, (now - start) / ms) : 1;
       const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-      this.setZip(from + (to - from) * eased);
+      this.setZip(from + (to - from) * eased, t < 1);
       if (t < 1) this.zipAnim = requestAnimationFrame(tick);
-      else if (to >= 1) this.setOpen(true);
+      else {
+        this.opts.onZipStop();
+        if (to >= 1) this.setOpen(true);
+      }
     };
     if (ms) this.zipAnim = requestAnimationFrame(tick);
     else tick(start);
@@ -618,6 +628,7 @@ export class Scene {
       if (e.button !== 0) return;
       e.preventDefault();
       cancelAnimationFrame(this.zipAnim);
+      this.opts.onZipStop();
       const slider = this.track[Math.round(this.zip * 120)].at;
       this.dragging = { id: e.pointerId, offset: [e.clientX - slider[0], e.clientY - slider[1]] };
       b.setPointerCapture(e.pointerId);
