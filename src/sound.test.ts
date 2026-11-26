@@ -28,7 +28,8 @@ afterEach(() => {
 
 const NAMES = Object.keys(SOUNDS) as SoundName[];
 /** How long each file is, as a browser's decoder reports it. */
-const LENGTH: Record<SoundName, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828 };
+// (A record of any name, so that it already knows the bag's zip and the notebook's paper, QWW-109, before they are sounds of their own.)
+const LENGTH: Record<string, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828, zipper: 0.768, paper: 0.384 };
 const CHEER_FILE = "./tennis/sounds/successful-event.wav";
 const CHEER_LENGTH = 3.0;
 const nameOf = (file: string) => (file === CHEER_FILE ? ("cheer" as SoundName) : NAMES.find((name) => SOUNDS[name].file === file)!);
@@ -432,6 +433,21 @@ describe("Sound", () => {
     expect(levelGain("on")).toBe(0.15);
   });
 
+  it("plays the bag's zip at 0.07 and the notebook's paper at 0.25, each about as loud to the ear as a full-speed bounce (QWW-109)", () => {
+    expect(defaults).toMatchObject({ soundZipper: 0.07, soundPaper: 0.25 });
+  });
+
+  it("credits the bag's zip and the notebook's paper in CITATIONS.md and in the credits on the page, like the other sounds (QWW-109)", () => {
+    const files = import.meta.glob(["../CITATIONS.md", "../index.html"], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+    for (const [file, text] of Object.entries(files)) {
+      expect(text, file).toMatch(/bag zip[^\n]*Kodack/);
+      expect(text, file).toContain("https://freesound.org/people/Kodack/sounds/256404/");
+      expect(text, file).toMatch(/notebook[^\n]*yatoimtop/);
+      expect(text, file).toContain("https://freesound.org/people/yatoimtop/sounds/346835/");
+    }
+    expect(Object.keys(files)).toHaveLength(2);
+  });
+
   it("plays no bounce for a soft contact, and some for a hard one", async () => {
     const { sound, started } = await awake();
     sound.bounce(params.soundBounceMinSpeed - 0.01);
@@ -620,7 +636,7 @@ describe("Sound", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { sound, started } = await awake({ failLoad: "bounce" });
     for (const name of NAMES) sound.play(name);
-    expect(started.map((s) => s.name)).toEqual(["hit", "rising", "out", "applause"]);
+    expect(started.map((s) => s.name)).toEqual(NAMES.filter((name) => name !== "bounce")); // every sound but the one that failed (since QWW-109, the zipper and the paper too)
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
