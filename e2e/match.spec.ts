@@ -8,6 +8,10 @@
 // - game().won: whether the match is won
 // And of the page: the match stats are one element marked `data-match-stats`, holding the Play again button.
 // Nothing here may be weakened to pass; a check that is wrong is argued on QWW-103.
+//
+// QWW-111 (step 12 of the review fixes): step 2 of How to play reads "Drag or tap a ball to throw"; the time on court reads 0m14s; on a phone
+// held sideways Play again has its own line under the stats line, which ends before the first "i", and the stats line is drawn light and
+// lets presses through to the balls. Asked of the page: the one-line stats are the `.line` inside `data-match-stats` (as now).
 
 import { freeze, run, until } from "./frozen";
 import { expect, type Locator, type Page } from "@playwright/test";
@@ -102,7 +106,7 @@ test.describe("How to play", () => {
     await howTo(page).click();
     await run(page, 1);
     // each step exactly as written: in particular "Sink it from a distance" says no distance
-    for (const step of ["Tap a can to pour", "Drag a ball to throw", "Sink it from a distance", "Win 3 points, win the match"])
+    for (const step of ["Tap a can to pour", "Drag or tap a ball to throw", "Sink it from a distance", "Win 3 points, win the match"])
       await expect(page.getByText(step, { exact: true })).toBeVisible();
   });
 });
@@ -179,7 +183,8 @@ test.describe("winning the match", () => {
     if (info.project.name === "chromium") {
       expect(box.height, "a card: several lines tall").toBeGreaterThan(60);
     } else {
-      expect(box.height, "one line").toBeLessThan(44);
+      // (QWW-111: Play again has a line of its own under it, so "one line" is the stats line itself)
+      expect((await stats(page).locator(".line").boundingBox())!.height, "one line").toBeLessThan(44);
       expect(box.y, "under the board").toBeGreaterThanOrEqual(b.y + b.height - 2);
     }
     await expect(stats(page).getByRole("button", { name: "Play again" })).toBeVisible();
@@ -225,5 +230,98 @@ test.describe("after the match", () => {
     await expect(howTo(page)).toBeHidden();
     expect(await cans(page), "every can is back in the bag").toHaveLength(0);
     expect((await sandbox<{ open: boolean }>(page, "bag()")).open, "and the bag is zipped").toBe(false);
+  });
+});
+
+// ---- QWW-111 ----
+
+/** The ball sitting as the dot of the first "i", and its middle and radius (page px). */
+const firstDot = (page: Page) =>
+  page.evaluate(() => {
+    const s = (window as any).__sandbox;
+    const home = s.layout().dots[0];
+    return s.balls().find((b: any) => b.pinned && Math.hypot(b.x - home.x, b.y - home.y) < 2) as { id: number; x: number; y: number; r: number };
+  });
+
+test.describe("How to play at 750 x 280", () => {
+  test.use({ viewport: { width: 750, height: 280 } });
+  test("the card still fits, with every step inside it and the card inside the window (QWW-111)", async ({ page }) => {
+    await findGame(page);
+    await howTo(page).click();
+    await run(page, 1);
+    await page.waitForTimeout(700); // the card has slid down
+    const paper = (await page.locator(".v7-rules-paper").boundingBox())!;
+    expect(paper.y + paper.height, "the card inside the window").toBeLessThanOrEqual(280);
+    expect(paper.x + paper.width).toBeLessThanOrEqual(750);
+    for (const step of await page.locator(".v7-rules-paper li .t").all()) {
+      const box = (await step.boundingBox())!;
+      expect(box.x, "each step inside the card").toBeGreaterThanOrEqual(paper.x - 0.5);
+      expect(box.x + box.width).toBeLessThanOrEqual(paper.x + paper.width + 0.5);
+      expect(box.y + box.height).toBeLessThanOrEqual(paper.y + paper.height + 0.5);
+    }
+  });
+});
+
+test.describe("time on court", () => {
+  test("reads minutes and seconds: in the card on a desktop, and on the stats line on a phone held sideways (QWW-111)", async ({ page }) => {
+    await findGame(page);
+    await winByHook(page);
+    await untilShown(page, stats(page), "the stats come down");
+    const short = page.viewportSize()!.height <= 420;
+    if (short) await expect(stats(page).locator(".line")).toContainText(/\b\d+m\d{2}s on court\b/);
+    else await expect(stats(page).locator("dt", { hasText: "Time on court" }).locator("xpath=following-sibling::dd[1]")).toHaveText(/^\d+m\d{2}s$/);
+  });
+});
+
+for (const size of [{ width: 750, height: 280 }, { width: 844, height: 390 }, { width: 915, height: 412 }]) {
+  test.describe(`a phone held sideways, ${size.width} x ${size.height}`, () => {
+    test.use({ viewport: size });
+
+    test("Play again sits on its own line under the stats line, and neither reaches the first i's ball (QWW-111)", async ({ page }) => {
+      await findGame(page);
+      await winByHook(page);
+      await untilShown(page, stats(page), "the stats come down");
+      await page.waitForTimeout(700); // the stats have dropped into place
+      const line = (await stats(page).locator(".line").boundingBox())!;
+      const again = (await playAgain(page).boundingBox())!;
+      const dot = await firstDot(page);
+      expect(again.y, "Play again below the stats line").toBeGreaterThanOrEqual(line.y + line.height - 0.5);
+      expect(line.x + line.width, "the stats line ends before the first i's ball").toBeLessThan(dot.x - dot.r);
+      expect(again.x + again.width, "and so does Play again").toBeLessThan(dot.x - dot.r);
+    });
+  });
+}
+
+test.describe("the stats line on a phone held sideways, 750 x 280", () => {
+  test.use({ viewport: { width: 750, height: 280 } });
+
+  test("is drawn light, with no dark box, and a tap on the first i's ball hits the ball, not Play again (QWW-111)", async ({ page }) => {
+    await findGame(page);
+    await winByHook(page);
+    await untilShown(page, stats(page), "the stats come down");
+    await page.waitForTimeout(700);
+    const look = await page.evaluate(() => {
+      const box = document.querySelector("[data-match-stats]") as HTMLElement;
+      const line = box.querySelector(".line") as HTMLElement;
+      const alpha = (c: string) => (c === "transparent" ? 0 : Number((c.match(/rgba?\(([^)]+)\)/)![1].split(",")[3] ?? "1").trim()));
+      let opacity = 1;
+      for (let el: HTMLElement | null = line; el && el !== document.body; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
+      const color = getComputedStyle(line).color;
+      return { background: alpha(getComputedStyle(box).backgroundColor), shadow: getComputedStyle(box).boxShadow, color, textAlpha: alpha(color) * opacity };
+    });
+    expect(look.background, "no dark box behind the stats line").toBeLessThanOrEqual(0.1);
+    expect(look.shadow, "and no shadow").toBe("none");
+    // softer text than the full-strength lime it had (#d5e645): another colour, or the lime at most 85% strong
+    expect(look.color === "rgb(213, 230, 69)" && look.textAlpha > 0.85, `lighter text than before (${look.color} at ${look.textAlpha})`).toBe(false);
+
+    const dot = await firstDot(page);
+    const top = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.id, [dot.x, dot.y]);
+    expect(top, "the topmost thing at the ball's middle is the court").toBe("court");
+    await tap(page, dot);
+    await run(page, 0.3);
+    const ball = (await sandbox<any[]>(page, "balls()")).find((b) => b.id === dot.id);
+    expect(!ball || !ball.pinned || Math.hypot(ball.x - dot.x, ball.y - dot.y) > dot.r, "the tap hit the ball").toBe(true);
+    expect((await game(page)).won, "and did not press Play again").toBe(true);
+    await expect(stats(page)).toBeVisible();
   });
 });

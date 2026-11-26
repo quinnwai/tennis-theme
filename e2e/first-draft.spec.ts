@@ -501,6 +501,14 @@ test('the credit text starts with "inspo…" and has no title of its own', async
   await expect(credits(page).locator(".credits-text > *").first()).toHaveText("inspo…");
 });
 
+test("the Monument Valley credit links to the game's home page, not the dead /mv3 page, on the page and in CITATIONS.md (QWW-111)", async ({ page }) => {
+  await openCredits(page);
+  await expect(credits(page).getByRole("link", { name: "Monument Valley" })).toHaveAttribute("href", "https://www.monumentvalleygame.com/");
+  const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
+  expect(markdown).toContain("[Monument Valley](https://www.monumentvalleygame.com/)");
+  expect(markdown).not.toContain("monumentvalleygame.com/mv3");
+});
+
 test("the credit text says word for word what CITATIONS.md says", async ({ page }) => {
   const markdown = readFileSync(new URL("../CITATIONS.md", import.meta.url), "utf8");
   const lines = markdown.split("\n");
