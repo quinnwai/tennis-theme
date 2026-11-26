@@ -38,6 +38,29 @@ function fakeAudio() {
   const log: AudioLog = { contexts: 0, resumes: 0, decoded: 0, fetched: [], voices: [], nodes: [], chains: [] };
   const w = window as any;
   w.__audio = log;
+  // Every voice again, with its gain's and playback rate's schedules and its stop, for the checks of when a sound can be heard
+  // (see `heardAt`). Kept apart from `log.voices`, whose entries other checks compare whole.
+  const timed: any[] = [];
+  w.__audioTimed = timed;
+  const now = () => performance.now() / 1000;
+  /** An AudioParam that writes down what is scheduled on it. A time in the past means now, as in the browser. */
+  const param = (value: number) => {
+    const p: any = { value, events: [] as { kind: string; target: number; at: number; tc?: number }[] };
+    const add = (kind: string, target: number, at: number, tc?: number) => {
+      p.events.push({ kind, target, at: Math.max(at, now()), tc });
+      return p;
+    };
+    p.setValueAtTime = (v: number, at: number) => add("set", v, at);
+    p.linearRampToValueAtTime = (v: number, at: number) => add("ramp", v, at);
+    p.exponentialRampToValueAtTime = (v: number, at: number) => add("ramp", v, at);
+    p.setTargetAtTime = (v: number, at: number, tc: number) => add("target", v, at, tc);
+    p.cancelScheduledValues = (at: number) => {
+      p.events = p.events.filter((e: { at: number }) => e.at < Math.max(at, now()));
+      return p;
+    };
+    p.cancelAndHoldAtTime = p.cancelScheduledValues;
+    return p;
+  };
 
   // The fake decoder is only handed bytes, so remember which address each lot of bytes came from.
   const realFetch = window.fetch.bind(window);
@@ -50,7 +73,8 @@ function fakeAudio() {
   };
 
   // How long each file is, found by a word in its name, so that a sound lasts as long as it really would.
-  const lengthOf = (url: string) => (url.includes("hit") ? 4.032 : url.includes("bounce") ? 0.888 : url.includes("pop") ? 0.189 : url.includes("applause") ? 5.828 : 0.708);
+  const lengthOf = (url: string) =>
+    url.includes("hit") ? 4.032 : url.includes("bounce") ? 0.888 : url.includes("pop") ? 0.189 : url.includes("applause") ? 5.828 : url.includes("zipper") ? 0.768 : url.includes("paper") ? 0.384 : 0.708;
 
   w.__RealOfflineAudioContext = w.OfflineAudioContext;
   w.OfflineAudioContext = class {
@@ -82,7 +106,7 @@ function fakeAudio() {
     createGain() {
       const gain: any = {
         kind: "gain",
-        gain: { value: 1, setTargetAtTime() {} },
+        gain: param(1),
         connect(to: unknown) {
           gain.to = to;
         },
@@ -106,18 +130,25 @@ function fakeAudio() {
     }
     createBufferSource() {
       let into: { gain: { value: number }; to?: any };
+      let entry: any;
       const source = {
-        buffer: null as { url: string } | null,
+        buffer: null as { url: string; duration: number } | null,
+        playbackRate: param(1),
+        loop: false,
         connect(node: typeof into) {
           into = node;
         },
-        start(_when: number, offset: number, duration: number) {
-          log.voices.push({ url: source.buffer!.url, volume: into.gain.value, offset, duration });
+        start(when = 0, offset = 0, duration?: number) {
+          log.voices.push({ url: source.buffer!.url, volume: into.gain.value, offset, duration: duration as number });
           const chain: string[] = [];
           for (let node = into.to; node; node = node.to) chain.push(node.kind === "filter" ? node.type : node.kind);
           log.chains.push(chain);
+          entry = { url: source.buffer!.url, startVolume: into.gain.value, start: Math.max(when, now()), offset, duration: duration ?? source.buffer!.duration - offset, source, gain: into.gain, stopAt: Infinity };
+          timed.push(entry);
         },
-        stop() {},
+        stop(when = 0) {
+          if (entry) entry.stopAt = Math.min(entry.stopAt, Math.max(when, now()));
+        },
       };
       return source;
     }
@@ -125,7 +156,7 @@ function fakeAudio() {
 }
 
 /** The word that tells each sound's file from the others, so that these checks do not just copy the table in sound.ts. */
-const FILE = { hit: "tennis-ball-hit", bounce: "bounce", rising: "suction-pop", out: "soft-whoosh", applause: "applause" };
+const FILE = { hit: "tennis-ball-hit", bounce: "bounce", rising: "suction-pop", out: "soft-whoosh", applause: "applause", zipper: "zipper", paper: "paper" };
 
 interface Ball {
   id: number;
@@ -163,7 +194,9 @@ async function open(page: Page, options: { soundSetting?: string | null; address
   await page.goto(options.address ?? "./");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   if (fullGain) await page.evaluate(() => ((window as any).__sandbox.params.soundGain = 1));
-  await page.waitForFunction("window.__audio.decoded === 5");
+  // The five sounds of the court and, since QWW-109, the bag's zip and the notebook's paper: small files, fetched with the rest so that
+  // the first pull of the zip is heard.
+  await page.waitForFunction("window.__audio.decoded === 7");
 }
 
 /**
@@ -244,7 +277,7 @@ test("the audio is made at the start and left asleep until the visitor does some
 test("the sound files are fetched from addresses relative to the page, and every one is found", async ({ page }) => {
   await open(page);
   const fetched = await page.evaluate(() => (window as any).__audio.fetched as AudioLog["fetched"]);
-  expect(fetched).toHaveLength(5);
+  expect(fetched).toHaveLength(7);
   const folder = new URL("./tennis/sounds/", page.url()).href;
   for (const sound of Object.values(FILE)) {
     expect(fetched.filter((f) => f.url.startsWith(folder) && f.url.includes(sound) && f.status === 200)).toHaveLength(1);
@@ -450,12 +483,17 @@ test("the files really decode in the browser, and start with the silence the pag
   expect(find(FILE.bounce).duration).toBeCloseTo(0.888, 1);
   expect(find(FILE.rising).duration).toBeCloseTo(0.189, 1);
   expect(find(FILE.out).duration).toBeCloseTo(0.708, 1);
+  expect(find(FILE.zipper).duration).toBeCloseTo(0.75, 1);
+  expect(find(FILE.paper).duration).toBeCloseTo(0.37, 1);
   // The offsets in sound.ts are the silence in front of the hit and the bounce: the sound has not started before them...
   expect(find(FILE.hit).quietUntil).toBeGreaterThan(0.02);
   expect(find(FILE.bounce).quietUntil).toBeGreaterThan(0.04);
   // ...and has by a few milliseconds after, so skipping them cuts nothing off.
   expect(find(FILE.hit).quietUntil).toBeLessThan(0.03);
   expect(find(FILE.bounce).quietUntil).toBeLessThan(0.055);
+  // The zipper and the paper (QWW-109) start at once: their files carry the encoder's own note of its delay, and the browser takes the delay
+  // off as it decodes, unlike the hit's and the bounce's. So they are played from 0, and an offset of 1105 samples would cut 23 ms of sound.
+  for (const word of [FILE.zipper, FILE.paper]) expect(find(word).quietUntil, word).toBeLessThan(0.005);
 });
 
 test("with ?tune, every sound number has a slider that takes effect on the next sound and leaves the court alone", async ({ page }) => {
@@ -506,7 +544,8 @@ async function unzipByKeyboard(page: Page) {
 test("Restart brings the dots back without the rising sound, and so does opening the bag; a knocked-off dot keeps its own", async ({ page }) => {
   await open(page);
   await unzipByKeyboard(page);
-  expect(await voices(page), "the bag opening makes no sound").toHaveLength(0);
+  // Since QWW-109 the zip is heard as it runs; nothing else is.
+  expect((await voices(page)).filter((v) => !v.url.includes(FILE.zipper)), "the bag opening makes no sound but the zipper").toHaveLength(0);
   await page.getByRole("button", { name: "Clear the balls" }).click();
   await advance(page, 3);
   expect(await sandbox<boolean[]>(page, "dots()"), "the dots are back").toEqual([true, true]);
@@ -588,4 +627,155 @@ test("a tap that pours a full can plays the pop once, before its first ball leav
   await advance(page, 2);
   expect((await voicesOf(page, "rising")).length - popsBefore, "an empty can's wiggle plays no pop").toBe(1);
   expect(await voicesOf(page, "hit"), "and no tap on a can plays a hit").toHaveLength(0);
+});
+
+// ---- The bag's zip and the notebook's paper (QWW-109) ----
+
+/** One voice of a sound as it can be heard: from when it starts to when it has stopped or faded out, and the loudest it is set to. */
+interface Heard {
+  start: number;
+  end: number;
+  peak: number;
+}
+
+/**
+ * Every voice of the sound whose file has `word` in its name, on the audio's clock (the page's `performance.now()`, in seconds). A voice
+ * ends at the first of: the end of the stretch of the file it plays, at its slowest playback rate (never, if it loops); its `stop`; and
+ * its gain reaching silence for good (a `setTargetAtTime` towards 0 counts as silent three time constants on, a ramp or a set to 0 at its
+ * time). How the page gets there is up to it; this only reads what it has scheduled.
+ */
+const heard = (page: Page, word: string) =>
+  page.evaluate((word) => {
+    const quiet = 1e-4;
+    return ((window as any).__audioTimed as any[])
+      .filter((v) => v.url.includes(word))
+      .map((v): Heard => {
+        const rates = [v.source.playbackRate.value, ...v.source.playbackRate.events.map((e: { target: number }) => e.target)].filter((r: number) => r > 0);
+        const natural = v.source.loop ? Infinity : v.start + v.duration / Math.min(...rates);
+        const events = [...v.gain.events].sort((a: { at: number }, b: { at: number }) => a.at - b.at);
+        const last = events[events.length - 1];
+        let silentAt = Infinity;
+        if (last && last.target <= quiet) silentAt = last.kind === "target" ? last.at + 3 * last.tc : last.at;
+        else if (!last && v.gain.value <= quiet) silentAt = v.start;
+        const peak = Math.max(v.startVolume, ...events.map((e: { target: number }) => e.target));
+        return { start: v.start, end: Math.min(natural, v.stopAt, silentAt), peak };
+      });
+  }, word);
+const heardAt = (voices: Heard[], t: number) => voices.some((v) => v.start <= t && t < v.end);
+
+/** From now on, write down the moment (page clock, seconds) of every move of the zip's pull, however it is moved. */
+const watchPull = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as any;
+    w.__pullMoves = [];
+    const pull = document.querySelector('[role="slider"][aria-label^="Unzip the bag"]')!;
+    new MutationObserver(() => w.__pullMoves.push(performance.now() / 1000)).observe(pull, { attributes: true, attributeFilter: ["aria-valuenow", "style"] });
+  });
+const pullMoves = (page: Page) => page.evaluate(() => (window as any).__pullMoves.splice(0) as number[]);
+const pageNow = (page: Page) => page.evaluate(() => performance.now() / 1000);
+
+/** How long, in seconds, the voices are heard between `from` and `to`. */
+function heardFor(voices: Heard[], from: number, to: number) {
+  let total = 0;
+  for (let t = from; t < to; t += 0.005) if (heardAt(voices, t)) total += 0.005;
+  return total;
+}
+
+/**
+ * A run of the zip by itself (Enter, a snap, Restart): the zipper is heard in the middle of the run and for most of its length
+ * (`seconds`, as `zipMs` makes it), and is silent within 50 ms of the pull's last move (plus 20 ms for the moment it takes the page to
+ * notice a move).
+ */
+function expectZipperForRun(voices: Heard[], moves: number[], seconds: number, what: string) {
+  expect(moves.length, `${what}: the pull moved`).toBeGreaterThan(1);
+  const [first, last] = [moves[0], moves[moves.length - 1]];
+  expect(heardAt(voices, (first + last) / 2), `${what}: the zipper is heard in the middle of the run`).toBe(true);
+  expect(heardFor(voices, first, last + 0.05), `${what}: and for most of the run's ${seconds.toFixed(2)} s`).toBeGreaterThan(0.7 * seconds);
+  for (const v of voices) expect(v.end, `${what}: silent within 50 ms of the pull stopping`).toBeLessThanOrEqual(last + 0.07);
+}
+
+test("the zipper rasps while the pull is dragged, at its volume, and stops within 50 ms of the pull stopping (QWW-109)", async ({ page }) => {
+  await open(page);
+  // A browser lets the page make sound only once a finger has been lifted (see `wakeOnGesture` in src/sound.ts), so a drag that is the very
+  // first thing a visitor does is silent until it ends. Here the visitor has already tapped the page: the empty left edge, which hits nothing.
+  await page.mouse.click(8, page.viewportSize()!.height / 2);
+  await watchPull(page);
+  const from = (await sandbox<{ pull: [number, number] }>(page, "bag()")).pull;
+  // About 0.4 s of dragging along the first half of the zip (24 moves, each a round trip to the browser of about 17 ms), short of where it
+  // snaps open, then holding still.
+  const path: [number, number][] = [];
+  for (let i = 1; i <= 24; i++) path.push(await sandbox<[number, number]>(page, `zipPoint(${0.02 + (0.48 * i) / 24})`));
+  await page.mouse.move(from[0], from[1]);
+  await page.mouse.down();
+  const began = await pageNow(page);
+  for (const [x, y] of path) await page.mouse.move(x, y);
+  await page.waitForTimeout(300); // held still
+  const moves = await pullMoves(page);
+  const voices = await heard(page, FILE.zipper);
+  await page.mouse.up();
+  expect((await sandbox<{ open: boolean }>(page, "bag()")).open, "the bag stays shut").toBe(false);
+
+  const [first, last] = [moves[0], moves[moves.length - 1]];
+  expect(last - first, "the pull moved for most of 0.4 s").toBeGreaterThan(0.3);
+  // While the pull is moving (it moved in the last 25 ms), from 30 ms after it first moved, the zipper is heard.
+  let looked = 0;
+  for (let t = first + 0.03; t <= last; t += 0.01) {
+    if (!moves.some((m) => m <= t && t - m < 0.025)) continue; // a pause between two moves, longer than a frame: not "moving"
+    looked++;
+    expect(heardAt(voices, t), `the zipper is heard ${(t - first).toFixed(2)} s into the drag`).toBe(true);
+  }
+  expect(looked, "there were moments of moving to look at").toBeGreaterThan(10);
+  // And it stops: nothing of it is heard from 50 ms after the last move (plus 20 ms for the page to notice).
+  expect(voices.length, "the zipper played").toBeGreaterThan(0);
+  for (const v of voices) {
+    expect(v.start, "only once the drag began").toBeGreaterThanOrEqual(began - 0.01);
+    expect(v.end, "silent within 50 ms of the pull stopping").toBeLessThanOrEqual(last + 0.07);
+  }
+  expect(Math.max(...voices.map((v) => v.peak)), "at the zipper's volume").toBeCloseTo(await volumeOf(page, "soundZipper"), 4);
+});
+
+test("Enter runs the zip open with the zipper heard for the whole run, and Restart runs it shut with the zipper (QWW-109)", async ({ page }) => {
+  await open(page);
+  await watchPull(page);
+  const zipMs = await volumeOf(page, "zipMs");
+  await page.getByRole("slider", { name: /Unzip the bag/ }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await sandbox<{ open: boolean }>(page, "bag()")).open).toBe(true);
+  await page.waitForTimeout(300);
+  const opening = await heard(page, FILE.zipper);
+  expectZipperForRun(opening, await pullMoves(page), zipMs / 1000, "Enter");
+
+  await page.getByRole("button", { name: "Clear the balls" }).click();
+  await expect.poll(async () => (await sandbox<{ zip: number }>(page, "bag()")).zip).toBe(0);
+  await page.waitForTimeout(300);
+  const closing = (await heard(page, FILE.zipper)).slice(opening.length);
+  expect(closing.length, "Restart plays the zipper as the zip runs shut").toBeGreaterThan(0);
+  expectZipperForRun(closing, await pullMoves(page), (zipMs * 0.6) / 1000, "Restart");
+});
+
+test("opening the notebook plays the paper sound once, at its volume, as it opens; closing it and turning a page play nothing (QWW-109)", async ({ page }) => {
+  // 280 px tall, as an iPhone held sideways in Safari: the notebook needs two spreads there, so it has a page to turn.
+  await page.setViewportSize({ width: 750, height: 280 });
+  await open(page);
+  await unzipByKeyboard(page);
+  const clicked = await pageNow(page);
+  await page.getByRole("button", { name: "Open the notebook" }).click();
+  const notebook = page.getByRole("dialog", { name: "Notebook" });
+  await expect(notebook).toBeVisible();
+  await page.waitForTimeout(900); // the cover and the pages have opened (450 + 250 ms)
+  const papers = await heard(page, FILE.paper);
+  expect(papers, "the paper sound plays once").toHaveLength(1);
+  expect(papers[0].start - clicked, "as the notebook opens").toBeLessThan(0.7);
+  expect(papers[0].peak, "at the paper's volume").toBeCloseTo(await volumeOf(page, "soundPaper"), 4);
+
+  const turn = notebook.getByRole("button", { name: /Turn to the next page/ });
+  await expect(turn).toBeVisible({ timeout: 10_000 });
+  await turn.click();
+  await page.waitForTimeout(400);
+  await notebook.getByRole("button", { name: /Turn back/ }).click();
+  await page.waitForTimeout(400);
+  await page.keyboard.press("Escape");
+  await expect(notebook).toBeHidden();
+  await page.waitForTimeout(500);
+  expect(await heard(page, FILE.paper), "turning a page and closing play nothing").toHaveLength(1);
 });
