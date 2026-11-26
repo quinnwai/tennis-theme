@@ -204,7 +204,7 @@ interface Voice {
 /**
  * The toy's sounds. Each one answers something the visitor did, and the page asks for it with `play` or
  * `bounce`. Nothing is heard before the visitor has done something on the page, or while sound is switched
- * off, and no more than `soundMaxVoices` sounds play at once (the hit is never one of them, and never cut short), so a court full of balls is a patter and not
+ * off, and no more than `soundMaxVoices` sounds of the patter play at once (the kept sounds are never one of them, and never cut short), so a court full of balls is a patter and not
  * a wall of noise.
  */
 export class Sound {
@@ -229,7 +229,10 @@ export class Sound {
   private master: { input: AudioNodeLike } | null = null;
   private buffers = new Map<Playable, AudioBufferLike>();
   private loading = new Set<Playable>();
+  /** The patter: the sounds that share `soundMaxVoices` places, and give way to each other. */
   private voices: Voice[] = [];
+  /** When the longest kept sound ends, on the context's clock, so that the audio is not put to sleep inside it. */
+  private keptEndsAt = 0;
 
   /**
    * Makes the context, and starts fetching and decoding the files so that they are ready when the visitor
@@ -273,10 +276,17 @@ export class Sound {
     if (this.asleep || ctx.state !== "running") void ctx.resume().catch(() => {});
     this.asleep = false;
     clearTimeout(this.sleepTimer);
-    this.sleepTimer = setTimeout(() => {
+    const sleep = () => {
+      // Never inside a kept sound, the applause or the cheer: look again when it has ended.
+      const left = this.keptEndsAt - ctx.currentTime;
+      if (left > 0) {
+        this.sleepTimer = setTimeout(sleep, left * 1000);
+        return;
+      }
       this.asleep = true;
       void ctx.suspend().catch(() => {});
-    }, SLEEP_AFTER);
+    };
+    this.sleepTimer = setTimeout(sleep, SLEEP_AFTER);
   }
 
   /** Start fetching the cheer, which is not fetched with the rest. Safe to call again and again. */
@@ -290,8 +300,11 @@ export class Sound {
       .catch((error) => console.warn(`The "${name}" sound could not be loaded.`, error));
   }
 
-  /** Play a sound at `loudness` (0 to 1) of its own volume. */
-  play(name: Playable, loudness = 1): void {
+  /**
+   * Play a sound at `loudness` (0 to 1) of its own volume. `kept`: it answers one deliberate action (a can's pop on a pour, the zipper,
+   * the paper), so it is never cut short and does not count toward `soundMaxVoices`. The hit, the applause and the cheer are always kept.
+   */
+  play(name: Playable, loudness = 1, kept = false): void {
     const ctx = this.ctx;
     const buffer = this.buffers.get(name);
     if (!this.interacted || !ctx || !buffer || this.env.muted()) return;
@@ -303,12 +316,12 @@ export class Sound {
     this.wake();
     const now = ctx.currentTime;
     this.voices = this.voices.filter((voice) => voice.endsAt > now);
-    const isHit = name === "hit"; // the hit is never interrupted, and is not counted in the most sounds at once
-    if (!isHit && ctx.state !== "running" && this.voices.length >= WHILE_WAKING) return;
+    const isKept = kept || name === "hit" || name === "applause" || name === "cheer"; // never interrupted, and not counted in the most sounds at once
+    if (!isKept && ctx.state !== "running" && this.voices.length >= WHILE_WAKING) return;
     try {
-      // Make room for this one: the oldest sounds, the nearest to finished, give way. The hit needs no room.
+      // Make room for this one: the oldest sounds, the nearest to finished, give way. A kept sound needs no room.
       const room = Math.max(1, Math.floor(params.soundMaxVoices));
-      while (!isHit && this.voices.length >= room) this.voices.shift()!.cut(now);
+      while (!isKept && this.voices.length >= room) this.voices.shift()!.cut(now);
 
       const source = ctx.createBufferSource();
       const gain = ctx.createGain();
@@ -319,7 +332,10 @@ export class Sound {
       source.start(now, from, length);
       const fadeAt = spec(name).fadeAt;
       if (fadeAt !== undefined && fadeAt - from < length) gain.gain.setTargetAtTime(0, now + fadeAt - from, 0.15);
-      if (isHit) return; // the hit is never one of the voices that can give way, nor cut short
+      if (isKept) {
+        this.keptEndsAt = Math.max(this.keptEndsAt, now + length); // never one of the voices that can give way, nor cut short
+        return;
+      }
       this.voices.push({
         endsAt: now + length,
         cut(at) {
