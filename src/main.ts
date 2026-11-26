@@ -83,8 +83,8 @@ function main(): void {
   /** How the match is going, for the stats card: since the game was found (sim ms), and when the stats are due after the win (0: not due). */
   let tally = { thrown: 0, inCans: 0, since: 0, wonAt: 0 };
   /**
-   * The win's celebration, on the court's clock: the confetti falls; once half of it has passed, the trophy comes down (the first win only)
-   * and the glint is due 1.6 s on, when it would have settled; then the stats drop down. `glintDue` is 0 until half the confetti has passed.
+   * The win's celebration, on the court's clock: the confetti falls; once its front nears the bottom (the first 1% at 85% of the height), the trophy comes down (the first win only)
+   * and the glint is due 1.6 s on, when it would have settled; then the stats drop down. `glintDue` is 0 until the confetti's front nears the bottom.
    */
   let celebration: { glintDue: number; half: boolean } | null = null;
   let shower: Confetti | null = null;
@@ -410,7 +410,7 @@ function main(): void {
   }
 
   /**
-   * One step of the win: the confetti falls; once half of it has passed the trophy comes down (a later win brings none: the one already
+   * One step of the win: the confetti falls; once its front nears the bottom the trophy comes down (a later win brings none: the one already
    * won stays where it is); 1.6 s on, when a new one would have settled, a glint plays on its rim, and then the stats drop down.
    */
   function stepCelebration(): void {
@@ -423,9 +423,9 @@ function main(): void {
     }
     const c = celebration;
     if (!c) return;
-    if (!c.half && (!shower || shower.halfPassed())) {
+    if (!c.half && (!shower || shower.frontPassed())) {
       c.half = true;
-      logEvent("confetti-half");
+      logEvent("confetti-front");
       if (!trophy) {
         trophy = { rest: { x: renderer.width / 2, y: 0 }, scale: 1, since: simMs, at: { x: renderer.width / 2, y: -12 }, angle: 0, free: false, held: 0 };
         fitTrophy();
@@ -1122,6 +1122,7 @@ function main(): void {
         championshipPoint: game.match.championshipPoint,
         lastEntry,
         heard: [...heard],
+        confetti: shower ? shower.state() : null,
         /** What the celebration did, in order, with the court's time in seconds (a glint says where, page px). */
         log: celebrationLog.map((e) => ({ ...e })),
         /**

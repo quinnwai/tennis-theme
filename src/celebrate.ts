@@ -1,6 +1,6 @@
 /**
  * The win: confetti over the whole window, and a camera-flash glint. The confetti is stepped by the court's own clock (`step`), so that when
- * half of it has passed is the same on any machine; it is only drawn on the page's frames.
+ * its front has passed is the same on any machine; it is only drawn on the page's frames.
  */
 const COLORS = ["#d5e645", "#2e92b9", "#ffffff", "#e3b341", "#f3d36b"];
 
@@ -81,11 +81,16 @@ export class Confetti {
     }
   }
 
-  /** Whether half of it has fallen past the middle of the window: the trophy comes down through the second half. */
-  halfPassed(): boolean {
-    let above = 0;
-    for (const p of this.pieces) if (p.y <= this.height + 20 && p.y < this.height * 0.55) above++;
-    return above < this.pieces.length * 0.5;
+  /** Whether its leading pieces (the first 1%) have reached 85% of the window's height: the trophy starts down then, through the rest of it. */
+  frontPassed(): boolean {
+    let low = 0;
+    for (const p of this.pieces) if (p.y >= this.height * 0.85) low++;
+    return low >= this.pieces.length * 0.01;
+  }
+
+  /** The window's height and every piece's y (page px, down), the ones that have fallen out of the window included. */
+  state(): { height: number; ys: number[] } {
+    return { height: this.height, ys: this.pieces.map((p) => p.y) };
   }
 
   /** Whether every piece has fallen out of the window. */
