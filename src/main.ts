@@ -707,14 +707,22 @@ function main(): void {
     return views().some((b) => Math.hypot(b.x - at.x, b.y - at.y) < b.r + params.canBallReachPx);
   }
 
+  /** A tap on a can. One that has balls to pour opens with a pop, before the first one leaves; an empty can's wiggle is silent. */
+  function tapCanWithPop(id: number, back: boolean): boolean {
+    const full = (court.cans.find((c) => c.id === id)?.ballsLeft ?? 0) > 0;
+    const tapped = court.tapCan(id, back);
+    if (tapped && full) sound.play("rising", 1, true);
+    return tapped;
+  }
+
   const canHand = new CanHand({
     tap(target) {
       noteInteraction();
       if (target.kind === "trophy") return; // nothing happens when it is tapped: it is only carried
-      if (target.kind === "can") court.tapCan(target.id);
+      if (target.kind === "can") tapCanWithPop(target.id, false);
       else {
         const can = outOfBag(target.index, true);
-        if (!court.tapCan(can.id, true)) putBack(can.seed, can.ballsLeft, can.id);
+        if (!tapCanWithPop(can.id, true)) putBack(can.seed, can.ballsLeft, can.id);
       }
     },
     grab(target, from, at) {

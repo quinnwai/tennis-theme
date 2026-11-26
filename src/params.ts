@@ -71,8 +71,8 @@ export const params = {
   soundOut: 0.5, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
-  soundMaxVoices: 4, // the most sounds playing at once, not counting the hit, which is never cut short; past that, the oldest give way
-  soundGain: 0.1, // everything plays at this share of the volumes above (-20 dB), which is the whole of "on"; the sound button only chooses between this and mute
+  soundMaxVoices: 4, // the most sounds playing at once, not counting the kept sounds (hit, applause, cheer, a can's pop, ...), which are never cut short; past that, the oldest give way
+  soundGain: 0.15, // everything plays at this share of the volumes above (about -16.5 dB), which is the whole of "on"; the sound button only chooses between this and mute
 
   // The buttons in the corners are icons with no circle (but for the "?"), all one tone and one size. The tone runs from the page's navy
   // (0, which fades them away) to white (1); a button turns fully white under the pointer. The size is the icon's width
