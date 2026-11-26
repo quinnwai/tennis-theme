@@ -12,6 +12,12 @@
 // - params.cheerVolume: how loud the win sound plays (0 to 1); game().heard gains "cheer" each time it starts
 // In a frozen court (QWW-95) the celebration runs on the court's clock, as the stats delay already does, so `advance` moves it.
 // Nothing here may be weakened to pass; a check that is wrong is argued on QWW-104.
+//
+// QWW-110 (step 11 of the review fixes): the trophy comes down with the confetti, as one sequence. It starts when the confetti's leading
+// pieces (the first 1% of them) reach 85% of the window's height, no longer once half of it has passed the middle. The log's "confetti-half" is
+// renamed "confetti-front" for that moment, and the glint keeps its 1.6 s after it. Also asked of the hook:
+// - game().confetti: null when there is none, else { height, ys }: the window's height and every piece's y (page px, down), the ones
+//   that have fallen out of the window included, as the court's clock moves them.
 
 import { freeze, run, until } from "./frozen";
 import { expect, type Page } from "@playwright/test";
@@ -95,11 +101,11 @@ test.afterEach(async ({ page }) => {
 });
 
 test.describe("the first win", () => {
-  test("in order: won, half the confetti passed, the trophy comes in from the top and settles, a glint, then the stats", async ({ page }) => {
+  test("in order: won, the confetti's front near the bottom, the trophy comes in from the top and settles, a glint, then the stats", async ({ page }) => {
     await findGame(page);
     expect((await game(page)).trophy, "no trophy before a win").toBeNull();
     const log = await win(page);
-    const order = ["won", "confetti-half", "trophy-in", "trophy-settled", "glint", "stats"];
+    const order = ["won", "confetti-front", "trophy-in", "trophy-settled", "glint", "stats"];
     const times = order.map((e) => when(log, e)?.t);
     for (const [i, t] of times.entries()) expect(t, `${order[i]} happened`).toBeDefined();
     for (let i = 1; i < times.length; i++) expect(times[i]!, `${order[i]} after ${order[i - 1]}`).toBeGreaterThanOrEqual(times[i - 1]!);
@@ -148,7 +154,7 @@ test.describe("the first win", () => {
 });
 
 test.describe("a later win", () => {
-  test("after Play again, no new trophy: the floating one stays put, and the glint plays on it 1.6 s after half the confetti has passed, then the stats", async ({ page }) => {
+  test("after Play again, no new trophy: the floating one stays put, and the glint plays on it 1.6 s after the confetti's front neared the bottom, then the stats", async ({ page }) => {
     await findGame(page);
     await win(page);
     const before = (await game(page)).trophy!;
@@ -159,9 +165,9 @@ test.describe("a later win", () => {
     const { height } = page.viewportSize()!;
     expect(Math.abs(after.x - before.x), "it stayed across (px)").toBeLessThan(2);
     expect(Math.abs(after.y - before.y), "and up and down, give or take its bob (px)").toBeLessThan(height * 0.03);
-    const half = when(log, "confetti-half")!;
+    const half = when(log, "confetti-front")!;
     const glint = when(log, "glint")!;
-    expect(glint.t - half.t, "1.6 s after half the confetti has passed").toBeGreaterThan(1.5);
+    expect(glint.t - half.t, "1.6 s after the confetti's front passed 85% of the height (QWW-110)").toBeGreaterThan(1.5);
     expect(glint.t - half.t).toBeLessThan(1.7);
     expect(Math.abs(glint.x! - after.x), "on the trophy").toBeLessThan(after.width);
     expect(glint.y!, "at its rim, above its foot").toBeLessThan(after.y);
@@ -191,3 +197,52 @@ test.describe("a later win", () => {
     expect((await game(page)).trophy).toBeNull();
   });
 });
+
+// ---- QWW-110: the trophy comes down with the confetti ----
+
+for (const size of [{ width: 1280, height: 800 }, { width: 750, height: 280 }]) {
+  test.describe(`at ${size.width} x ${size.height}`, () => {
+    test.use({ viewport: size });
+
+    // "The leading pieces" are the first 1%: they reach 85% of the height at about 2.9 s at 1280 x 800 and 1.25 s at 750 x 280, near the
+    // 2.6 s and 1.1 s the review asked for. (The first tenth gets there at about 3.6 s and 1.5 s, too close to the old start at 750 x 280
+    // to tell the two apart.) When the trophy starts, about 40% of the pieces are still above the window's top, against about 10% before.
+    test("the trophy starts down while the confetti is still coming in, within 0.3 s of its leading pieces passing 85% of the height (QWW-110)", async ({ page }) => {
+      await findGame(page);
+      const from = (await game(page)).log.length;
+      for (let i = 0; i < 3; i++) await sandbox(page, "scorePoint()");
+      const won = when((await game(page)).log.slice(from), "won")!;
+      expect(won, "the match is won").toBeDefined();
+
+      // Run the court on a thirtieth of a second at a time, and watch the confetti and the log.
+      const step = 1 / 30;
+      let elapsed = 0;
+      let front: number | undefined; // court time when the first 1% of the pieces had reached 85% of the height
+      let start: LogEntry | undefined; // the trophy starting down
+      let toFallAtStart = 0; // the share of the pieces that had not yet fallen out of the window then
+      let aboveAtStart = 0; // and the share still above the window's top, yet to come in
+      while (elapsed < 8 && (front === undefined || start === undefined)) {
+        await run(page, step);
+        elapsed += step;
+        const g = await sandbox<Game & { confetti: { height: number; ys: number[] } | null }>(page, "game()");
+        const c = g.confetti;
+        expect(c, "the confetti is falling").not.toBeNull();
+        const low = c!.ys.filter((y) => y >= 0.85 * c!.height).length;
+        if (front === undefined && low >= 0.01 * c!.ys.length) front = won.t + elapsed;
+        const trophyIn = when(g.log.slice(from), "trophy-in");
+        if (trophyIn && !start) {
+          start = trophyIn;
+          toFallAtStart = c!.ys.filter((y) => y <= c!.height + 20).length / c!.ys.length;
+          aboveAtStart = c!.ys.filter((y) => y < 0).length / c!.ys.length;
+        }
+      }
+      expect(front, "the confetti's leading pieces reached 85% of the height").toBeDefined();
+      expect(start, "the trophy started down").toBeDefined();
+      expect(Math.abs(start!.t - front!), "the trophy starts as the confetti's front nears the bottom (s)").toBeLessThan(0.3);
+      expect(toFallAtStart, "while most of the confetti is still on its way down").toBeGreaterThan(0.5);
+      expect(aboveAtStart, "with a quarter or more of it still above the top, to fall past the trophy").toBeGreaterThan(0.25);
+      const log = (await game(page)).log.slice(from);
+      expect(Math.abs(when(log, "confetti-front")!.t - start!.t), "logged as the confetti's front").toBeLessThan(0.05);
+    });
+  });
+}

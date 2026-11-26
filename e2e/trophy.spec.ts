@@ -485,9 +485,10 @@ test.describe("a later win with the trophy moved", () => {
     expect(when(log, "trophy-in"), "no new trophy").toBeUndefined();
     expect(Math.hypot(after.x - before.x, after.y - before.y), "it has not moved (px)").toBeLessThan(0.5);
     expect(Math.abs(deg(after.angle - before.angle)), "nor turned (degrees)").toBeLessThan(0.1);
-    const half = when(log, "confetti-half")!;
+    // (QWW-110: measured from when the confetti's leading pieces near the bottom, where a new trophy would start down)
+    const half = when(log, "confetti-front")!;
     const glint = when(log, "glint")!;
-    expect(glint.t - half.t, "1.6 s after half the confetti has passed").toBeGreaterThan(1.5);
+    expect(glint.t - half.t, "1.6 s after the confetti's front passed 85% of the height").toBeGreaterThan(1.5);
     expect(glint.t - half.t).toBeLessThan(1.7);
     const o = glintOffset(glint, after);
     expect(Math.hypot(o.x - offset.x, o.y - offset.y), "on its rim, where it glinted the first time (px)").toBeLessThan(3);
