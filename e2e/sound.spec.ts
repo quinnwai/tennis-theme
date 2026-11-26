@@ -548,3 +548,44 @@ test("a can makes no sound when it lands, and a tap on it plays no hit and puts 
   expect(Math.abs(after.x - can.x)).toBeLessThan(2);
   expect(await voicesOf(page, "hit"), "and played no hit").toHaveLength(0);
 });
+
+// ---- A can's pop on a pour (QWW-108) ----
+
+test("a tap that pours a full can plays the pop once, before its first ball leaves; an empty can's wiggle plays none", async ({ page }) => {
+  await open(page);
+  await freeze(page);
+  const floor = await page.evaluate(() => innerHeight - (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
+  const id = await sandbox<number>(page, `addCan(120, ${floor - 200}, 3)`);
+  type Can = { id: number; x: number; y: number; height: number; state: string; ballsLeft: number };
+  const can = () => page.evaluate((i) => ((window as any).__sandbox.cans() as Can[]).find((c) => c.id === i)!, id);
+  const c = await until(page, can, (c) => c.state === "placed", "the can stands", 4);
+  const popsBefore = (await voicesOf(page, "rising")).length;
+  const loose = async () => (await balls(page)).filter((b) => !b.pinned).length;
+  const ballsBefore = await loose();
+  const tap = async (at: { x: number; y: number }) => {
+    await page.mouse.move(at.x, at.y + at.height * 0.25);
+    await page.mouse.down();
+    await advance(page, 0.1);
+    await page.mouse.up();
+  };
+  await tap(c);
+  // run the pour a frame at a time: the pop comes as it starts, while every ball is still in the can
+  let popAt = -1;
+  let firstBallAt = -1;
+  for (let f = 0; f < 240 && (popAt < 0 || firstBallAt < 0); f++) {
+    if (popAt < 0 && (await voicesOf(page, "rising")).length > popsBefore) popAt = f;
+    if (firstBallAt < 0 && (await loose()) > ballsBefore) firstBallAt = f;
+    await advance(page, 1 / 60);
+  }
+  expect(popAt, "the pour plays the pop").toBeGreaterThanOrEqual(0);
+  expect(firstBallAt, "the pour lets a ball out").toBeGreaterThanOrEqual(0);
+  expect(popAt, "the pop comes before the first ball leaves").toBeLessThan(firstBallAt);
+  await advance(page, 3);
+  expect((await voicesOf(page, "rising")).length - popsBefore, "once per pour, not once per ball").toBe(1);
+  expect((await can()).ballsLeft, "the can is empty").toBe(0);
+  // tapped again, empty, it wiggles in silence
+  await tap(await can());
+  await advance(page, 2);
+  expect((await voicesOf(page, "rising")).length - popsBefore, "an empty can's wiggle plays no pop").toBe(1);
+  expect(await voicesOf(page, "hit"), "and no tap on a can plays a hit").toHaveLength(0);
+});
