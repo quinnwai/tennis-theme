@@ -190,6 +190,38 @@ describe("Court", () => {
     }
   });
 
+  // QWW-112: a ball swung down onto a surface is already pressed against it when the finger lifts (it trails the pointer by about 28 ms),
+  // and in the hand it does not bounce, so it used to stop dead and count as dropped. Let go while the hand moves into the surface, it
+  // bounces the way a ball thrown at the hand's speed would (restitution 0.78 off the floor and the bench's seat), and counts as thrown.
+  // (A ball held still and pressed into the floor still doesn't jump: "lets go of a ball pressed into the floor..." above.)
+  it.each([
+    { name: "the floor", x: 0.5, surface: 0 },
+    { name: "the bench's seat", x: 2, surface: 0.45 },
+  ])("bounces a ball swung down onto $name at 3 m/s and let go there at about 0.78 of the swing's speed, and counts it as thrown (QWW-112)", ({ name, x, surface }) => {
+    const bench = [{ x: 1, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 0.45 }, { x: 1, y: 0.45 }]; // a seat 2 m long and 45 cm high
+    const court = new Court(4, 4, [], [], 0, [bench]);
+    const ball = court.addBall(x, surface + 0.6, false);
+    run(court, 0.05);
+    court.grab(ball.id);
+    // The hand comes down at 3 m/s, and keeps coming down into the surface: the ball stops against it.
+    const speed = 3;
+    let pointer = ball.y;
+    let touched = -1;
+    for (let i = 0; i < Math.round(1 / STEP) && (touched < 0 || i < touched + 3); i++) {
+      pointer -= speed * STEP;
+      court.carryTo(x, pointer);
+      court.step();
+      if (touched < 0 && ball.y - RADIUS <= surface + 0.002) touched = i;
+    }
+    expect(touched, `${name}: the ball reached the surface`).toBeGreaterThanOrEqual(0);
+    court.release(); // three steps (12 ms) after it touched, the hand still moving down
+    expect(ball.shot, `${name}: a throw, not a drop`).not.toBeNull();
+    let up = 0;
+    run(court, 0.2, () => (up = Math.max(up, ball.vy)));
+    expect(up, `${name}: it leaves the surface upward at 0.65 of the swing's speed or more (m/s)`).toBeGreaterThanOrEqual(0.65 * speed);
+    expect(up, `${name}: and no faster than the swing`).toBeLessThanOrEqual(speed);
+  });
+
   it("throws a carried ball with the speed it had when let go", () => {
     const court = new Court(4, 4);
     const ball = court.addBall(1, 2.5, true);
