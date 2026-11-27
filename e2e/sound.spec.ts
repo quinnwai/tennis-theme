@@ -61,6 +61,23 @@ function fakeAudio() {
     p.cancelAndHoldAtTime = p.cancelScheduledValues;
     return p;
   };
+  /**
+   * A playback rate: an AudioParam that also writes down every time its `value` is set, and when, because the page changes the rate of a
+   * voice that is already playing (the zipper follows the pull's speed), and how long a voice lasts depends on every rate it played at.
+   */
+  const rateParam = () => {
+    const p = param(1);
+    let value = 1;
+    p.changes = [] as { value: number; at: number }[];
+    Object.defineProperty(p, "value", {
+      get: () => value,
+      set: (v: number) => {
+        value = v;
+        p.changes.push({ value: v, at: now() });
+      },
+    });
+    return p;
+  };
 
   // The fake decoder is only handed bytes, so remember which address each lot of bytes came from.
   const realFetch = window.fetch.bind(window);
@@ -133,7 +150,7 @@ function fakeAudio() {
       let entry: any;
       const source = {
         buffer: null as { url: string; duration: number } | null,
-        playbackRate: param(1),
+        playbackRate: rateParam(),
         loop: false,
         connect(node: typeof into) {
           into = node;
@@ -143,7 +160,7 @@ function fakeAudio() {
           const chain: string[] = [];
           for (let node = into.to; node; node = node.to) chain.push(node.kind === "filter" ? node.type : node.kind);
           log.chains.push(chain);
-          entry = { url: source.buffer!.url, startVolume: into.gain.value, start: Math.max(when, now()), offset, duration: duration ?? source.buffer!.duration - offset, source, gain: into.gain, stopAt: Infinity };
+          entry = { url: source.buffer!.url, startVolume: into.gain.value, start: Math.max(when, now()), offset, duration: duration ?? source.buffer!.duration - offset, source, gain: into.gain, stopAt: Infinity, rate: source.playbackRate.value, rateChangesBefore: source.playbackRate.changes.length };
           timed.push(entry);
         },
         stop(when = 0) {
@@ -640,7 +657,7 @@ interface Heard {
 
 /**
  * Every voice of the sound whose file has `word` in its name, on the audio's clock (the page's `performance.now()`, in seconds). A voice
- * ends at the first of: the end of the stretch of the file it plays, at its slowest playback rate (never, if it loops); its `stop`; and
+ * ends at the first of: the end of the stretch of the file it plays, at the rates it played at (never, if it loops); its `stop`; and
  * its gain reaching silence for good (a `setTargetAtTime` towards 0 counts as silent three time constants on, a ramp or a set to 0 at its
  * time). How the page gets there is up to it; this only reads what it has scheduled.
  */
@@ -650,8 +667,24 @@ const heard = (page: Page, word: string) =>
     return ((window as any).__audioTimed as any[])
       .filter((v) => v.url.includes(word))
       .map((v): Heard => {
-        const rates = [v.source.playbackRate.value, ...v.source.playbackRate.events.map((e: { target: number }) => e.target)].filter((r: number) => r > 0);
-        const natural = v.source.loop ? Infinity : v.start + v.duration / Math.min(...rates);
+        // The playhead moves through the file at the playback rate, which may change while the voice plays (a set `value`, or a scheduled
+        // event, taken as a step at its time): the voice ends once the playhead has gone through its `duration` seconds of the file.
+        let natural = Infinity;
+        if (!v.source.loop) {
+          const rate = v.source.playbackRate;
+          const changes = [
+            ...rate.changes.slice(v.rateChangesBefore),
+            ...rate.events.map((e: { target: number; at: number }) => ({ value: e.target, at: e.at })),
+          ].sort((a: { at: number }, b: { at: number }) => a.at - b.at);
+          let [t, r, left] = [v.start, v.rate, v.duration];
+          for (const c of changes) {
+            const at = Math.max(c.at, v.start);
+            if (r > 0 && (at - t) * r >= left) break;
+            left -= (at - t) * Math.max(r, 0);
+            [t, r] = [at, c.value];
+          }
+          if (r > 0) natural = t + left / r;
+        }
         const events = [...v.gain.events].sort((a: { at: number }, b: { at: number }) => a.at - b.at);
         const last = events[events.length - 1];
         let silentAt = Infinity;
@@ -694,21 +727,27 @@ function expectZipperForRun(voices: Heard[], moves: number[], seconds: number, w
   for (const v of voices) expect(v.end, `${what}: silent within 50 ms of the pull stopping`).toBeLessThanOrEqual(last + 0.07);
 }
 
-test("the zipper rasps while the pull is dragged, at its volume, and stops within 50 ms of the pull stopping (QWW-109)", async ({ page }) => {
+/**
+ * Drag the zip's pull along the first half of the zip in 24 moves, short of where it snaps open, then hold still, and check that the zipper
+ * is heard whenever the pull is moving, at its volume, and is silent within 50 ms of the pull stopping. `pause(i)`: how long to wait after
+ * move `i`, in ms, on top of the round trip to the browser (about 17 ms a move).
+ */
+async function dragZipper(page: Page, pause: (i: number) => number, seconds: number) {
   await open(page);
   // A browser lets the page make sound only once a finger has been lifted (see `wakeOnGesture` in src/sound.ts), so a drag that is the very
   // first thing a visitor does is silent until it ends. Here the visitor has already tapped the page: the empty left edge, which hits nothing.
   await page.mouse.click(8, page.viewportSize()!.height / 2);
   await watchPull(page);
   const from = (await sandbox<{ pull: [number, number] }>(page, "bag()")).pull;
-  // About 0.4 s of dragging along the first half of the zip (24 moves, each a round trip to the browser of about 17 ms), short of where it
-  // snaps open, then holding still.
   const path: [number, number][] = [];
   for (let i = 1; i <= 24; i++) path.push(await sandbox<[number, number]>(page, `zipPoint(${0.02 + (0.48 * i) / 24})`));
   await page.mouse.move(from[0], from[1]);
   await page.mouse.down();
   const began = await pageNow(page);
-  for (const [x, y] of path) await page.mouse.move(x, y);
+  for (const [i, [x, y]] of path.entries()) {
+    await page.mouse.move(x, y);
+    if (pause(i) > 0) await page.waitForTimeout(pause(i));
+  }
   await page.waitForTimeout(300); // held still
   const moves = await pullMoves(page);
   const voices = await heard(page, FILE.zipper);
@@ -716,7 +755,7 @@ test("the zipper rasps while the pull is dragged, at its volume, and stops withi
   expect((await sandbox<{ open: boolean }>(page, "bag()")).open, "the bag stays shut").toBe(false);
 
   const [first, last] = [moves[0], moves[moves.length - 1]];
-  expect(last - first, "the pull moved for most of 0.4 s").toBeGreaterThan(0.3);
+  expect(last - first, `the pull moved for most of ${seconds} s`).toBeGreaterThan(0.75 * seconds);
   // While the pull is moving (it moved in the last 25 ms), from 30 ms after it first moved, the zipper is heard.
   let looked = 0;
   for (let t = first + 0.03; t <= last; t += 0.01) {
@@ -732,6 +771,16 @@ test("the zipper rasps while the pull is dragged, at its volume, and stops withi
     expect(v.end, "silent within 50 ms of the pull stopping").toBeLessThanOrEqual(last + 0.07);
   }
   expect(Math.max(...voices.map((v) => v.peak)), "at the zipper's volume").toBeCloseTo(await volumeOf(page, "soundZipper"), 4);
+}
+
+test("the zipper rasps while the pull is dragged, at its volume, and stops within 50 ms of the pull stopping (QWW-109)", async ({ page }) => {
+  await dragZipper(page, () => 0, 0.4); // about 0.4 s of dragging
+});
+
+// On a slow machine (CI) the same drag can take 0.7 s or more and end with a few moves close together: a fast last move after a slow drag
+// sets the voice's rate high near its end. The zipper must still be heard all the way through (QWW-99, CI run 45915816179).
+test("a slow drag that ends with a quick move keeps the zipper heard all the way to its end (QWW-109)", async ({ page }) => {
+  await dragZipper(page, (i) => (i < 20 ? 25 : 0), 0.9); // about 0.9 s: 20 slow moves, then four back to back
 });
 
 test("Enter runs the zip open with the zipper heard for the whole run, and Restart runs it shut with the zipper (QWW-109)", async ({ page }) => {
