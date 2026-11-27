@@ -289,10 +289,11 @@ function canContacts(b: SettleBody, world: SettleWorld): ContactPoint[] {
     const x = b.x + u * c - v * s;
     const y = b.y + u * s + v * c;
     if (y < floor) add(x, y, 0, 1, floor - y, true);
-    // the top of the page is a ceiling: a can thrown hard cannot sail off it and lodge against a wall where nobody can see or reach it
-    if (y > world.height) add(x, y, 0, -1, y - world.height, false);
-    if (x < 0) add(x, y, 1, 0, -x, false);
-    if (x > world.width) add(x, y, -1, 0, x - world.width, false);
+    // no ceiling: like a ball, a can thrown up goes above the window and comes back down. The side walls stop at the window's top, and only hold a can whose middle is still on the court side (one coming down past a wall is on its way out)
+    if (y <= world.height) {
+      if (x < 0 && b.x >= 0) add(x, y, 1, 0, -x, false);
+      if (x > world.width && b.x <= world.width) add(x, y, -1, 0, x - world.width, false);
+    }
     for (const sd of near) {
       const hit = nearestOutline(sd, x, y, MARGIN);
       if (!hit || !hit.inside) continue;
