@@ -521,6 +521,48 @@ describe("a can in the hand", () => {
     expect(can.x).toBeGreaterThan(before + 0.2);
   });
 
+  /** The highest point of the can's outline, in meters. */
+  const topOf = (can: { y: number; angle: number }) => can.y + (CAN_WIDTH / 2) * Math.abs(Math.sin(can.angle)) + (CAN_HEIGHT / 2) * Math.abs(Math.cos(can.angle));
+
+  it("thrown up near the top of the window, goes above it and comes back down like a ball, landing where its preview said (QWW-113)", () => {
+    const court = new Court(WIDTH, HEIGHT);
+    const can = court.addCan(1.2, CAN_HEIGHT / 2);
+    run(court, 0.5);
+    // a quick swing up to just under the window's top, let go while still moving up
+    drag(court, can, { x: 1.2, y: 0.15 }, { x: 1.2, y: HEIGHT - 0.02 }, 0.25);
+    expect(can.vy, "still moving up when let go").toBeGreaterThan(1);
+    const said = court.restOf(can.id);
+    expect(said).not.toBeNull();
+    court.releaseCan(can.id);
+    let highest = topOf(can);
+    run(court, 4, () => (highest = Math.max(highest, topOf(can))));
+    expect(highest, "its top went at least 5 cm above the window's top").toBeGreaterThan(HEIGHT + 0.05);
+    expect(court.cans, "still on the court").toHaveLength(1);
+    expect(court.canState(can.id)).toBe("placed");
+    expect(Math.hypot(can.x - said!.x, can.y - said!.y), "within 1 cm of where the preview said").toBeLessThan(0.01);
+  });
+
+  it("above the window's top the side walls stop, as the balls' do: a can thrown up and over a side goes out (QWW-113)", () => {
+    const court = new Court(WIDTH, HEIGHT);
+    const can = court.addCan(WIDTH - 0.3, CAN_HEIGHT / 2);
+    run(court, 0.5);
+    // swung up and to the right, let go just under the top while moving up and right
+    drag(court, can, { x: WIDTH - 0.3, y: 0.15 }, { x: WIDTH - 0.05, y: HEIGHT - 0.02 }, 0.25);
+    expect(can.vy).toBeGreaterThan(1);
+    expect(can.vx).toBeGreaterThan(0.3);
+    const id = can.id;
+    court.releaseCan(id);
+    const gone: number[] = [];
+    let highest = topOf(can);
+    for (let i = 0; i < Math.round(4 / STEP) && gone.length === 0; i++) {
+      gone.push(...court.step());
+      if (court.cans.length) highest = Math.max(highest, topOf(court.cans[0]));
+    }
+    expect(highest, "it went above the window's top").toBeGreaterThan(HEIGHT);
+    expect(gone, "it went out past the right side line").toEqual([id]);
+    expect(court.cans).toHaveLength(0);
+  });
+
   it("is caught by a drag while it falls, and a tap on it does nothing", () => {
     const court = new Court(WIDTH, 4);
     const tapped = court.addCan(1, 2);
