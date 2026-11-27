@@ -26,6 +26,12 @@ import {
  */
 const UNITS_PER_METER = 10;
 const U = UNITS_PER_METER;
+/** How long the hand's velocity is averaged over, s. */
+const HAND_SMOOTHING = 0.04;
+/** A hand must move into a surface faster than this, m/s, for a let go there to count as a throw. */
+const HAND_INTO_MIN = 0.3;
+/** The fastest a let go hand can hand to a ball, m/s. */
+const HAND_MAX = 5;
 
 /**
  * Seconds of simulated time per physics step. Small on purpose: the speed below which a bounce
@@ -304,6 +310,9 @@ export class Court {
   /** Balls and cans share one run of numbers, so that an id says which one it is. */
   private nextId = 1;
   private heldId: number | null = null;
+  /** The hand's own velocity in m/s: the change in `target`, smoothed over `HAND_SMOOTHING`. Not the chase velocity of the held ball. */
+  private handV = { x: 0, y: 0 };
+  private lastTarget = { x: 0, y: 0 };
   private height: number;
   private letterLoops: Point[][];
   private pegDiscs: Disc[];
@@ -664,6 +673,8 @@ export class Court {
     // as soon as it let go and look like a throw.
     this.setBounce(body, 0);
     this.target = { x: ball.x, y: ball.y };
+    this.lastTarget = { x: ball.x, y: ball.y };
+    this.handV = { x: 0, y: 0 };
   }
 
   carryTo(x: number, y: number): void {
@@ -679,11 +690,34 @@ export class Court {
     if (!ball || !body) return;
     ball.held = false;
     // let go while moving, it was thrown from here; let go slowly, it was only dropped
+    // A ball swung onto a surface is already pressed against it (it trails the hand), and in the hand it doesn't bounce, so its own
+    // speed is gone. If the hand was moving into a surface the ball touches, hand the ball the hand's velocity, so it bounces off
+    // the way a ball thrown at that speed would.
+    if (this.handMovesIntoSurface(body)) {
+      const hv = Math.hypot(this.handV.x, this.handV.y);
+      const scale = hv > HAND_MAX ? HAND_MAX / hv : 1;
+      body.setLinearVelocity({ x: this.handV.x * scale * U, y: this.handV.y * scale * U });
+    }
     const v = body.getLinearVelocity();
     ball.shot = Math.hypot(v.x, v.y) / U >= params.throwSpeed ? { x: ball.x, y: ball.y } : null;
     body.setGravityScale(1);
     this.setBounce(body, params.restitution);
     body.setAwake(true);
+  }
+
+  /** Whether the ball touches a solid thing that the hand is moving into faster than `HAND_INTO_MIN`. */
+  private handMovesIntoSurface(body: Body): boolean {
+    for (let edge = body.getContactList(); edge; edge = edge.next) {
+      const contact = edge.contact;
+      if (!contact.isTouching() || !contact.isEnabled()) continue;
+      const m = contact.getWorldManifold(null);
+      if (!m) continue;
+      // the normal points from A to B; make it point from the surface to the ball
+      const sign = contact.getFixtureA().getBody() === body ? -1 : 1;
+      const into = -sign * (this.handV.x * m.normal.x + this.handV.y * m.normal.y);
+      if (into > HAND_INTO_MIN) return true;
+    }
+    return false;
   }
 
   /** How bouncy a ball is, including in the contacts it already has, which would otherwise keep the old value. */
@@ -708,6 +742,10 @@ export class Court {
       if (ball.held) {
         // The carried ball chases the pointer rather than teleporting, so it still pushes and
         // collides. It has a top speed, which is what gives it weight in the hand.
+        const k = Math.min(1, dt / HAND_SMOOTHING);
+        this.handV.x += (((this.target.x - this.lastTarget.x) / dt) - this.handV.x) * k;
+        this.handV.y += (((this.target.y - this.lastTarget.y) / dt) - this.handV.y) * k;
+        this.lastTarget = { x: this.target.x, y: this.target.y };
         const p = body.getPosition();
         let vx = (this.target.x * U - p.x) * params.followRate;
         let vy = (this.target.y * U - p.y) * params.followRate;
