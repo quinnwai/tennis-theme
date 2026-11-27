@@ -575,7 +575,7 @@ function main(): void {
         const held = court.balls.find((b) => b.held);
         court.release();
         // let go while moving, it was thrown
-        if (game.match.found && held && Math.hypot(held.vx, held.vy) > 0.8) tally.thrown += 1;
+        if (game.match.found && held && held.shot) tally.thrown += 1;
       },
     },
   );
