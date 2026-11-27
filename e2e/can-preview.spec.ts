@@ -138,7 +138,22 @@ async function accuracy(page: Page, seed: number, trials: number, still: (i: num
     if (still(i)) await run(page, 1.8);
     const said = await rest(page, id);
     await page.mouse.up();
-    const landed = await until(page, () => can(page, id), (x) => x.state === "placed", `trial ${i}: the can comes to stand`, 6);
+    // a can may also leave: thrown past a side line it goes back to the bag (it no longer stops at the top), which is a hit when the preview said so
+    const after = await until(
+      page,
+      async () => (await cans(page)).find((x) => x.id === id) ?? null,
+      (x) => x === null || x.state === "placed",
+      `trial ${i}: the can comes to stand or leaves`,
+      6,
+    );
+    if (!after) {
+      if (said && (said.x < 0 || said.x > w)) hits++;
+      else misses.push({ i, said, note: "the can left the court" });
+      ids[ids.indexOf(id)] = await addCan(page, w * 0.5, h * 0.3);
+      await run(page, 1);
+      continue;
+    }
+    const landed = after;
     const d = said ? Math.hypot(landed.x - said.x, landed.y - said.y) : Infinity;
     const da = said ? turn(landed.angle, said.angle) : Infinity;
     if (d <= 6 && da <= 2) hits++;
