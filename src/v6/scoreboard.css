@@ -304,17 +304,19 @@
     font-size: 12px;
     line-height: 18px;
   }
-  /* the stats shrink to one line in the board's width, so they keep clear of the name */
+  /* the stats shrink to a light line in the board's width, with Play again on its own line under it;
+     the line has no box and lets presses through to the balls behind it */
   .v6-score-stats {
     width: auto;
     margin-top: 4px;
-    padding: 2px 8px;
-    border-left-width: 3px;
-  }
-  .v6-score-stats {
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
   .v6-score-stats .head,
   .v6-score-stats dl {
@@ -322,6 +324,7 @@
   }
   .v6-score-stats .line {
     display: block;
+    opacity: 0.7;
   }
   .v6-score-stats .again {
     flex: none;
