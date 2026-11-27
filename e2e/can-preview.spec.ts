@@ -185,6 +185,41 @@ test.describe("the drop preview: the can lands where its shadow showed", () => {
   });
 });
 
+test.describe("a can thrown up past the window's top (QWW-113)", () => {
+  test("goes above the window, as a ball does, and lands where its shadow showed", async ({ page }, info) => {
+    test.skip(info.project.name !== "chromium" && info.project.name !== "iphone-landscape", "a desktop and the 750 x 280 phone");
+    const { width } = page.viewportSize()!;
+    // to the right of the name's middle, clear of the corner controls
+    const id = await addCan(page, width * 0.62, 60);
+    const c = await until(page, () => can(page, id), (x) => x.state === "placed", "the can stands", 4);
+    const at = (await pressPoint(page, c))!;
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    // a quick swing straight up to the window's top edge, let go while it is still moving up
+    await drag(page, at, { x: at.x, y: 2 }, 4);
+    const said = await rest(page, id);
+    expect(said, "a shadow to land on").not.toBeNull();
+    await page.mouse.up();
+    let highest = Infinity;
+    const landed = await until(
+      page,
+      async () => {
+        const x = await can(page, id);
+        // the top of its outline, in page pixels from the window's top (negative is above the window)
+        const top = x.y - (x.width / 2) * Math.abs(Math.sin(x.angle)) - (x.height / 2) * Math.abs(Math.cos(x.angle));
+        highest = Math.min(highest, top);
+        return x;
+      },
+      (x) => x.state === "placed",
+      "the can comes to stand",
+      6,
+    );
+    expect(highest, "its top went at least 20 px above the window's top").toBeLessThan(-20);
+    expect(Math.hypot(landed.x - said!.x, landed.y - said!.y), "within 6 px of its shadow").toBeLessThanOrEqual(6);
+    expect(turn(landed.angle, said!.angle), "within 2 degrees of its shadow").toBeLessThanOrEqual(2);
+  });
+});
+
 test.describe("the drop preview's shadow", () => {
   /** A can standing on the open floor, pressed and lifted a little, so it is carried and still. */
   async function carried(page: Page) {
