@@ -17,6 +17,12 @@ export interface MatchStats {
 
 export type Scoreboard = ReturnType<typeof mountScoreboard>;
 
+/** Time on court as minutes and seconds: 0m14s, 1m05s, 10m00s. */
+export function courtTime(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 export function mountScoreboard() {
   const el = document.createElement("section");
   el.className = "v6-score";
@@ -70,8 +76,7 @@ export function mountScoreboard() {
     /** The match stats card, dropping down under the board, with a button to start a new match. */
     showStats(s: MatchStats, playAgain: () => void): void {
       const accuracy = s.thrown > 0 ? Math.round((100 * s.points) / s.thrown) : 0;
-      const seconds = Math.round(s.ms / 1000);
-      const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      const time = courtTime(s.ms);
       const pair = (k: string, v: string | number) => `<dt>${k}</dt><dd>${v}</dd>`;
       // in full, and, for windows too short for the card (a phone held sideways), on one line under the board
       stats.innerHTML =

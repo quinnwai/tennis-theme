@@ -1,7 +1,7 @@
 import "./rules-card.css";
 
 /** The game in four short steps. No numbers for the distance: "from a distance" is enough to get the idea. */
-const STEPS = ["Tap a can to pour", "Drag a ball to throw", "Sink it from a distance", "Win 3 points, win the match"];
+const STEPS = ["Tap a can to pour", "Drag or tap a ball to throw", "Sink it from a distance", "Win 3 points, win the match"];
 
 export interface RulesCard {
   /** Shown with the scoreboard, closed: only its tab pokes out under the board. */

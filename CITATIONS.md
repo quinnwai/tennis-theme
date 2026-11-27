@@ -2,7 +2,7 @@
 
 inspo…
 
-- minimalist style: [Monument Valley](https://www.monumentvalleygame.com/mv3) (ustwo games)
+- minimalist style: [Monument Valley](https://www.monumentvalleygame.com/) (ustwo games)
 - color palette: 2014 Australian Open merch
 - typeface: [Ubuntu](https://design.ubuntu.com/font) (Dalton Maag)
 - ball animations: [Combo Pool](https://nusan.itch.io/combo-pool) (nusan)
