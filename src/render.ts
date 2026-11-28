@@ -81,6 +81,21 @@ interface Point {
 }
 
 /** A picture turned about a point, such as a can of balls out of the bag. */
+/** The drop preview: a can's shadow where it would come to rest. Its middle (page px), its turn (radians clockwise), its size (px)
+ * and how strongly it shows (0 to 1). */
+export interface Ghost {
+  /** The can it is the shadow of. */
+  id: number;
+  x: number;
+  y: number;
+  angle: number;
+  w: number;
+  h: number;
+  alpha: number;
+  /** The trophy's picture, drawn as a shadow of its own shape: where it sits about the point (x, y), px, unturned. */
+  image?: { img: CanvasImageSource; x: number; y: number; w: number; h: number };
+}
+
 export interface ImageSprite {
   img: CanvasImageSource;
   /** The point it turns about, page px, and its turn, radians clockwise. */
@@ -92,6 +107,8 @@ export interface ImageSprite {
   h: number;
   ox: number;
   oy: number;
+  /** An outline on the page (px) it is hidden behind, such as the bag's front for a can coming out of it. */
+  behind?: [number, number][];
 }
 
 /** A ball's shadow on the surface under it: a flat ellipse seen at the scene camera's angle. */
@@ -166,7 +183,15 @@ export class Renderer {
   }
 
   /** `rising` are fresh balls on their way up out of a stem; they are drawn behind the letters. */
-  draw(now: number, balls: BallSprite[], rising: BallSprite[], shadows: ShadowSprite[] = [], props: ImageSprite[] = []): void {
+  draw(
+    now: number,
+    balls: BallSprite[],
+    rising: BallSprite[],
+    shadows: ShadowSprite[] = [],
+    props: ImageSprite[] = [],
+    ghosts: Ghost[] = [],
+    over: { sprite: BallSprite; hide: [number, number][] }[] = [],
+  ): void {
     const ctx = this.ctx;
     if (this.clearBackground) {
       ctx.clearRect(0, 0, this.width, this.height);
@@ -182,14 +207,128 @@ export class Renderer {
     for (const b of rising) this.drawBall(b);
     ctx.fillStyle = this.palette.white;
     ctx.fill(this.letters, "evenodd");
+    this.drawGhosts(ghosts);
     for (const p of props) {
       ctx.save();
+      if (p.behind) {
+        // everything but the outline it is behind
+        const clip = new Path2D();
+        clip.rect(0, 0, this.width, this.height);
+        p.behind.forEach(([x, y], i) => (i ? clip.lineTo(x, y) : clip.moveTo(x, y)));
+        clip.closePath();
+        ctx.clip(clip, "evenodd");
+      }
       ctx.translate(p.x, p.y);
       ctx.rotate(p.angle);
-      ctx.drawImage(p.img, -p.ox, -p.oy, p.w, p.h);
+      ctx.drawImage(this.raster(p.img, p.w, p.h), -p.ox, -p.oy, p.w, p.h);
+      ctx.restore();
+    }
+    // balls going into the trophy, over its picture, but not over the front of its cup
+    for (const o of over) {
+      ctx.save();
+      const clip = new Path2D();
+      clip.rect(0, 0, this.width, this.height);
+      o.hide.forEach(([x, y], i) => (i ? clip.lineTo(x, y) : clip.moveTo(x, y)));
+      clip.closePath();
+      ctx.clip(clip, "evenodd");
+      this.drawBall(o.sprite);
       ctx.restore();
     }
     for (const b of balls) this.drawBall(b);
+  }
+
+  private rasters = new Map<CanvasImageSource, HTMLCanvasElement>();
+
+  /**
+   * A picture drawn once, to draw from every frame after. Drawing the trophy's vector picture itself, turned, costs the browser a fresh
+   * render of all its shapes each frame; on a slow machine that made the frames of the trophy coming down and being carried take longer
+   * than a 60th of a second. The trophy changes size as it comes down and is fitted to the window, so the copy is made a quarter larger
+   * than asked and kept while the picture is shown between half and all of its size, so it is not remade every frame of a change.
+   * `w`, `h`: the size it is shown at (page px).
+   */
+  private raster(img: CanvasImageSource, w: number, h: number): CanvasImageSource {
+    const dpr = window.devicePixelRatio || 1;
+    const [pw, ph] = [Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr))];
+    const have = this.rasters.get(img);
+    if (have && have.width >= pw && have.width <= pw * 2) return have;
+    const canvas = have ?? document.createElement("canvas");
+    canvas.width = Math.round(pw * 1.25);
+    canvas.height = Math.round(ph * 1.25);
+    canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+    this.rasters.set(img, canvas);
+    return canvas;
+  }
+
+  /** How strongly the drop preview shows at full strength, and the faint rim that keeps it readable on the darkest things it can land on. */
+  ghostOpacity = 0.55;
+  ghostRimOpacity = 0.16;
+
+  /** The drop preview: a can's dark shadow in the scene's shadow colour, with a faint rim of the page's quiet grey. */
+  private drawGhosts(ghosts: Ghost[]): void {
+    const ctx = this.ctx;
+    for (const g of ghosts) {
+      if (g.alpha <= 0.01) continue;
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.rotate(g.angle);
+      if (g.image) {
+        // the trophy: its own shape, handles and all
+        const { canvas, pad } = this.silhouette(g.image);
+        ctx.globalAlpha = this.ghostOpacity * g.alpha;
+        ctx.drawImage(canvas, g.image.x - pad, g.image.y - pad, g.image.w + 2 * pad, g.image.h + 2 * pad);
+        ctx.restore();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.roundRect(-g.w / 2, -g.h / 2, g.w, g.h, g.w * 0.14);
+      ctx.globalAlpha = this.ghostOpacity * g.alpha;
+      ctx.fillStyle = this.shadowColor;
+      ctx.fill();
+      ctx.globalAlpha = this.ghostRimOpacity * g.alpha;
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = this.palette.quiet || this.palette.white;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  private shape: { key: string; canvas: HTMLCanvasElement; pad: number } | null = null;
+
+  /**
+   * A picture's shape in the shadow colour, with the faint rim the cans' shadows have just outside it,
+   * made once for each size. `pad`: the room around the picture for the rim (px).
+   */
+  private silhouette(image: NonNullable<Ghost["image"]>): { canvas: HTMLCanvasElement; pad: number } {
+    const dpr = window.devicePixelRatio || 1;
+    const [w, h] = [Math.max(1, Math.round(image.w * dpr)), Math.max(1, Math.round(image.h * dpr))];
+    const key = `${w}x${h} ${this.shadowColor} ${this.palette.quiet}`;
+    if (this.shape?.key === key) return this.shape;
+    const edge = Math.max(1, Math.round(dpr));
+    const make = () => {
+      const c = document.createElement("canvas");
+      [c.width, c.height] = [w + 2 * edge, h + 2 * edge];
+      return [c, c.getContext("2d")!] as const;
+    };
+    // the rim: the shape grown by a pixel all round, less the shape
+    const [rim, r] = make();
+    for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]])
+      r.drawImage(image.img, edge + dx * edge, edge + dy * edge, w, h);
+    r.globalCompositeOperation = "destination-out";
+    r.drawImage(image.img, edge, edge, w, h);
+    r.globalCompositeOperation = "source-in";
+    r.fillStyle = this.palette.quiet || this.palette.white;
+    r.fillRect(0, 0, rim.width, rim.height);
+    // the shape, filled with the shadow colour, then the rim at its strength relative to the fill's
+    const [canvas, c] = make();
+    c.drawImage(image.img, edge, edge, w, h);
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = this.shadowColor;
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.globalCompositeOperation = "source-over";
+    c.globalAlpha = this.ghostRimOpacity / this.ghostOpacity;
+    c.drawImage(rim, 0, 0);
+    this.shape = { key, canvas, pad: edge / dpr };
+    return this.shape;
   }
 
   private drawShadows(shadows: ShadowSprite[]): void {

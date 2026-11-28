@@ -66,31 +66,45 @@ export const params = {
   soundHit: 0.25,
   soundBounce: 0.125, // a bounce at full speed (see soundBounceFullSpeed); slower impacts are quieter. Bounces are far more frequent than the rest
   soundRising: 0.25, // a fresh ball rising out of an "i"
+  soundApplause: 0.75, // a point's applause (QWW-102)
+  soundZipper: 0.07, // the bag's zip, as the pull moves (QWW-109); matches a full-speed bounce to the ear
+  soundPaper: 0.25, // the notebook opening (QWW-109); the file is 6.2 dB under the bounce's, so twice soundBounce matches it
+  cheerVolume: 0.95, // the win's cheer (QWW-104), Quinn-Wai's own
+  cheerFxVolume: 0.3, // the cheer's second layer, 0.5 s after it (QWW-117), Quinn-Wai's own
   soundOut: 0.5, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes
-  soundMaxVoices: 4, // the most sounds playing at once, not counting the hit, which is never cut short; past that, the oldest give way
-  soundGain: 0.1, // everything plays at this share of the volumes above (-20 dB), which is the whole of "on"; the sound button only chooses between this and mute
+  soundMaxVoices: 4, // the most sounds playing at once, not counting the kept sounds (hit, applause, cheer, a can's pop, ...), which are never cut short; past that, the oldest give way
+  soundGain: 0.15, // everything plays at this share of the volumes above (about -16.5 dB), which is the whole of "on"; the sound button only chooses between this and mute
 
   // The buttons in the corners are icons with no circle (but for the "?"), all one tone and one size. The tone runs from the page's navy
   // (0, which fades them away) to white (1); a button turns fully white under the pointer. The size is the icon's width
   // and height in px: the first draft's were 18, so 36 is twice that. Both are judged by eye. The stylesheet starts from
   // the same numbers, so the buttons are right before the script runs (a unit test checks that they agree).
   iconTone: 0.25,
+  rowTone: 0.15, // the top-right row (credits, clear, sound) is not solid, so it is drawn fainter than the "?", which is; same scale as iconTone; needs Quinn-Wai's call, judged by eye
   iconSize: 36, // px; the biggest the icons get, as on a laptop
   // On a short window the icons are smaller, by this share of the window's shorter side (and never below 20 px). A phone
   // held sideways is only about 280 px tall in iOS 26's Safari, with its two rows of toolbar, and 36 px icons crowd it:
   // this makes them 28 px there. Judged by eye, on a phone. (The stylesheet starts from the same two numbers.)
   iconShare: 0.1,
 
-  // The cans of balls. A can holds 3 balls and keeps them while it is upright. Tipped past canPourAngle it lets them out one
-  // after another, each leaving its mouth along the way the mouth points. A can that is carried hangs from the point it was
-  // taken by, like anything held by one point, and canGrip is how firmly the hand keeps it upright: a hard shake overcomes it,
-  // and 0 would be a can that swings like a pendulum. Judged by feel.
-  canPourAngle: 100, // degrees from upright; 90 is lying on its side, so a little more is mouth down
-  canPourInterval: 0.15, // s between one ball leaving and the next
-  canPourSpeed: 0.6, // m/s; how fast a ball is let out of the mouth, on top of the can's own movement
-  canGrip: 70, // the most torque the hand puts into keeping a carried can upright
+  // The cans of balls (Quinn-Wai's controls spec). A can holds 3 balls. Drag moves a can and a tap acts on it: a press that moves more
+  // than canTapPx is a drag, one that lets go within canTapMs without moving is a tap (it pours the can, or wiggles it if it is empty).
+  // A press lands on a ball if one is within canBallReachPx of its edge, else on a can if its outline is within canReachPx. Judged by feel.
+  canTapMs: 450,
+  canTapPx: 8,
+  canBallReachPx: 16,
+  canReachPx: 14,
+
+  // Scoring (QWW-99). A ball let go at least throwSpeed m/s was thrown, slower it was only dropped. A throw scores when it goes into a can
+  // that is at least shotDistance of the window's width from where it was let go, in a straight line in any direction. A can leaning
+  // further than refillTilt degrees (lying flat or upside down) takes no balls. mouthGrace widens a can's mouth, in balls' radii, so a
+  // ball clipping the rim rolls in. Quinn-Wai's, from the playtests of the prototype.
+  throwSpeed: 0.8,
+  shotDistance: 1 / 5,
+  refillTilt: 89,
+  mouthGrace: 0.3,
 
   // The v6 scene (the bench, towel, bag and racquet; see src/v6). Its sizes are real and not tunable. These are its motion and its
   // light touch on the toy; all judged by eye, on the live site.

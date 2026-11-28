@@ -7,6 +7,7 @@ export function readPalette() {
     ball: get("--ball"),
     ballShade: get("--ball-shade"),
     white: get("--white"),
+    quiet: get("--quiet"),
   };
 }
 

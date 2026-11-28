@@ -27,6 +27,7 @@
 :root {
   --icon-size: min(36px, 10dvmin); /* iconSize and iconShare in params.ts; the script writes the size it works out for the window over this one */
   --icon-tone: 0.25; /* from the page's navy (0) to white (1) */
+  --row-tone: 0.15; /* the top-right row, not solid, so fainter; the same scale */
   --stroke: calc(var(--icon-size) * 0.075); /* the icons' line weight, 1.8 of their 24 units; the "?" circle is as thick */
   --chip: calc(var(--icon-size) + 8px);
   --edge: 12px; /* how far the corner buttons sit from the window's edges */
@@ -178,8 +179,8 @@ a {
 
 /*
  * The other corner: a row of three buttons at the top right. Left to right they are credits (the book), clear (the
- * restart arrow) and the sound toggle, which sits in the corner itself. Like the "?", each is a solid object in
- * the toy. The close button that replaces the book while the credits are open takes exactly the same spot.
+ * restart arrow) and the sound toggle, which sits in the corner itself. Unlike the "?", none is solid: balls and cans
+ * pass through them (QWW-113). The close button that replaces the book while the credits are open takes exactly the same spot.
  */
 .tools {
   position: fixed;
@@ -215,8 +216,15 @@ a {
     transform 0.15s;
 }
 
+/* The top-right row is not solid (balls and cans pass through it), so it is drawn fainter than the "?". */
+.tools .chip {
+  color: color-mix(in srgb, var(--white) calc(var(--row-tone) * 100%), var(--navy));
+}
+
 .chip:hover,
-.chip:focus-visible {
+.chip:focus-visible,
+.tools .chip:hover,
+.tools .chip:focus-visible {
   color: var(--white);
 }
 
@@ -403,8 +411,8 @@ a {
   }
 
   .credits-text {
-    font-size: 14px;
-    line-height: 1.35;
+    font-size: 13px; /* (14 before the lines for the bag's zip and the notebook's paper, QWW-109) */
+    line-height: 1.15; /* (1.35 before the line for the trophy, 1.22 before those two) */
   }
 
   .credits-text p {
@@ -434,16 +442,65 @@ a {
   }
 
   .credits-text {
-    font-size: 13px;
-    line-height: 1.25;
+    font-size: 12px; /* (13 before the lines for the bag's zip and the notebook's paper, QWW-109) */
+    line-height: 1.1; /* (1.2 before the line for the trophy, 1.12 before the lines for the bag's zip and the notebook's paper, QWW-109) */
   }
 
-  /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves. */
+  /* With the lines for the notebook, the bag, the racquet and the towel added, tighter gaps between the items keep the list inside the 264px a 280px window leaves (and the line for the point applause took the line spacing down from 1.25 to 1.2, and the gaps down a little more). */
   .credits-text li + li {
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
   }
 
   .credits-text li li + li {
-    margin-top: 0.1rem;
+    margin-top: 0.05rem;
+  }
+}
+
+/* The win (src/celebrate.ts, src/trophy.ts): the confetti and the glint sit in front of everything; the trophy floats over the toy. */
+.confetti {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.glint {
+  position: fixed;
+  z-index: 61;
+  translate: -50% -50%;
+  pointer-events: none;
+  animation: glint 950ms ease-out both;
+}
+
+@keyframes glint {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-25deg);
+  }
+  22% {
+    opacity: 1;
+    transform: scale(1.15) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.85) rotate(18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glint {
+    animation: glint-fade 900ms ease both;
+  }
+}
+
+@keyframes glint-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
   }
 }

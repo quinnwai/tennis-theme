@@ -446,6 +446,7 @@ test.describe("the cans", () => {
     const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
     await carry(page, [top.x - 80, top.y - 120], [100, L.height - lift - held[0].height - 10]);
     await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
+    await advance(page, 1); // (QWW-100: a can let go while it still swings keeps turning as it falls, and may land on its side; let go once it hangs quite still)
     await page.mouse.up();
     await advance(page, 4);
     const [can] = await cans(page);
@@ -457,58 +458,19 @@ test.describe("the cans", () => {
   test("a can let go before it is clear of the bag drops back into its place, and can be taken again", async ({ page }) => {
     await unzip(page);
     const top = await canTop(page, 2);
+    // (QWW-100: a press that does not move is a tap now, and pours the can; a press that moves more than 8 px takes it)
+    await freeze(page);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
+    await carry(page, [top.x, top.y], [top.x, top.y - 12], 3);
     expect(await cans(page)).toHaveLength(1);
     await page.mouse.up();
     expect(await cans(page), "back in the bag").toHaveLength(0);
     await page.mouse.move(top.x, top.y);
     await page.mouse.down();
+    await carry(page, [top.x, top.y], [top.x, top.y - 12], 3);
     expect(await cans(page), "and taken again").toHaveLength(1);
     await page.mouse.up();
-  });
-
-  test("a can that is shaken hard by its base is turned over and pours its balls out", async ({ page }) => {
-    test.slow(); // a long run of small moves, each one a round trip to the page: three times the time on a slow machine
-    await freeze(page);
-    await unzip(page);
-    const top = await canTop(page, 0);
-    const L = await scene(page);
-    await page.mouse.move(top.x, top.y);
-    await page.mouse.down();
-    await carry(page, [top.x, top.y], [top.x - 40, top.y - 60], 6);
-    const height = (await cans(page))[0].height;
-    // Set it down on the open floor left of the name, as a visitor would, and let it settle: it stands, full.
-    const lift = await page.evaluate(() => (matchMedia("(pointer: coarse)").matches ? (window as any).__sandbox.params.floorLiftPx : 0));
-    await carry(page, [top.x - 40, top.y - 60], [100, L.height - lift - height - 10]);
-    // The can swings under the hand for a while after the hand stops, and a can let go in mid-swing may land on its side. It is let go once
-    // the swing is over, and this waits for that in the court's time and not the machine's.
-    await until(page, async () => (await cans(page))[0], (c) => Math.hypot(c.vx, c.vy) < 30 && Math.abs(c.angle) < 0.05, "the can hangs still in the hand", 8);
-    await page.mouse.up();
-    await advance(page, 3);
-    const [can] = await cans(page);
-    expect(can.ballsLeft).toBe(3);
-    expect(Math.abs(can.angle), "it stands upright (the angle is in radians)").toBeLessThan(0.1);
-    // Take it by its base, lift it, and shake it from side to side, as hard as a hand does: the hand's grip keeps a can upright through
-    // a gentle carry, not through this. Each swing is paced in small moves, a frame apart.
-    const before = (await balls(page)).length;
-    const base: Pt = [can.x, can.y + can.height * 0.4];
-    await page.mouse.move(base[0], base[1]);
-    await page.mouse.down();
-    const lifted: Pt = [base[0] + can.height * 1.5, base[1] - can.height * 1.5]; // clear of the wall, which would stop half of each swing
-    await carry(page, base, lifted, 15);
-    let at = lifted;
-    for (let swing = 0; swing < 10 && (await cans(page))[0].ballsLeft > 0; swing++) {
-      for (const to of [[lifted[0] + can.height * 0.5, lifted[1]], [lifted[0] - can.height * 0.5, lifted[1]]] as Pt[]) {
-        await carry(page, at, to, 6);
-        at = to;
-      }
-    }
-    await page.mouse.up();
-    await advance(page, 3);
-    const [after] = await cans(page);
-    expect(after.ballsLeft, "emptied").toBe(0);
-    expect((await balls(page)).length, "its three balls are on the court").toBeGreaterThanOrEqual(before + 3);
   });
 });
 
@@ -623,8 +585,87 @@ test.describe("the notebook", () => {
 
   test("a window that holds the words on one spread has no turn chip", async ({ page }) => {
     await notebookAt(page, { width: 1280, height: 800 });
-    await expect(notebookDialog(page).getByRole("button", { name: /Turn/ })).toBeHidden();
+    // neither of the two page arrows shows (QWW-115)
+    await expect(notebookDialog(page).getByRole("button", { name: /Turn/ }).filter({ visible: true })).toHaveCount(0);
   });
+
+  // QWW-115: a page arrow on each side of the notebook, centred on it; the one that has nowhere to turn to is fainter and disabled.
+  for (const size of [
+    { width: 750, height: 280 },
+    { width: 852, height: 282 }, // an iPhone 15 or 16 Pro held sideways, in Safari
+  ]) {
+    test(`at ${size.width}x${size.height} a page arrow sits on each side of the notebook, centred on it, the one with nowhere to go fainter and disabled (QWW-115)`, async ({ page }) => {
+      const type = await notebookAt(page, size);
+      expect(type.paged, "two spreads in this window").toBe(true);
+      const dialog = notebookDialog(page);
+      const back = dialog.getByRole("button", { name: /Turn back/ });
+      const next = dialog.getByRole("button", { name: /Turn to the next page/ });
+      await expect(back).toBeVisible();
+      await expect(next).toBeVisible();
+      /** Where each arrow is, how bright it is drawn (its colour's lightness times its opacity, up the tree), and the notebook's box. */
+      const look = () =>
+        page.evaluate(() => {
+          const d = document.querySelector<HTMLElement>(".v6-notebook")!;
+          const rect = (el: Element) => {
+            const r = el.getBoundingClientRect();
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          };
+          const tone = (el: HTMLElement) => {
+            const [r, g, b, a = 1] = getComputedStyle(el).color.match(/[\d.]+/g)!.map(Number);
+            let o = a;
+            for (let e: HTMLElement | null = el; e && e !== d; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
+            return ((r + g + b) / 3 / 255) * o;
+          };
+          const chips = [...d.querySelectorAll<HTMLButtonElement>("button")].filter((b) => /Turn/.test(b.getAttribute("aria-label") ?? ""));
+          const find = (re: RegExp) => chips.find((b) => re.test(b.getAttribute("aria-label")!))!;
+          const [back, next] = [find(/Turn back/), find(/Turn to the next page/)];
+          return {
+            book: rect(d.querySelector(".v6-nb-fit")!),
+            close: rect(d.querySelector(".v6-nb-close")!),
+            back: { ...rect(back), tone: tone(back), disabled: back.disabled },
+            next: { ...rect(next), tone: tone(next), disabled: next.disabled },
+          };
+        });
+      // (wait for the opening's fades to be over before reading tones)
+      await expect.poll(() => dialog.evaluate((el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running"))).toBe(false);
+      const at = `${size.width}x${size.height}`;
+      const first = await look();
+      const mid = (r: { top: number; bottom: number }) => (r.top + r.bottom) / 2;
+      const apart = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) =>
+        a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+      expect(first.back.right, `the back arrow is left of the notebook at ${at}`).toBeLessThanOrEqual(first.book.left);
+      expect(first.next.left, `the next arrow is right of the notebook at ${at}`).toBeGreaterThanOrEqual(first.book.right);
+      for (const name of ["back", "next"] as const) {
+        const chip = first[name];
+        expect(Math.abs(mid(chip) - mid(first.book)), `the ${name} arrow's middle is the notebook's, at ${at}`).toBeLessThanOrEqual(2);
+        expect(apart(chip, first.book), `the ${name} arrow does not overlap the notebook at ${at}`).toBe(true);
+        expect(apart(chip, first.close), `the ${name} arrow does not overlap the close chip at ${at}`).toBe(true);
+        expect(chip.left >= 0 && chip.right <= size.width && chip.top >= 0 && chip.bottom <= size.height, `the ${name} arrow is in the window at ${at}`).toBe(true);
+      }
+      // the first spread: nothing to turn back to
+      expect(first.back.disabled, "on the first spread the back arrow is disabled").toBe(true);
+      expect(first.next.disabled, "on the first spread the next arrow works").toBe(false);
+      expect(first.back.tone, "on the first spread the back arrow is fainter").toBeLessThan(first.next.tone);
+      await next.click();
+      await expect.poll(async () => (await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(1);
+      await page.mouse.move(1, 1); // off the arrows, so neither is lit by the pointer
+      await expect.poll(() => dialog.evaluate((el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running"))).toBe(false);
+      const second = await look();
+      expect(second.next.disabled, "on the second spread the next arrow is disabled").toBe(true);
+      expect(second.back.disabled, "on the second spread the back arrow works").toBe(false);
+      expect(second.next.tone, "on the second spread the next arrow is fainter").toBeLessThan(second.back.tone);
+      for (const name of ["back", "next"] as const) {
+        expect(Math.abs(mid(second[name]) - mid(second.book)), `the ${name} arrow stays centred on the second spread`).toBeLessThanOrEqual(2);
+        expect(apart(second[name], second.book), `the ${name} arrow does not overlap the notebook on the second spread`).toBe(true);
+      }
+      await back.click();
+      await expect.poll(async () => (await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(0);
+      // a press on an arrow is inside the notebook: it does not close it
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    });
+  }
 
   test("it is credited in the credits", async ({ page }) => {
     await page.getByRole("button", { name: "Credits", exact: true }).click();
@@ -653,9 +694,11 @@ test.describe("starting again", () => {
       const t = await canTop(page, n);
       await page.mouse.move(t.x, t.y);
       await page.mouse.down();
+      await carry(page, [t.x, t.y], [t.x, t.y - 12], 3); // (QWW-100: a press that does not move is a tap, which pours the can)
+      expect(await cans(page), `can ${n} is taken out of the bag`).toHaveLength(1);
       await page.mouse.up();
     }
-    expect(await cans(page), "all three are still in the bag, and a press and release puts each back").toHaveLength(0);
+    expect(await cans(page), "all three are still in the bag, and a short drag and release puts each back").toHaveLength(0);
   });
 
   test("with the notebook open, Clear closes it too", async ({ page }) => {

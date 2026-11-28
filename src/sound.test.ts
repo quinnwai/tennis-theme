@@ -28,8 +28,12 @@ afterEach(() => {
 
 const NAMES = Object.keys(SOUNDS) as SoundName[];
 /** How long each file is, as a browser's decoder reports it. */
-const LENGTH: Record<SoundName, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708 };
-const nameOf = (file: string) => NAMES.find((name) => SOUNDS[name].file === file)!;
+// (A record of any name, so that it already knows the bag's zip and the notebook's paper, QWW-109, before they are sounds of their own.)
+const LENGTH: Record<string, number> = { cheerFx: 1.67, hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828, zipper: 0.768, paper: 0.384 };
+const CHEER_FILE = "./tennis/sounds/successful-event.wav";
+const CHEER_LENGTH = 3.0;
+const CHEER_FX_FILE = "./tennis/sounds/success-fx.wav";
+const nameOf = (file: string) => (file === CHEER_FILE ? ("cheer" as SoundName) : file === CHEER_FX_FILE ? ("cheerFx" as SoundName) : NAMES.find((name) => SOUNDS[name].file === file)!);
 /** Let everything that is waiting on a promise run. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
@@ -169,7 +173,7 @@ function fakeAudio(
     },
     decode: async (data: ArrayBuffer) => {
       const name = nameOf(new TextDecoder().decode(data));
-      return { duration: LENGTH[name], name } satisfies Decoded;
+      return { duration: (name as string) === "cheer" ? CHEER_LENGTH : LENGTH[name], name } satisfies Decoded;
     },
     muted: () => state.muted,
     gain: () => state.gain,
@@ -425,9 +429,24 @@ describe("Sound", () => {
     expect(limiters[0].ratio.value).toBeGreaterThan(4); // a limiter, not a gentle compressor
   });
 
-  it("plays the tuned volumes at the quiet level, all halved again on 2026-11-22", () => {
-    expect(defaults).toMatchObject({ soundHit: 0.25, soundBounce: 0.125, soundRising: 0.25, soundOut: 0.5, soundMaxVoices: 4, soundGain: 0.1 });
-    expect(levelGain("on")).toBe(0.1);
+  it("plays the tuned volumes at the quiet level, made 1.5 times louder on 2026-11-26 (QWW-108)", () => {
+    expect(defaults).toMatchObject({ soundHit: 0.25, soundBounce: 0.125, soundRising: 0.25, soundOut: 0.5, soundMaxVoices: 4, soundGain: 0.15 });
+    expect(levelGain("on")).toBe(0.15);
+  });
+
+  it("plays the bag's zip at 0.07 and the notebook's paper at 0.25, each about as loud to the ear as a full-speed bounce (QWW-109)", () => {
+    expect(defaults).toMatchObject({ soundZipper: 0.07, soundPaper: 0.25 });
+  });
+
+  it("credits the bag's zip and the notebook's paper in CITATIONS.md and in the credits on the page, like the other sounds (QWW-109)", () => {
+    const files = import.meta.glob(["../CITATIONS.md", "../index.html"], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+    for (const [file, text] of Object.entries(files)) {
+      expect(text, file).toMatch(/bag zip[^\n]*Kodack/);
+      expect(text, file).toContain("https://freesound.org/people/Kodack/sounds/256404/");
+      expect(text, file).toMatch(/notebook[^\n]*yatoimtop/);
+      expect(text, file).toContain("https://freesound.org/people/yatoimtop/sounds/346835/");
+    }
+    expect(Object.keys(files)).toHaveLength(2);
   });
 
   it("plays no bounce for a soft contact, and some for a hard one", async () => {
@@ -491,6 +510,87 @@ describe("Sound", () => {
     expect(playing().filter((s) => s.name === "hit")).toHaveLength(2);
   });
 
+  // QWW-108: the sounds that answer one deliberate action (the hit, the point's applause, the cheer, a can's pop on a pour) are never
+  // cut short and never count toward soundMaxVoices. Only the patter shares the cap: bounces, the pop of a ball rising out of an "i", and
+  // the "out" whoosh.
+  it("cuts nothing to start the applause, the cheer or a pour's pop next to four bounces, and later bounces never cut them (QWW-108)", async () => {
+    params.soundMaxVoices = 4;
+    const { sound, started, playing, state } = await awake();
+    sound.preload("cheer");
+    await settle();
+    for (let i = 0; i < 4; i++) {
+      state.now = i * 0.001;
+      sound.play("bounce");
+    }
+    state.now = 0.01;
+    sound.play("applause");
+    sound.play("cheer");
+    sound.play("rising", 1, true); // a can's pop on a pour: kept, unlike the pop of a ball rising out of an "i"
+    sound.play("hit");
+    expect(started.filter((s) => s.stoppedAt !== undefined), "nothing was cut to make room for them").toEqual([]);
+    expect(playing()).toHaveLength(8);
+    // more patter: each new bounce cuts the oldest bounce, never one of the kept sounds
+    for (let i = 0; i < 6; i++) {
+      state.now = 0.02 + i * 0.001;
+      sound.play(i % 3 === 2 ? "out" : "bounce");
+    }
+    const kept = started.filter((s) => s.name === "applause" || (s.name as string) === "cheer" || s.name === "hit" || (s.name === "rising" && s.at === 0.01));
+    expect(kept.map((s) => s.name as string).sort()).toEqual(["applause", "cheer", "hit", "rising"]);
+    for (const k of kept) {
+      expect(k.stoppedAt, `${k.name} is never cut`).toBeUndefined();
+      expect(k.gain.fadedAt === undefined || k.name === "applause", `${k.name} is never faded early`).toBe(true);
+    }
+    const patter = playing().filter((s) => !kept.includes(s));
+    expect(patter, "the patter still shares four places").toHaveLength(4);
+    expect(patter).toEqual(started.slice(-4));
+  });
+
+  it("still lets a fifth bounce cut the oldest bounce, and the pop of a ball rising out of an \"i\" stays part of the patter (QWW-108)", async () => {
+    params.soundMaxVoices = 4;
+    const { sound, started, playing, state } = await awake();
+    sound.play("rising"); // a ball rising out of an "i": patter
+    for (let i = 0; i < 4; i++) {
+      state.now = 0.001 * (i + 1);
+      sound.play("bounce");
+    }
+    expect(started[0].stoppedAt, "the rising pop gave way").toBeDefined();
+    expect(playing()).toEqual(started.slice(1));
+  });
+
+  it("fetches the cheer's second layer with the cheer, and plays it at its own volume, never cut short (QWW-117)", async () => {
+    params.soundMaxVoices = 1;
+    const { sound, started } = await awake();
+    sound.preload("cheer");
+    await settle();
+    sound.play("bounce");
+    sound.play("cheerFx" as SoundName);
+    sound.play("bounce");
+    const fx = started.find((s) => (s.name as string) === "cheerFx")!;
+    expect(fx, "it played").toBeDefined();
+    expect(fx.volume).toBeCloseTo(0.3 * 1, 1); // 0.3 times the sound level in force
+    expect(fx.stoppedAt, "never cut").toBeUndefined();
+  });
+
+  it("stays awake until the applause and the cheer have finished, then sleeps (QWW-108)", async () => {
+    const { sound, state } = await awake();
+    sound.preload("cheer");
+    await settle();
+    const step = async (ms: number) => {
+      state.now += ms / 1000;
+      await vi.advanceTimersByTimeAsync(ms);
+    };
+    for (const [name, length] of [["applause", 3.2], ["cheer", CHEER_LENGTH]] as const) {
+      sound.play(name);
+      const end = state.now + length;
+      while (state.now < end - 0.15) {
+        await step(100);
+        expect(state.contextState, `still awake ${(state.now - end).toFixed(1)} s from the end of the ${name}`).toBe("running");
+      }
+      await step(4000);
+      expect(state.contextState, `asleep once the ${name} has finished and the toy is left alone`).toBe("suspended");
+    }
+  });
+
   it("lets a hit through while the audio is still waking, when other sounds are held back", async () => {
     const { sound, started } = await awake({ startAsleep: true, stuckAsleep: true });
     sound.interact();
@@ -551,7 +651,7 @@ describe("Sound", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { sound, started } = await awake({ failLoad: "bounce" });
     for (const name of NAMES) sound.play(name);
-    expect(started.map((s) => s.name)).toEqual(["hit", "rising", "out"]);
+    expect(started.map((s) => s.name)).toEqual(NAMES.filter((name) => name !== "bounce")); // every sound but the one that failed (since QWW-109, the zipper and the paper too)
     expect(warn).toHaveBeenCalledTimes(1);
   });
 

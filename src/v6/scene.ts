@@ -25,6 +25,7 @@ import {
   notebookArt,
   pullAt,
   racquet,
+  sampleF,
   sinkDepth,
   towel,
   type Art,
@@ -162,11 +163,11 @@ export function sceneLayout(width: number, height: number, name: NameLayout, lif
     sink = Math.max(0, Math.min(MAX_SINK, MIN_SHOWS + seat + OPEN_REACH + GAP_OPEN - roomPx / k));
   }
 
-  // On a touch screen the floor is lifted `lift` px off the window's bottom (QWW-83). A ball on the seat has to rest on the seat, not
-  // on that floor above it: so enough of the bench shows that its seat line is at or above the lifted floor, and the scene is drawn
-  // smaller to make room. (It also changes k, which changes how much that is: a few rounds settle it.)
+  // On a touch screen the floor is lifted `lift` px off the window's bottom (QWW-83). The bench stands on that same floor as the balls
+  // do, so enough of it shows that its front edge is at or above the lifted floor (its seat line is higher still), and the scene is
+  // drawn smaller to make room. (It also changes k, which changes how much that is: a few rounds settle it.)
   for (let round = 0; lift > 0 && round < 8; round++) {
-    const seatShows = lift / k + BENCH.D[1] * 0.5; // D[1] is negative: the seat line is half the bench's depth above its front edge
+    const seatShows = lift / k;
     if (shows >= seatShows - 1e-6) break;
     shows = seatShows;
     if (needs(shows, MAX_SINK) * k > roomPx) k = roomPx / needs(shows, MAX_SINK);
@@ -212,8 +213,8 @@ export function sceneSolids(L: SceneLayout): { bench: P[]; bag: P[] } {
 
 /**
  * The bench's outline, page px: its top half way back across the seat, standing on the floor below the window. Beside its left
- * end a ball stops LEFT_END_DEPTH back: from the top's half way line the outline follows the top's left edge forward to that
- * depth, then goes straight down. `left` is that point, which the cover's clip uses too.
+ * end a ball stops LEFT_END_DEPTH back: the outline goes straight down from the seat line at that depth. `left` is the top's
+ * left edge at that depth, which the cover's clip uses too.
  */
 function benchOutline(L: SceneLayout): { loop: P[]; left: P } {
   const x0 = L.benchX + depth(BENCH.Dmm / 2)[0] * L.k;
@@ -226,7 +227,10 @@ function benchOutline(L: SceneLayout): { loop: P[]; left: P } {
       [x1, L.benchSurfaceY],
       [x1, bottom],
       [left[0], bottom],
-      left,
+      // The end's face goes up to the seat line, not just to the top's left edge 150 mm back: on a phone the floor is lifted until the
+      // bench's front edge is level with it, which puts that corner only a ball's radius above the floor, and a ball rolling in
+      // would ride up over it onto the seat. (The outline stays convex, as the physics needs.)
+      [left[0], L.benchSurfaceY],
     ],
     left,
   };
@@ -265,6 +269,10 @@ export interface SceneOptions {
   onNotebook(box: NotebookBox, opener: HTMLElement): void;
   /** The visitor did something: unzipped, opened the notebook. For the analytics. */
   onInteraction(kind: "unzip" | "notebook"): void;
+  /** The zip moved to `zip` (0 shut, 1 open), by a drag, a key or a run (`running`: by itself, frame by frame). */
+  onZip(zip: number, running: boolean): void;
+  /** A run of the zip is over or was cut short: the sound of it ends now. */
+  onZipStop(): void;
 }
 
 const svgNS = "http://www.w3.org/2000/svg";
@@ -308,6 +316,11 @@ export class Scene {
   /** Over the canvas: the bench's front left corner and the towel on it, in front of a ball beside the bench's left end. */
   private cover: HTMLElement;
   private benchCoverSvg: SVGSVGElement;
+  /** Over the canvas: the bag's art (no contents) clipped to its left end, in front of a ball resting against that end. */
+  private bagCover: HTMLElement;
+  private bagCoverSvg: SVGSVGElement;
+  private bagCoverBackG: SVGGElement;
+  private bagCoverFrontG: SVGGElement;
   private towelCoverSvg: SVGSVGElement;
   private front: HTMLElement;
   private hit: HTMLElement;
@@ -335,6 +348,8 @@ export class Scene {
     this.back.className = "v6-back";
     this.cover = document.createElement("div");
     this.cover.className = "v6-cover";
+    this.bagCover = document.createElement("div");
+    this.bagCover.className = "v6-bagcover";
     this.front = document.createElement("div");
     this.front.className = "v6-front";
     this.hit = document.createElement("div");
@@ -362,6 +377,12 @@ export class Scene {
     ).join("");
     this.rises = [...this.itemsG.querySelectorAll<SVGGElement>(".v6-rise")];
     this.bagSvg.append(this.bagBackG, this.itemsG, this.bagFrontG);
+    this.bagCoverSvg = svgEl(null, "v6-art");
+    this.bagCoverSvg.setAttribute("viewBox", BAG_VB.join(" "));
+    this.bagCoverBackG = document.createElementNS(svgNS, "g");
+    this.bagCoverFrontG = document.createElementNS(svgNS, "g");
+    this.bagCoverSvg.append(this.bagCoverBackG, this.bagCoverFrontG);
+    this.bagCover.append(this.bagCoverSvg);
 
     this.back.append(this.benchSvg, this.towelSvg, this.shadowsSvg, this.bagSvg);
     this.front.append(this.racquetSvg);
@@ -377,7 +398,7 @@ export class Scene {
     this.hit.append(this.pullButton, this.notebookButton);
 
     canvas.before(this.back);
-    canvas.after(this.cover, this.front, this.hit);
+    canvas.after(this.bagCover, this.cover, this.front, this.hit);
 
     this.wirePull();
     this.notebookButton.addEventListener("click", () => this.takeNotebook());
@@ -405,6 +426,11 @@ export class Scene {
     ];
     this.cover.style.clipPath = `polygon(${corner.map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px`).join(", ")})`;
     put(this.bagSvg, BAG_VB, BAG_ANCHOR, L.bagAt, k);
+    // The balls land on the bag's outline half way back, so one resting against its left end overlaps the drawn front panel's
+    // bulging end: the cover repeats the bag over the canvas, clipped to what lies left of that outline's leftmost point.
+    put(this.bagCoverSvg, BAG_VB, BAG_ANCHOR, L.bagAt, k);
+    const bagLeft = Math.min(...bagOutline().map((p) => bagToPage(L, p)[0]));
+    this.bagCover.style.clipPath = `polygon(0px 0px, ${bagLeft.toFixed(1)}px 0px, ${bagLeft.toFixed(1)}px ${L.height}px, 0px ${L.height}px)`;
     put(this.racquetSvg, racquet().vb, [0, 0], L.racquetAt, k, RACQUET_TILT);
     this.drawShadows();
     // what stands in the open bag stops where this window lets it
@@ -426,6 +452,17 @@ export class Scene {
   openSolids(): P[][] {
     if (!this.open) return [];
     return ITEMS.filter((it, i) => !this.isOut(i)).map((it) => itemBox(it, this.layout.sink).map((p) => bagToPage(this.layout, p)));
+  }
+
+  /** The cans standing in the open bag, each with the middle of its mouth (page px), its tilt (degrees, clockwise) and its width (page px): they take balls too. */
+  canMouths(): { seed: number; x: number; y: number; tilt: number; width: number }[] {
+    if (!this.open || !this.layout) return [];
+    return ITEMS.flatMap((it, i) => {
+      if (it.kind !== "can" || this.taken.has(i)) return [];
+      // the box runs foot left, foot right, top right, top left
+      const box = itemBox(it, this.layout.sink).map((p) => bagToPage(this.layout, p));
+      return [{ seed: it.seed, x: (box[2][0] + box[3][0]) / 2, y: (box[2][1] + box[3][1]) / 2, tilt: it.tilt, width: CAN.w * this.layout.k }];
+    });
   }
 
   /** Where an item stands when it is up, as the transform of its rising group. */
@@ -476,6 +513,32 @@ export class Scene {
     this.opts.onSolids(this.openSolids());
   }
 
+  /** Draw a can standing in the bag holding `balls` balls: empty once it has been poured. */
+  setCanBalls(seed: number, balls: number): void {
+    const i = ITEMS.findIndex((it) => it.kind === "can" && it.seed === seed);
+    if (i >= 0) this.rises[i].innerHTML = can(seed, Math.max(0, Math.min(3, balls)));
+  }
+
+  /**
+   * The zip pull's and the notebook's invisible buttons step aside (let presses through to the toy) wherever a can out of the bag
+   * covers them, page px boxes, so a can standing in front of them can still be tapped and carried. The keyboard still reaches them.
+   */
+  giveWayTo(boxes: { x0: number; y0: number; x1: number; y1: number }[]): void {
+    for (const b of [this.pullButton, this.notebookButton]) {
+      const s = b.style;
+      const [x0, y0] = [parseFloat(s.left), parseFloat(s.top)];
+      const [x1, y1] = [x0 + parseFloat(s.width), y0 + parseFloat(s.height)];
+      const covered = boxes.some((q) => q.x0 < x1 && q.x1 > x0 && q.y0 < y1 && q.y1 > y0);
+      const want = covered ? "none" : "";
+      if (s.pointerEvents !== want) s.pointerEvents = want;
+    }
+  }
+
+  /** The bag's front panel on the page (px): what stands in the bag is behind it. */
+  frontFace(): P[] {
+    return this.layout ? sampleF().map((p) => bagToPage(this.layout, p)) : [];
+  }
+
   /** The surface straight below a point, if any: the top of the bag or the bench, page px. For the balls' shadows. */
   surfaceBelow(x: number, y: number): number | null {
     const L = this.layout;
@@ -512,6 +575,8 @@ export class Scene {
   private drawBag(): void {
     this.bagBackG.innerHTML = bagBack(this.zip);
     this.bagFrontG.innerHTML = bagFront(this.zip);
+    this.bagCoverBackG.innerHTML = bagBack(this.zip);
+    this.bagCoverFrontG.innerHTML = bagFront(this.zip);
   }
 
   private drawShadows(): void {
@@ -535,8 +600,10 @@ export class Scene {
 
   // ---- the zip ----
 
-  private setZip(zip: number): void {
+  private setZip(zip: number, running = false): void {
+    const before = this.zip;
     this.zip = Math.max(0, Math.min(1, zip));
+    if (this.zip !== before) this.opts.onZip(this.zip, running);
     this.drawBag();
     this.placePull();
     if (this.open && this.zip < 1) this.setOpen(false);
@@ -545,15 +612,19 @@ export class Scene {
   /** Run the zip to `to` by itself, then open or close the bag. */
   private runZip(to: number, quick = false): void {
     cancelAnimationFrame(this.zipAnim);
+    this.opts.onZipStop();
     const from = this.zip;
     const ms = (this.opts.reducedMotion ? 0 : params.zipMs * (quick ? 0.6 : 1)) * Math.abs(to - from);
     const start = performance.now();
     const tick = (now: number) => {
       const t = ms ? Math.min(1, (now - start) / ms) : 1;
       const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-      this.setZip(from + (to - from) * eased);
+      this.setZip(from + (to - from) * eased, t < 1);
       if (t < 1) this.zipAnim = requestAnimationFrame(tick);
-      else if (to >= 1) this.setOpen(true);
+      else {
+        this.opts.onZipStop();
+        if (to >= 1) this.setOpen(true);
+      }
     };
     if (ms) this.zipAnim = requestAnimationFrame(tick);
     else tick(start);
@@ -580,6 +651,7 @@ export class Scene {
       if (e.button !== 0) return;
       e.preventDefault();
       cancelAnimationFrame(this.zipAnim);
+      this.opts.onZipStop();
       const slider = this.track[Math.round(this.zip * 120)].at;
       this.dragging = { id: e.pointerId, offset: [e.clientX - slider[0], e.clientY - slider[1]] };
       b.setPointerCapture(e.pointerId);

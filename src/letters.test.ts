@@ -95,3 +95,26 @@ describe.each(Object.keys(WORDMARKS))("letters set in %s", (font) => {
     expect([...new Set(failures)]).toEqual([]);
   });
 });
+
+// QWW-107: on a phone-sized window the letters are small and balls dropped over them can jam between two strokes, pressed in by the engine
+// without ever settling. Such a ball never fell asleep, so every step went on running the engine's continuous collision for it: a court of
+// nine balls ran at a quarter of real time.
+describe("balls dropped over the letters on a phone-sized window", () => {
+  it("all come to rest and sleep, so the court is cheap again", () => {
+    const [w, h] = [863, 360];
+    const layout = layoutName(w, h, WORDMARKS[Object.keys(WORDMARKS)[0]], params.ballScale);
+    const pxPerMeter = layout.ballPx / params.ballDiameter;
+    const toMeters = (p: Vec) => ({ x: p.x / pxPerMeter, y: (h - p.y) / pxPerMeter });
+    const outlines = layout.letters.flatMap((l) => l.loops.map((loop) => loop.map(toMeters)));
+    const court = new Court(w / pxPerMeter, h / pxPerMeter, outlines);
+    let seed = 7;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // twenty balls, seeded, let go over the name one after the other
+    for (let i = 0; i < 20; i++) {
+      court.addBall((100 + rand() * 120) / pxPerMeter, (h - 180 - rand() * 60) / pxPerMeter, false);
+      run(court, 0.15);
+    }
+    run(court, 6);
+    expect(court.awakeBalls()).toBe(0);
+  }, 60_000);
+});

@@ -21,5 +21,7 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts"],
+    // Court simulations run for seconds of court time; on a busy machine the default 5 s ran out in a different one of them each run (QWW-107).
+    testTimeout: 30_000,
   },
 });
