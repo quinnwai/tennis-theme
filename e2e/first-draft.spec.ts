@@ -150,7 +150,7 @@ test("balls bounce off the floor and the side walls", async ({ page }) => {
   // that no frame can slip in between: on a busy machine a wait of a fixed time can end after the ball has already
   // reached the pointer and stopped.
   // In a window as short as a phone's held sideways (about 280 px) the right wall cannot be reached: the other dot, the
-  // stem under it, the row of buttons and the "?" fill the way, and a ball that meets them bounces off them, which is not
+  // stem under it and the "?" fill the way, and a ball that meets them bounces off them, which is not
   // the wall. The left side is empty at any size (both left corners are), so there it is thrown at the left wall.
   const side = (await page.evaluate(() => innerHeight)) < 500 ? -1 : 1; // 1 for the right wall, -1 for the left
   await page.mouse.move(d.x, d.y);
@@ -720,6 +720,8 @@ interface Flight {
   closest: number;
   /** Whether it reached the button and then left it fast. */
   bounced: boolean;
+  /** The ball that was thrown. */
+  id: number;
   /** How far apart the two middles are when the ball touches the button. */
   contact: number;
 }
@@ -786,16 +788,7 @@ async function throwAt(page: Page, button: Locator): Promise<Flight> {
     { id: d.id, at, contact },
   );
   await page.mouse.up();
-  return { ...flight, contact };
-}
-
-/** A real throw that reached the button, did not go into it, and came away from it. */
-function expectBounce(flight: Flight) {
-  expect(flight.thrown.speed).toBeGreaterThan(600); // a real throw: it was moving at the button when let go...
-  expect(flight.thrown.from).toBeGreaterThan(flight.contact + 30); // ...from a run-up away, not already against it
-  expect(flight.closest).toBeGreaterThan(flight.contact - 4); // it never got inside the button
-  expect(flight.closest).toBeLessThan(flight.contact + 10); // though it did reach it
-  expect(flight.bounced).toBe(true); // and it came away
+  return { ...flight, contact, id: d.id };
 }
 
 test("the info, restart and sound buttons sit in a row in the top right corner, in that order, and the left corners are free", async ({ page }) => {
@@ -870,11 +863,17 @@ test("the ? has a circle around it, in its own tone and as thick as the icons' l
   for (const link of links) expect(await bare(link)).toEqual({ border: "0px", fill: "rgba(0, 0, 0, 0)" });
 });
 
-test("every button is in one tone, the one in params.ts, and turns white under the pointer", async ({ page }) => {
+test("the top-right buttons are drawn fainter than the ?, in the tones in params.ts, and every button turns white under the pointer", async ({ page }) => {
+  // QWW-113: the top-right buttons are not solid, so they are drawn fainter than the "?" (which is), to show they are not in the way.
+  // Fainter is less of the way from the navy to white: params.rowTone, below params.iconTone, and still above the navy itself.
+  expect(params.rowTone, "the top-right row is fainter than the ?").toBeLessThan(params.iconTone);
+  expect(params.rowTone, "but still shows").toBeGreaterThan(0);
   const navy = await rgbOf(page, await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--navy")));
-  const expected = navy.map((v) => v + (255 - v) * params.iconTone); // the page's navy lightened toward white by the tone
+  const toned = (tone: number) => navy.map((v) => v + (255 - v) * tone); // the page's navy lightened toward white by the tone
   await fadesDone(page);
-  for (const button of cornerButtons(page)) {
+  const [credits, clear, sound, contact] = cornerButtons(page);
+  for (const [button, tone] of [[credits, params.rowTone], [clear, params.rowTone], [sound, params.rowTone], [contact, params.iconTone]] as const) {
+    const expected = toned(tone);
     (await iconColor(page, button)).forEach((v, i) => expect(Math.abs(v - expected[i])).toBeLessThanOrEqual(2));
   }
   for (const button of cornerButtons(page)) {
@@ -947,13 +946,28 @@ test("the speaker is about as big as the restart arrow and the book beside it", 
   expect(ratio).toBeLessThan(1.25);
 });
 
+/**
+ * A real throw that went straight through the button's middle, without coming away off it, and fell back down onto the court below it
+ * (QWW-113: the top-right buttons are not solid; balls and cans pass through them).
+ */
+async function expectPassThrough(page: Page, button: Locator, flight: Flight) {
+  expect(flight.thrown.speed, "a real throw, moving at the button when let go").toBeGreaterThan(600);
+  expect(flight.thrown.from, "from a run-up away").toBeGreaterThan(flight.contact + 30);
+  expect(flight.closest, "it went through the button's middle (a solid disc keeps it a ball's and a button's radius away)").toBeLessThan(10);
+  const box = (await button.boundingBox())!;
+  await advance(page, 4);
+  const b = (await balls(page)).find((x) => x.id === flight.id);
+  expect(b, "the ball is still on the court").toBeDefined();
+  expect(b!.y, "it fell back down below the button").toBeGreaterThan(box.y + box.height);
+}
+
 for (const [name, button] of [
   ["info", creditsButton],
   ["restart", clearButton],
   ["sound", soundToggle],
 ] as const) {
-  test(`a ball thrown at the ${name} button bounces off it instead of passing through`, async ({ page }) => {
-    expectBounce(await throwAt(page, button(page)));
+  test(`a ball thrown at the ${name} button passes through it and falls back, because the top-right buttons are not solid (QWW-113)`, async ({ page }) => {
+    await expectPassThrough(page, button(page), await throwAt(page, button(page)));
   });
 }
 
@@ -1087,16 +1101,22 @@ test("with browser storage blocked, the page still starts and the sound button s
   await expect(toggle).toHaveAttribute("aria-label", "Sound: off");
 });
 
-test("with ?tune, the buttons' tone and icon size have sliders that work, and moving the tone leaves the toy alone", async ({ page }) => {
+test("with ?tune, the buttons' tones and icon size have sliders that work, and moving the tones leaves the toy alone", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   const tone = page.getByLabel("button tone");
+  const rowTone = page.getByLabel("top-right tone"); // QWW-113: the top-right row has a tone of its own, fainter than the "?"'s
   const size = page.getByLabel("button icon size");
   const shades = async () => Promise.all(cornerButtons(page).map(async (button) => lightness(await iconColor(page, button))));
+  const [, , , contact] = cornerButtons(page);
 
   await tone.fill("0");
+  await rowTone.fill("0");
   await expect.poll(async () => Math.max(...(await shades()))).toBeLessThan(0.05); // every button fades into the navy
   await tone.fill("1");
+  await expect.poll(async () => lightness(await iconColor(page, contact))).toBeGreaterThan(0.95); // the "?" is white
+  expect(Math.max(...(await shades()).slice(0, 3)), "the button tone leaves the top-right row as it was").toBeLessThan(0.05);
+  await rowTone.fill("1");
   await expect.poll(async () => Math.min(...(await shades()))).toBeGreaterThan(0.95); // every button is white
 
   // Only the color changes. Rebuilding the court would stop every ball in the air dead, and a rebuild makes the name's
@@ -1122,7 +1142,7 @@ test("with ?tune, the buttons' tone and icon size have sliders that work, and mo
   expect(await clearButton(page).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
 });
 
-test("with ?tune, bigger icons make bigger solid buttons: a ball thrown at the sound button still bounces off it", async ({ page }) => {
+test("with ?tune, bigger icons make bigger buttons, and a ball thrown at the sound button still passes through it (QWW-113)", async ({ page }) => {
   await page.goto("./?tune");
   await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
   // The icon size is the biggest the icons get; on a short window (a phone held sideways) their share of the window's shorter side is
@@ -1130,7 +1150,7 @@ test("with ?tune, bigger icons make bigger solid buttons: a ball thrown at the s
   await page.evaluate("window.__sandbox.params.iconShare = 1");
   await page.getByLabel("button icon size").fill("60");
   await expect.poll(async () => (await soundToggle(page).boundingBox())!.width).toBe(68);
-  expectBounce(await throwAt(page, soundToggle(page)));
+  await expectPassThrough(page, soundToggle(page), await throwAt(page, soundToggle(page)));
 });
 
 test("a dot always comes back, and the clear button sweeps the court", async ({ page }) => {

@@ -233,6 +233,49 @@ test.describe("a can thrown up past the window's top (QWW-113)", () => {
     expect(Math.hypot(landed.x - said!.x, landed.y - said!.y), "within 6 px of its shadow").toBeLessThanOrEqual(6);
     expect(turn(landed.angle, said!.angle), "within 2 degrees of its shadow").toBeLessThanOrEqual(2);
   });
+
+  // The top-right buttons are not solid (QWW-113): a can thrown up under them goes up through them, above the window, and comes back down
+  // through them, instead of coming to rest on them half out of the window.
+  test("thrown up under the top-right buttons, it passes up through them and back down, and lands where its shadow showed", async ({ page }, info) => {
+    test.skip(info.project.name !== "chromium" && info.project.name !== "iphone-landscape", "a desktop and the 750 x 280 phone");
+    const boxes = await Promise.all(
+      [page.getByRole("button", { name: "Credits", exact: true }), page.getByRole("button", { name: "Clear the balls" }), page.getByRole("button", { name: /^Sound/ })].map(async (b) => (await b.boundingBox())!),
+    );
+    const row = { left: Math.min(...boxes.map((b) => b.x)), right: Math.max(...boxes.map((b) => b.x + b.width)), bottom: Math.max(...boxes.map((b) => b.y + b.height)) };
+    const under = (row.left + row.right) / 2; // under the middle of the row: the clear button
+    const { height } = page.viewportSize()!;
+    const id = await addCan(page, under, height * 0.45);
+    const c = await until(page, () => can(page, id), (x) => x.state === "placed", "the can stands", 4);
+    const at = (await pressPoint(page, c))!;
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    // carried to a spot under the row and held still there, then a quick swing straight up into the row, let go while still moving up
+    const start = { x: under, y: Math.min(at.y, Math.max(row.bottom + 150, height * 0.5)) };
+    await drag(page, at, start, 12);
+    await run(page, 0.4);
+    await drag(page, start, { x: under, y: 2 }, 4);
+    const said = await rest(page, id);
+    expect(said, "a shadow to land on").not.toBeNull();
+    await page.mouse.up();
+    let highest = Infinity;
+    const landed = await until(
+      page,
+      async () => {
+        const x = await can(page, id);
+        const top = x.y - (x.width / 2) * Math.abs(Math.sin(x.angle)) - (x.height / 2) * Math.abs(Math.cos(x.angle));
+        highest = Math.min(highest, top);
+        return x;
+      },
+      (x) => x.state === "placed",
+      "the can comes to stand",
+      6,
+    );
+    expect(highest, "its top went at least 20 px above the window's top, through the buttons").toBeLessThan(-20);
+    const top = landed.y - (landed.width / 2) * Math.abs(Math.sin(landed.angle)) - (landed.height / 2) * Math.abs(Math.cos(landed.angle));
+    expect(top, "it came back down past the buttons, not resting on them").toBeGreaterThan(row.bottom);
+    expect(Math.hypot(landed.x - said!.x, landed.y - said!.y), "within 6 px of its shadow").toBeLessThanOrEqual(6);
+    expect(turn(landed.angle, said!.angle), "within 2 degrees of its shadow").toBeLessThanOrEqual(2);
+  });
 });
 
 test.describe("the drop preview's shadow", () => {
