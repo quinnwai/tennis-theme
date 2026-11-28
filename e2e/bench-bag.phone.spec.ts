@@ -79,6 +79,21 @@ async function unzip(page: Page, fingers: Fingers) {
 }
 
 test.describe("a phone held sideways", () => {
+  // QWW-118: the bench stands on the same lifted floor the balls rest on, not on a floor of its own below the seat's height.
+  test("a ball on the floor beside the bench rests below the seat line, on the same floor the bench stands on", async ({ page }) => {
+    const L = await sandbox<{ benchX: number; benchFrontTop: number; benchSurfaceY: number; height: number; k: number }>(page, "scene()");
+    const lift = await sandbox<number>(page, "params.floorLiftPx");
+    const floor = L.height - lift;
+    const balls = () => sandbox<{ id: number; x: number; y: number; r: number; vx: number; vy: number }[]>(page, "balls()");
+    expect(L.benchFrontTop, "the bench's front edge clears the lifted floor").toBeLessThanOrEqual(floor + 0.5);
+    const r = (await balls())[0].r;
+    const beside = await sandbox<number>(page, `drop(${L.benchX - 40 * L.k}, ${floor - 6 * r})`);
+    await sandbox(page, "advance(3)");
+    const rested = (await balls()).find((b) => b.id === beside)!;
+    expect(rested.y + rested.r, "it rests on the lifted floor").toBeCloseTo(floor, 0);
+    expect(rested.y + rested.r, "below the seat line").toBeGreaterThan(L.benchSurfaceY + 5);
+  });
+
   test("a finger on the pull drags the zip to the end and opens the bag", async ({ page }) => {
     const fingers = await Fingers.on(page);
     await unzip(page, fingers);

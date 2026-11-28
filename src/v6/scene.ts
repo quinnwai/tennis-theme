@@ -163,11 +163,11 @@ export function sceneLayout(width: number, height: number, name: NameLayout, lif
     sink = Math.max(0, Math.min(MAX_SINK, MIN_SHOWS + seat + OPEN_REACH + GAP_OPEN - roomPx / k));
   }
 
-  // On a touch screen the floor is lifted `lift` px off the window's bottom (QWW-83). A ball on the seat has to rest on the seat, not
-  // on that floor above it: so enough of the bench shows that its seat line is at or above the lifted floor, and the scene is drawn
-  // smaller to make room. (It also changes k, which changes how much that is: a few rounds settle it.)
+  // On a touch screen the floor is lifted `lift` px off the window's bottom (QWW-83). The bench stands on that same floor as the balls
+  // do, so enough of it shows that its front edge is at or above the lifted floor (its seat line is higher still), and the scene is
+  // drawn smaller to make room. (It also changes k, which changes how much that is: a few rounds settle it.)
   for (let round = 0; lift > 0 && round < 8; round++) {
-    const seatShows = lift / k + BENCH.D[1] * 0.5; // D[1] is negative: the seat line is half the bench's depth above its front edge
+    const seatShows = lift / k;
     if (shows >= seatShows - 1e-6) break;
     shows = seatShows;
     if (needs(shows, MAX_SINK) * k > roomPx) k = roomPx / needs(shows, MAX_SINK);
@@ -213,8 +213,8 @@ export function sceneSolids(L: SceneLayout): { bench: P[]; bag: P[] } {
 
 /**
  * The bench's outline, page px: its top half way back across the seat, standing on the floor below the window. Beside its left
- * end a ball stops LEFT_END_DEPTH back: from the top's half way line the outline follows the top's left edge forward to that
- * depth, then goes straight down. `left` is that point, which the cover's clip uses too.
+ * end a ball stops LEFT_END_DEPTH back: the outline goes straight down from the seat line at that depth. `left` is the top's
+ * left edge at that depth, which the cover's clip uses too.
  */
 function benchOutline(L: SceneLayout): { loop: P[]; left: P } {
   const x0 = L.benchX + depth(BENCH.Dmm / 2)[0] * L.k;
@@ -227,7 +227,10 @@ function benchOutline(L: SceneLayout): { loop: P[]; left: P } {
       [x1, L.benchSurfaceY],
       [x1, bottom],
       [left[0], bottom],
-      left,
+      // The end's face goes up to the seat line, not just to the top's left edge 150 mm back: on a phone the floor is lifted until the
+      // bench's front edge is level with it, which puts that corner only a ball's radius above the floor, and a ball rolling in
+      // would ride up over it onto the seat. (The outline stays convex, as the physics needs.)
+      [left[0], L.benchSurfaceY],
     ],
     left,
   };
