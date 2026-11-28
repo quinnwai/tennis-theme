@@ -52,5 +52,6 @@ describe("the built site", () => {
     const share = Number((params.iconShare * 100).toFixed(4));
     expect(startsAt("--icon-size")?.replace(/\s+/g, "")).toBe(`min(${params.iconSize}px,${share}dvmin)`);
     expect(Number(startsAt("--icon-tone"))).toBe(params.iconTone);
+    expect(Number(startsAt("--row-tone"))).toBe(params.rowTone);
   });
 });
