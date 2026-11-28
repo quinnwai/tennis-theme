@@ -585,8 +585,87 @@ test.describe("the notebook", () => {
 
   test("a window that holds the words on one spread has no turn chip", async ({ page }) => {
     await notebookAt(page, { width: 1280, height: 800 });
-    await expect(notebookDialog(page).getByRole("button", { name: /Turn/ })).toBeHidden();
+    // neither of the two page arrows shows (QWW-115)
+    await expect(notebookDialog(page).getByRole("button", { name: /Turn/ }).filter({ visible: true })).toHaveCount(0);
   });
+
+  // QWW-115: a page arrow on each side of the notebook, centred on it; the one that has nowhere to turn to is fainter and disabled.
+  for (const size of [
+    { width: 750, height: 280 },
+    { width: 852, height: 282 }, // an iPhone 15 or 16 Pro held sideways, in Safari
+  ]) {
+    test(`at ${size.width}x${size.height} a page arrow sits on each side of the notebook, centred on it, the one with nowhere to go fainter and disabled (QWW-115)`, async ({ page }) => {
+      const type = await notebookAt(page, size);
+      expect(type.paged, "two spreads in this window").toBe(true);
+      const dialog = notebookDialog(page);
+      const back = dialog.getByRole("button", { name: /Turn back/ });
+      const next = dialog.getByRole("button", { name: /Turn to the next page/ });
+      await expect(back).toBeVisible();
+      await expect(next).toBeVisible();
+      /** Where each arrow is, how bright it is drawn (its colour's lightness times its opacity, up the tree), and the notebook's box. */
+      const look = () =>
+        page.evaluate(() => {
+          const d = document.querySelector<HTMLElement>(".v6-notebook")!;
+          const rect = (el: Element) => {
+            const r = el.getBoundingClientRect();
+            return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          };
+          const tone = (el: HTMLElement) => {
+            const [r, g, b, a = 1] = getComputedStyle(el).color.match(/[\d.]+/g)!.map(Number);
+            let o = a;
+            for (let e: HTMLElement | null = el; e && e !== d; e = e.parentElement) o *= Number(getComputedStyle(e).opacity);
+            return ((r + g + b) / 3 / 255) * o;
+          };
+          const chips = [...d.querySelectorAll<HTMLButtonElement>("button")].filter((b) => /Turn/.test(b.getAttribute("aria-label") ?? ""));
+          const find = (re: RegExp) => chips.find((b) => re.test(b.getAttribute("aria-label")!))!;
+          const [back, next] = [find(/Turn back/), find(/Turn to the next page/)];
+          return {
+            book: rect(d.querySelector(".v6-nb-fit")!),
+            close: rect(d.querySelector(".v6-nb-close")!),
+            back: { ...rect(back), tone: tone(back), disabled: back.disabled },
+            next: { ...rect(next), tone: tone(next), disabled: next.disabled },
+          };
+        });
+      // (wait for the opening's fades to be over before reading tones)
+      await expect.poll(() => dialog.evaluate((el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running"))).toBe(false);
+      const at = `${size.width}x${size.height}`;
+      const first = await look();
+      const mid = (r: { top: number; bottom: number }) => (r.top + r.bottom) / 2;
+      const apart = (a: { left: number; right: number; top: number; bottom: number }, b: typeof a) =>
+        a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+      expect(first.back.right, `the back arrow is left of the notebook at ${at}`).toBeLessThanOrEqual(first.book.left);
+      expect(first.next.left, `the next arrow is right of the notebook at ${at}`).toBeGreaterThanOrEqual(first.book.right);
+      for (const name of ["back", "next"] as const) {
+        const chip = first[name];
+        expect(Math.abs(mid(chip) - mid(first.book)), `the ${name} arrow's middle is the notebook's, at ${at}`).toBeLessThanOrEqual(2);
+        expect(apart(chip, first.book), `the ${name} arrow does not overlap the notebook at ${at}`).toBe(true);
+        expect(apart(chip, first.close), `the ${name} arrow does not overlap the close chip at ${at}`).toBe(true);
+        expect(chip.left >= 0 && chip.right <= size.width && chip.top >= 0 && chip.bottom <= size.height, `the ${name} arrow is in the window at ${at}`).toBe(true);
+      }
+      // the first spread: nothing to turn back to
+      expect(first.back.disabled, "on the first spread the back arrow is disabled").toBe(true);
+      expect(first.next.disabled, "on the first spread the next arrow works").toBe(false);
+      expect(first.back.tone, "on the first spread the back arrow is fainter").toBeLessThan(first.next.tone);
+      await next.click();
+      await expect.poll(async () => (await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(1);
+      await page.mouse.move(1, 1); // off the arrows, so neither is lit by the pointer
+      await expect.poll(() => dialog.evaluate((el) => el.getAnimations({ subtree: true }).some((a) => a.playState === "running"))).toBe(false);
+      const second = await look();
+      expect(second.next.disabled, "on the second spread the next arrow is disabled").toBe(true);
+      expect(second.back.disabled, "on the second spread the back arrow works").toBe(false);
+      expect(second.next.tone, "on the second spread the next arrow is fainter").toBeLessThan(second.back.tone);
+      for (const name of ["back", "next"] as const) {
+        expect(Math.abs(mid(second[name]) - mid(second.book)), `the ${name} arrow stays centred on the second spread`).toBeLessThanOrEqual(2);
+        expect(apart(second[name], second.book), `the ${name} arrow does not overlap the notebook on the second spread`).toBe(true);
+      }
+      await back.click();
+      await expect.poll(async () => (await sandbox<{ spread: number }>(page, "notebook()")).spread).toBe(0);
+      // a press on an arrow is inside the notebook: it does not close it
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    });
+  }
 
   test("it is credited in the credits", async ({ page }) => {
     await page.getByRole("button", { name: "Credits", exact: true }).click();
