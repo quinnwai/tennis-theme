@@ -32,11 +32,15 @@ export const SOUNDS: Record<SoundName, { file: string; from: number; to?: number
  * found (`Sound.preload`), since most visitors never get that far.
  */
 const CHEER = { file: "./tennis/sounds/successful-event.wav", from: 0 };
-type Playable = SoundName | "cheer";
-const spec = (name: Playable): { file: string; from: number; to?: number; fadeAt?: number } => (name === "cheer" ? CHEER : SOUNDS[name]);
+/** The cheer's second layer (QWW-117, Quinn-Wai's own `success-fx.wav`, 1.67 s), which starts half a second after the cheer. Fetched with it. */
+const CHEER_FX = { file: "./tennis/sounds/success-fx.wav", from: 0 };
+type Playable = SoundName | "cheer" | "cheerFx";
+const spec = (name: Playable): { file: string; from: number; to?: number; fadeAt?: number } =>
+  name === "cheer" ? CHEER : name === "cheerFx" ? CHEER_FX : SOUNDS[name];
 
 const VOLUME: Record<Playable, keyof Params> = {
   cheer: "cheerVolume",
+  cheerFx: "cheerFxVolume",
   hit: "soundHit",
   bounce: "soundBounce",
   rising: "soundRising",
@@ -313,13 +317,15 @@ export class Sound {
 
   /** Start fetching the cheer, which is not fetched with the rest. Safe to call again and again. */
   preload(name: "cheer"): void {
-    if (this.loading.has(name)) return;
-    this.loading.add(name);
-    this.env
-      .load(spec(name).file)
-      .then((data) => this.env.decode(data))
-      .then((buffer) => void this.buffers.set(name, buffer))
-      .catch((error) => console.warn(`The "${name}" sound could not be loaded.`, error));
+    for (const layer of [name, "cheerFx"] as const) {
+      if (this.loading.has(layer)) continue;
+      this.loading.add(layer);
+      this.env
+        .load(spec(layer).file)
+        .then((data) => this.env.decode(data))
+        .then((buffer) => void this.buffers.set(layer, buffer))
+        .catch((error) => console.warn(`The "${layer}" sound could not be loaded.`, error));
+    }
   }
 
   /**
@@ -338,7 +344,7 @@ export class Sound {
     this.wake();
     const now = ctx.currentTime;
     this.voices = this.voices.filter((voice) => voice.endsAt > now);
-    const isKept = kept || name === "hit" || name === "applause" || name === "cheer"; // never interrupted, and not counted in the most sounds at once
+    const isKept = kept || name === "hit" || name === "applause" || name === "cheer" || name === "cheerFx"; // never interrupted, and not counted in the most sounds at once
     if (!isKept && ctx.state !== "running" && this.voices.length >= WHILE_WAKING) return;
     try {
       // Make room for this one: the oldest sounds, the nearest to finished, give way. A kept sound needs no room.

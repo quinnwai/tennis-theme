@@ -70,6 +70,7 @@ export const params = {
   soundZipper: 0.07, // the bag's zip, as the pull moves (QWW-109); matches a full-speed bounce to the ear
   soundPaper: 0.25, // the notebook opening (QWW-109); the file is 6.2 dB under the bounce's, so twice soundBounce matches it
   cheerVolume: 0.95, // the win's cheer (QWW-104), Quinn-Wai's own
+  cheerFxVolume: 0.3, // the cheer's second layer, 0.5 s after it (QWW-117), Quinn-Wai's own
   soundOut: 0.5, // a ball leaving past the side lines
   soundBounceMinSpeed: 0.5, // m/s; a gentler impact than this makes no sound, which keeps a settling or resting ball quiet
   soundBounceFullSpeed: 5, // m/s; an impact this fast plays the bounce at full volume; 5 is the fastest a throw goes

@@ -29,10 +29,11 @@ afterEach(() => {
 const NAMES = Object.keys(SOUNDS) as SoundName[];
 /** How long each file is, as a browser's decoder reports it. */
 // (A record of any name, so that it already knows the bag's zip and the notebook's paper, QWW-109, before they are sounds of their own.)
-const LENGTH: Record<string, number> = { hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828, zipper: 0.768, paper: 0.384 };
+const LENGTH: Record<string, number> = { cheerFx: 1.67, hit: 4.032, bounce: 0.888, rising: 0.189, out: 0.708, applause: 5.828, zipper: 0.768, paper: 0.384 };
 const CHEER_FILE = "./tennis/sounds/successful-event.wav";
 const CHEER_LENGTH = 3.0;
-const nameOf = (file: string) => (file === CHEER_FILE ? ("cheer" as SoundName) : NAMES.find((name) => SOUNDS[name].file === file)!);
+const CHEER_FX_FILE = "./tennis/sounds/success-fx.wav";
+const nameOf = (file: string) => (file === CHEER_FILE ? ("cheer" as SoundName) : file === CHEER_FX_FILE ? ("cheerFx" as SoundName) : NAMES.find((name) => SOUNDS[name].file === file)!);
 /** Let everything that is waiting on a promise run. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
 
@@ -554,6 +555,20 @@ describe("Sound", () => {
     }
     expect(started[0].stoppedAt, "the rising pop gave way").toBeDefined();
     expect(playing()).toEqual(started.slice(1));
+  });
+
+  it("fetches the cheer's second layer with the cheer, and plays it at its own volume, never cut short (QWW-117)", async () => {
+    params.soundMaxVoices = 1;
+    const { sound, started } = await awake();
+    sound.preload("cheer");
+    await settle();
+    sound.play("bounce");
+    sound.play("cheerFx" as SoundName);
+    sound.play("bounce");
+    const fx = started.find((s) => (s.name as string) === "cheerFx")!;
+    expect(fx, "it played").toBeDefined();
+    expect(fx.volume).toBeCloseTo(0.3 * 1, 1); // 0.3 times the sound level in force
+    expect(fx.stoppedAt, "never cut").toBeUndefined();
   });
 
   it("stays awake until the applause and the cheer have finished, then sleeps (QWW-108)", async () => {
