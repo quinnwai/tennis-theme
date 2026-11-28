@@ -38,6 +38,7 @@ export const FIELDS: Field[] = [
   ["soundMaxVoices", "sound: most at once", 1, 24, 1],
   ["soundGain", "sound: level when on (× the volumes)", 0.02, 1, 0.01],
   ["iconTone", "button tone (0 to 1)", 0, 1, 0.05],
+  ["rowTone", "top-right tone (0 to 1)", 0, 1, 0.05],
   ["iconSize", "button icon size (px, at most)", 12, 72, 1],
   ["iconShare", "icon share of the short side", 0.04, 0.2, 0.005],
   ["canTapMs", "can: longest tap (ms)", 100, 1000, 10],

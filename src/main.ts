@@ -181,9 +181,9 @@ function main(): void {
     const height = renderer.height / pxPerMeter;
     const floor = floorLiftFor(matchMedia("(pointer: coarse)").matches) / pxPerMeter; // meters
 
-    // The corner buttons (the "?" at the bottom right, and credits, clear and sound in the row at the top right) are
-    // solid discs: balls bounce off them. Each disc is its button's box, so it follows the buttons' size.
-    const pegs = [toggle, creditsChip, clearButton, soundChip].map((chip) => {
+    // The "?" at the bottom right is a solid disc: balls bounce off it. The disc is its button's box, so it follows the
+    // button's size. The row at the top right (credits, clear, sound) is not solid (QWW-113): balls and cans pass through it.
+    const pegs = [toggle].map((chip) => {
       const box = chip.getBoundingClientRect();
       return {
         ...toMeters({ x: box.left + box.width / 2, y: box.top + box.height / 2 }),
@@ -873,6 +873,7 @@ function main(): void {
     const root = document.documentElement.style;
     root.setProperty("--icon-size", `${iconSizeFor(renderer.width, renderer.height)}px`);
     root.setProperty("--icon-tone", String(params.iconTone));
+    root.setProperty("--row-tone", String(params.rowTone));
   }
 
   let resizeTimer = 0;
@@ -895,7 +896,7 @@ function main(): void {
     // moving the icon size or share does.
     mountTuner((changed) => {
       if (changed.startsWith("credits")) styleCredits();
-      else if (changed === "iconTone") styleControls();
+      else if (changed === "iconTone" || changed === "rowTone") styleControls();
       else if (
         !changed.startsWith("trail") &&
         !changed.startsWith("poof") &&

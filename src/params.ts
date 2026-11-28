@@ -81,6 +81,7 @@ export const params = {
   // and height in px: the first draft's were 18, so 36 is twice that. Both are judged by eye. The stylesheet starts from
   // the same numbers, so the buttons are right before the script runs (a unit test checks that they agree).
   iconTone: 0.25,
+  rowTone: 0.15, // the top-right row (credits, clear, sound) is not solid, so it is drawn fainter than the "?", which is; same scale as iconTone; needs Quinn-Wai's call, judged by eye
   iconSize: 36, // px; the biggest the icons get, as on a laptop
   // On a short window the icons are smaller, by this share of the window's shorter side (and never below 20 px). A phone
   // held sideways is only about 280 px tall in iOS 26's Safari, with its two rows of toolbar, and 36 px icons crowd it:

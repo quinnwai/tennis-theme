@@ -27,6 +27,7 @@
 :root {
   --icon-size: min(36px, 10dvmin); /* iconSize and iconShare in params.ts; the script writes the size it works out for the window over this one */
   --icon-tone: 0.25; /* from the page's navy (0) to white (1) */
+  --row-tone: 0.15; /* the top-right row, not solid, so fainter; the same scale */
   --stroke: calc(var(--icon-size) * 0.075); /* the icons' line weight, 1.8 of their 24 units; the "?" circle is as thick */
   --chip: calc(var(--icon-size) + 8px);
   --edge: 12px; /* how far the corner buttons sit from the window's edges */
@@ -178,8 +179,8 @@ a {
 
 /*
  * The other corner: a row of three buttons at the top right. Left to right they are credits (the book), clear (the
- * restart arrow) and the sound toggle, which sits in the corner itself. Like the "?", each is a solid object in
- * the toy. The close button that replaces the book while the credits are open takes exactly the same spot.
+ * restart arrow) and the sound toggle, which sits in the corner itself. Unlike the "?", none is solid: balls and cans
+ * pass through them (QWW-113). The close button that replaces the book while the credits are open takes exactly the same spot.
  */
 .tools {
   position: fixed;
@@ -215,8 +216,15 @@ a {
     transform 0.15s;
 }
 
+/* The top-right row is not solid (balls and cans pass through it), so it is drawn fainter than the "?". */
+.tools .chip {
+  color: color-mix(in srgb, var(--white) calc(var(--row-tone) * 100%), var(--navy));
+}
+
 .chip:hover,
-.chip:focus-visible {
+.chip:focus-visible,
+.tools .chip:hover,
+.tools .chip:focus-visible {
   color: var(--white);
 }
 
