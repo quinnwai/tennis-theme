@@ -619,7 +619,9 @@ test("a tap that pours a full can plays the pop once, before its first ball leav
   const loose = async () => (await balls(page)).filter((b) => !b.pinned).length;
   const ballsBefore = await loose();
   const tap = async (at: { x: number; y: number }) => {
-    await page.mouse.move(at.x, at.y + at.height * 0.25);
+    // the upper body, away from the floor: a press goes to a ball within canBallReachPx of its edge before a can, and the poured balls
+    // pile up on the floor beside the can (against the bench's end, in a phone-sized scene), so a tap low on the can can be over one
+    await page.mouse.move(at.x, at.y - at.height * 0.25);
     await page.mouse.down();
     await advance(page, 0.1);
     await page.mouse.up();
