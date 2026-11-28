@@ -233,6 +233,10 @@ const BASE_SCALE = 1.4;
 const MAX_SCALE = 1.3 * BASE_SCALE;
 /** The close chip's corner of the window, with a little room around it: 12 px in, 44 px across, 8 px clear. */
 const CHIP_ZONE = 12 + 44 + 8;
+/** A page arrow (a 44 px chip) sits this far from the spread's side, px. */
+const ARROW_GAP = 4;
+/** Room kept clear on each side of a spread with two spreads, for its page arrow, px. */
+const ARROW_ZONE = ARROW_GAP + 44 + 8;
 
 interface Fit {
   s: number;
@@ -246,12 +250,12 @@ interface Fit {
  * with 24 px margins. It keeps clear of the close chip: if centred it would run under the chip, it moves below the chip's
  * row or left of its column, whichever leaves it bigger.
  */
-function place(w: number, h: number, margin = MARGIN): Fit {
+function place(w: number, h: number, margin = MARGIN, side = margin): Fit {
   const cap = Math.min(MAX_SCALE, BASE_SCALE * Math.max(1, Math.min(w / 1280, h / 800)));
   const boxes = [
-    [margin, margin, w - margin, h - margin],
-    [margin, CHIP_ZONE, w - margin, h - margin],
-    [margin, margin, w - CHIP_ZONE, h - margin],
+    [side, margin, w - side, h - margin],
+    [side, CHIP_ZONE, w - side, h - margin],
+    [side, margin, w - Math.max(side, CHIP_ZONE), h - margin],
   ];
   const fits = boxes.map(([x0, y0, x1, y1]) => {
     const s = Math.max(0.1, Math.min(cap, (x1 - x0) / SW, (y1 - y0) / SH));
@@ -301,10 +305,15 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   dialog.innerHTML =
     `<button type="button" class="chip v6-nb-close" aria-label="Close the notebook" title="Close">${CLOSE_ICON}</button>` +
     `<div class="v6-nb-closed">${closedNotebook()}</div>` +
-    `<button type="button" class="chip v6-nb-turn" aria-label="Turn to the next page" title="Turn the page" hidden>${TURN_ICON.next}</button>` +
+    `<div class="v6-nb-turns" hidden>` +
+    `<button type="button" class="chip v6-nb-turn v6-nb-turn-back" aria-label="Turn back to the first page" title="Turn back">${TURN_ICON.back}</button>` +
+    `<button type="button" class="chip v6-nb-turn v6-nb-turn-next" aria-label="Turn to the next page" title="Turn the page">${TURN_ICON.next}</button>` +
+    `</div>` +
     `<div class="v6-nb-fit"><div class="v6-nb-spread"></div></div>`;
   const chip = dialog.querySelector<HTMLButtonElement>(".v6-nb-close")!;
-  const turnChip = dialog.querySelector<HTMLButtonElement>(".v6-nb-turn")!;
+  const turns = dialog.querySelector<HTMLElement>(".v6-nb-turns")!;
+  const turnBack = dialog.querySelector<HTMLButtonElement>(".v6-nb-turn-back")!;
+  const turnNext = dialog.querySelector<HTMLButtonElement>(".v6-nb-turn-next")!;
   const closed = dialog.querySelector<HTMLElement>(".v6-nb-closed")!;
   const fitBox = dialog.querySelector<HTMLElement>(".v6-nb-fit")!;
   const spreadBox = dialog.querySelector<HTMLElement>(".v6-nb-spread")!;
@@ -333,7 +342,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
       columnWidth: PAGED ? `${TEXT_W}px` : "auto",
       overflow: PAGED ? "hidden" : "visible",
     });
-    turnChip.hidden = !PAGED;
+    turns.hidden = !PAGED;
     setFont(FS);
   }
   document.body.append(dialog);
@@ -395,10 +404,8 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     spreadNo = PAGED ? Math.max(0, Math.min(1, n)) : 0;
     text.scrollLeft = spreadNo * 2 * (RP - LP);
     doodleBox.style.display = !PAGED || ballSpread === spreadNo ? "" : "none";
-    turnChip.innerHTML = spreadNo === 0 ? TURN_ICON.next : TURN_ICON.back;
-    const label = spreadNo === 0 ? "Turn to the next page" : "Turn back to the first page";
-    turnChip.setAttribute("aria-label", label);
-    turnChip.title = spreadNo === 0 ? "Turn the page" : "Turn back";
+    turnBack.disabled = spreadNo === 0;
+    turnNext.disabled = spreadNo === 1;
   }
 
   /** Set the words at the largest size that fits, then draw the ball under them if the page they end on has room. */
@@ -463,8 +470,16 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
       use(chosen);
       measure();
     }
-    fit = place(w, h, wanted === DESIGN ? MARGIN : PHONE_MARGIN);
+    fit = place(w, h, wanted === DESIGN ? MARGIN : PHONE_MARGIN, PAGED ? ARROW_ZONE : undefined);
     fitBox.style.transform = `translate(${fit.left}px, ${fit.top}px) scale(${fit.s})`;
+    if (PAGED) {
+      // a page arrow on each side of the spread, its middle on the spread's middle (place left room for them)
+      const size = turnBack.offsetHeight || 44;
+      const top = fit.top + (SH * fit.s) / 2 - size / 2;
+      turnBack.style.top = turnNext.style.top = `${top}px`;
+      turnBack.style.left = `${fit.left - ARROW_GAP - size}px`;
+      turnNext.style.left = `${fit.left + SW * fit.s + ARROW_GAP}px`;
+    }
   }
 
   /**
@@ -478,7 +493,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
         dialog.animate([veil(0, 0), veil(params.notebookBlur, params.notebookVeil)], fade),
         spreadBox.animate([{ opacity: 0 }, { opacity: 1 }], fade),
         chip.animate([{ opacity: 0 }, { opacity: 1 }], fade),
-        turnChip.animate([{ opacity: 0 }, { opacity: 1 }], fade),
+        turns.animate([{ opacity: 0 }, { opacity: 1 }], fade),
       ];
     }
     const { s, left, top } = fit;
@@ -536,7 +551,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
         { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" },
       ),
       chip.animate([{ opacity: 0 }, { opacity: 1 }], { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" }),
-      turnChip.animate([{ opacity: 0 }, { opacity: 1 }], { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" }),
+      turns.animate([{ opacity: 0 }, { opacity: 1 }], { delay: LIFT_MS, duration: SPREAD_MS, fill: "both" }),
     ];
   }
 
@@ -600,7 +615,8 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   const isOpen = () => state !== "closed";
 
   chip.addEventListener("click", () => close());
-  turnChip.addEventListener("click", () => setSpread(1 - spreadNo));
+  turnBack.addEventListener("click", () => setSpread(0));
+  turnNext.addEventListener("click", () => setSpread(1));
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state !== "closed") {
       e.preventDefault();
@@ -620,7 +636,7 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   });
   // A click on the dimmed toy around the spread closes it, as with the credits. The press has to start out there too.
   // While it is still lifting, a click there is more likely the second half of a double click on the bag: ignored.
-  const inside = (target: EventTarget | null) => target instanceof Node && (spreadBox.contains(target) || closed.contains(target) || turnChip.contains(target));
+  const inside = (target: EventTarget | null) => target instanceof Node && (spreadBox.contains(target) || closed.contains(target) || turns.contains(target));
   dialog.addEventListener("pointerdown", (e) => (pressedOutside = !inside(e.target)));
   dialog.addEventListener("click", (e) => {
     if (state === "open" && pressedOutside && !inside(e.target)) close();
