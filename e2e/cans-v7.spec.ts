@@ -206,7 +206,8 @@ test.describe("v7 can controls", () => {
     test.slow();
     const L = await scene(page);
     // 200 px along the bench; on a phone the bag's end is nearer, and the can would land against it and not against the ball
-    const bx = L.benchX + (L.width > 1200 ? 200 : 100);
+    // (in mm, so the phone's smaller scene keeps the same spot: 60 px was 330 mm along the bench at 750 x 280 after QWW-118)
+    const bx = L.benchX + (L.width > 1200 ? 200 : 330 * L.k);
     await sandbox(page, `drop(${bx}, ${L.benchSurfaceY - 30})`);
     await run(page, 5);
     const ball0 = (await balls(page)).filter((b) => !b.pinned).sort((a, b) => Math.abs(a.x - bx) - Math.abs(b.x - bx))[0];

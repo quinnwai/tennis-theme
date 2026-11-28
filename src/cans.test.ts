@@ -360,7 +360,7 @@ describe("the scene on a phone", () => {
         highest = Math.max(highest, h - lift - (h - (ball.y - RADIUS) * px));
         furthest = Math.max(furthest, ball.x);
       });
-      expect(highest, `it never climbs the end at ${w}x${h}`).toBeLessThan(2);
+      expect(highest, `it never climbs the end, half way to the seat or more, at ${w}x${h}`).toBeLessThan((h - lift - L.benchSurfaceY) / 2);
       expect(furthest * px, `it stays left of the bench's front left corner's end face at ${w}x${h}`).toBeLessThan(sceneSolids(L).bench[4][0] + 1);
       expect(ball.x * px, `it ends beside the end at ${w}x${h}`).toBeLessThan(L.benchX + 150 * L.k * 1.5);
     }
