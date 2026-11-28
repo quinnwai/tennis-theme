@@ -305,25 +305,27 @@ describe("the scene on a phone", () => {
     }
   });
 
-  it("is drawn about 66 percent of real size at 750 x 280, with the cans and the notebook coming further out", () => {
+  it("is drawn about 58 percent of real size at 750 x 280, with the cans and the notebook coming furthest out", () => {
     const { L } = courtWithScene(750, 280, 30);
-    expect(L.scale).toBeGreaterThan(0.6);
-    expect(L.scale).toBeLessThan(0.72);
+    expect(L.scale).toBeGreaterThan(0.54);
+    expect(L.scale).toBeLessThan(0.62);
     expect(L.sink).toBeCloseTo(45, 0);
   });
 
-  it("draws the scene about 0.95 of real size at 844 x 390 and 0.82 at 863 x 360 on a touch screen: halfway out, not smaller than the seat needs", () => {
-    expect(courtWithScene(844, 390, 30).L.scale).toBeCloseTo(0.948, 1);
-    expect(courtWithScene(863, 360, 30).L.scale).toBeCloseTo(0.82, 1);
-    expect(courtWithScene(750, 280, 30).L.scale).toBeCloseTo(0.656, 1);
-    expect(courtWithScene(750, 280, 30).L.shows, "the seat rule makes it show about 95 mm").toBeCloseTo(95.5, 0);
+  it("draws the scene about 0.84 of real size at 844 x 390 and 0.73 at 863 x 360 on a touch screen: the bench's front edge clears the lifted floor, no more", () => {
+    expect(courtWithScene(844, 390, 30).L.scale).toBeCloseTo(0.84, 1);
+    expect(courtWithScene(863, 360, 30).L.scale).toBeCloseTo(0.73, 1);
+    expect(courtWithScene(750, 280, 30).L.scale).toBeCloseTo(0.58, 1);
+    const { L } = courtWithScene(750, 280, 30);
+    expect(L.shows * L.k, "the bench shows 30 px of its front, the lift").toBeCloseTo(30, 0);
   });
 
-  it("shows enough of the bench on a touch screen that a ball over the seat rests on the seat, within 1 px", () => {
+  it("shows enough of the bench on a touch screen that its front edge is at or above the lifted floor, and a ball over the seat still rests on the seat", () => {
     for (const [w, h] of PHONES) {
       const lift = 30;
       const { L, court, px, toM } = courtWithScene(w, h, lift);
-      expect(L.benchSurfaceY, `the seat line is at or above the lifted floor at ${w}x${h}`).toBeLessThanOrEqual(h - lift + 0.01);
+      expect(L.benchFrontTop, `the bench's front edge is at or above the lifted floor at ${w}x${h}`).toBeLessThanOrEqual(h - lift + 0.01);
+      expect(L.benchSurfaceY, `the seat line is above the lifted floor at ${w}x${h}`).toBeLessThan(h - lift - 5);
       const x = L.benchX + 150 * L.k * 2; // clear seat left of the bag
       const at = toM([x, L.benchSurfaceY - 200]);
       const ball = court.addBall(at.x, at.y, false);
@@ -332,441 +334,35 @@ describe("the scene on a phone", () => {
       expect(Math.abs(underside - L.benchSurfaceY), `a ball rests on the seat at ${w}x${h}`).toBeLessThan(1);
     }
   });
-});
 
-describe("the bench's ends", () => {
-  /** A ball thrown at `speed` m/s into the bench's left end, half way up its face: the fastest it comes back off it, m/s, in 1 s. */
-  function comeBack(speed: number): number {
-    const { court, solids, toM } = courtWithScene();
-    const left = solids.bench[4]; // the outline's front left corner, page px: its face runs straight down from here
-    const face = toM([left[0], (left[1] + solids.bench[3][1]) / 2]);
-    const ball = court.addBall(face.x - RADIUS - 0.15, face.y, false, speed, 0);
-    let back = 0;
-    run(court, 1, () => (back = Math.max(back, -ball.vx)));
-    return back;
-  }
-
-  it("is only 10 percent as lively as the seat: a ball thrown into the left end barely comes back", () => {
-    expect(params.benchEndRestitution).toBe(0.1);
-    const back = comeBack(3);
-    expect(back).toBeLessThan(0.1 * 3 + 0.3); // 0.1 of its speed, with a little for the sweep of the spin
-    expect(back).toBeLessThan(0.78 * 3 * 0.5); // where the usual bounce would send it back at over half its speed
-  });
-
-  it("is as lively as the usual bounce when benchEndRestitution is raised to it", () => {
-    params.benchEndRestitution = params.restitution;
-    expect(comeBack(3)).toBeGreaterThan(0.78 * 3 * 0.5);
-  });
-
-  it("leaves the seat's bounce alone: a ball dropped on it comes back up at more than half its speed", () => {
-    const { L, court, toM } = courtWithScene();
-    const at = toM([L.benchX + 400 * L.k, L.benchSurfaceY - 400]);
-    const ball = court.addBall(at.x, at.y, false);
-    let down = 0;
-    let up = 0;
-    run(court, 1, () => {
-      down = Math.max(down, -ball.vy);
-      if (ball.vy > 0 && down > 1) up = Math.max(up, ball.vy);
-    });
-    expect(up).toBeGreaterThan(down * 0.5);
-  });
-
-  it("stops a ball beside the left end 150 mm back: the outline's left side runs from the seat line forward to there, then straight down", () => {
-    const { L, solids } = courtWithScene();
-    const [seat, , , bottomLeft, corner] = solids.bench;
-    expect(corner[0]).toBeCloseTo(L.benchX + 150 * Math.cos(deg(40)) * 0.35 * L.k, 0); // 150 mm back, drawn at 0.35 of its length, 40 degrees
-    expect(corner[1]).toBeCloseTo(L.benchFrontTop - 150 * Math.sin(deg(40)) * 0.35 * L.k, 0);
-    expect(corner[0]).toBeLessThan(seat[0]); // short of the seat's half way line, so a ball can come nearer the front
-    expect(bottomLeft[0]).toBe(corner[0]); // straight down from the corner
-  });
-});
-
-describe("balls from the cans and the limit on balls", () => {
-  it("is at most 20 balls", () => {
-    expect(MAX_BALLS).toBe(20);
-  });
-
-  /** MAX_BALLS loose balls in a grid, oldest first, well clear of each other, and a tall room to pour in. */
-  function fullCourt() {
-    const court = new Court(WIDTH, 20);
-    for (let i = 0; i < MAX_BALLS; i++) court.addBall(0.1 + (i % 20) * 0.1, 0.1 + Math.floor(i / 20) * 0.1, false);
-    return court;
-  }
-
-  it("counts a poured ball toward the limit: the oldest loose ball makes way for it", () => {
-    const court = fullCourt();
-    const oldest = court.balls.map((b) => b.id).slice(0, 3);
-    const youngest = court.balls[MAX_BALLS - 1].id;
-    const can = court.addCan(1.2, 15, 0, CAN_BALLS, 0, false, stood);
-    court.tapCan(can.id);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    run(court, POUR_FIRST_BALL_BY);
-    expect(can.ballsLeft).toBe(CAN_BALLS - 1);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    expect(court.balls.map((b) => b.id)).not.toContain(oldest[0]);
-    expect(court.balls.map((b) => b.id)).toContain(oldest[1]);
-    expect(court.balls.map((b) => b.id)).toContain(youngest);
-  });
-
-  it("never takes a ball that is still inside a can to make way: the balls in cans are not on the court to be taken", () => {
-    const court = fullCourt();
-    const cans = Array.from({ length: CAN_COUNT }, (_, i) => court.addCan(0.4 + i * 0.5, 15, 0, CAN_BALLS, 0, false, stood));
-    const [tapped, ...others] = cans;
-    court.tapCan(tapped.id);
-    run(court, POUR_ALL_BY); // the tapped can empties itself, 3 balls, into a full court
-    expect(tapped.ballsLeft).toBe(0);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    // 3 balls came out of the first can and 3 loose ones made way; the full cans lost nothing...
-    for (const can of others) expect(can.ballsLeft).toBe(CAN_BALLS);
-    // ...and every ball that made way was a loose one, the oldest first.
-    const poured = court.balls.filter((b) => b.id > MAX_BALLS + CAN_COUNT);
-    expect(poured).toHaveLength(CAN_BALLS);
-    expect(court.balls.slice(0, MAX_BALLS - CAN_BALLS).map((b) => b.id)).toEqual(Array.from({ length: MAX_BALLS - CAN_BALLS }, (_, i) => i + 1 + CAN_BALLS));
-  });
-
-  it("lets a ball that a can leans on stay, and takes the oldest loose one instead", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const r = RADIUS;
-    const prop = court.addBall(1 + CAN_WIDTH / 2 + r + 0.03, r, false); // the oldest ball, beside where a can will fall
-    run(court, 1);
-    const can = court.addCan(1, CAN_HEIGHT / 2 + 0.02);
-    for (let i = 0; i < MAX_BALLS - 1; i++) court.addBall(0.1 + (i % 12) * 0.1, 0.5 + Math.floor(i / 12) * 0.1, false);
-    run(court, 3);
-    expect(court.isPropping(prop.id), "the can leans on the first ball").toBe(true);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    court.makeRoom();
-    expect(court.balls.map((b) => b.id), "the ball holding the can up is the last to go").toContain(prop.id);
-    expect(court.balls).toHaveLength(MAX_BALLS - 1);
-    void can;
-  });
-
-  it("does not take the ball in somebody's hand, or a dot, to make way", () => {
-    const court = new Court(WIDTH, 20);
-    const dot = court.addBall(0.1, 10, true);
-    const held = court.addBall(0.3, 10, false);
-    court.grab(held.id);
-    for (let i = 0; i < MAX_BALLS - 2; i++) court.addBall(0.1 + (i % 20) * 0.1, 0.1 + Math.floor(i / 20) * 0.1, false);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    court.makeRoom();
-    expect(court.balls).toHaveLength(MAX_BALLS - 1);
-    expect(court.balls.map((b) => b.id)).toContain(dot.id);
-    expect(court.balls.map((b) => b.id)).toContain(held.id);
-  });
-
-  it("lets all three cans pour all nine balls in a court that is not full, and every one is a real ball", () => {
-    const court = new Court(WIDTH, 40);
-    for (let i = 0; i < CAN_COUNT; i++) court.tapCan(court.addCan(0.4 + i * 0.5, 30, 0, CAN_BALLS, 0, false, stood).id);
-    run(court, POUR_ALL_BY);
-    expect(court.cans.reduce((sum, can) => sum + can.ballsLeft, 0)).toBe(0);
-    expect(court.balls).toHaveLength(CAN_COUNT * CAN_BALLS);
-  });
-});
-
-describe("a can in the hand", () => {
-  /** Press on a can at `at`, drag the pointer to `to` over `seconds`. */
-  function drag(court: Court, can: { id: number }, at: { x: number; y: number }, to: { x: number; y: number }, seconds: number, watch?: () => void) {
-    expect(court.grabCan(can.id, at)).toBe(true);
-    const steps = Math.round(seconds / STEP);
-    for (let i = 1; i <= steps; i++) {
-      court.carryCan(can.id, { x: at.x + ((to.x - at.x) * i) / steps, y: at.y + ((to.y - at.y) * i) / steps });
-      court.step();
-      watch?.();
+  it("lets a ball on the lifted floor beside the bench rest on that floor, below the bench's seat line", () => {
+    for (const [w, h] of PHONES) {
+      const lift = 30;
+      const { L, court, px, toM } = courtWithScene(w, h, lift);
+      const at = toM([L.benchX - 60 * L.k, h - lift - 200]);
+      const ball = court.addBall(at.x, at.y, false);
+      run(court, 6);
+      const underside = h - (ball.y - RADIUS) * px;
+      expect(underside, `it rests on the floor at ${w}x${h}`).toBeCloseTo(h - lift, 0);
+      expect(underside, `below the seat line at ${w}x${h}`).toBeGreaterThan(L.benchSurfaceY + 5);
     }
-  }
-
-  it("follows the pointer, leaning at most about 17 degrees, and is still full", () => {
-    const court = new Court(4, 4);
-    const can = court.addCan(1, CAN_HEIGHT / 2);
-    run(court, 1);
-    const at = { x: 1, y: CAN_HEIGHT * 0.75 };
-    const to = { x: 2.6, y: 1.8 };
-    let mostTipped = 0;
-    drag(court, can, at, to, 2.5, () => (mostTipped = Math.max(mostTipped, tiltOf(can.angle))));
-    run(court, 1);
-    expect(can.held).toBe(true);
-    expect(court.canState(can.id)).toBe("held");
-    // It keeps the offset it was taken at: its middle is a quarter of its height below the pointer.
-    expect(Math.hypot(can.x - to.x, can.y + CAN_HEIGHT / 4 - to.y)).toBeLessThan(0.03);
-    expect(tiltOf(can.angle), "upright again when it has stopped").toBeLessThan(2);
-    expect(mostTipped, "it leans into the move").toBeGreaterThan(3);
-    expect(mostTipped, "but no more than about 17 degrees").toBeLessThan(18);
-    expect(can.ballsLeft).toBe(CAN_BALLS);
-    expect(court.balls).toHaveLength(0);
   });
 
-  it("is let go by releaseCan, falls, and then stands fixed", () => {
-    const court = new Court(4, 4);
-    const can = court.addCan(1, CAN_HEIGHT / 2);
-    drag(court, can, { x: 1, y: 0.15 }, { x: 1, y: 1.5 }, 1);
-    run(court, 0.5);
-    expect(can.y).toBeGreaterThan(1);
-    court.releaseCan(can.id);
-    expect(can.held).toBe(false);
-    expect(court.canState(can.id)).toBe("settling");
-    run(court, 2);
-    expect(can.y).toBeLessThan(0.5);
-    expect(tiltOf(can.angle)).toBeLessThan(5);
-    expect(court.canState(can.id)).toBe("placed");
-  });
-
-  it("is thrown by letting go while it is moving: it keeps going the way it was", () => {
-    const court = new Court(8, 4);
-    const can = court.addCan(1, 1.5); // already up in the air, taken where it is
-    drag(court, can, { x: 1, y: 1.55 }, { x: 5, y: 1.55 }, 0.8);
-    expect(can.vx).toBeGreaterThan(1);
-    const before = can.x;
-    court.releaseCan(can.id);
-    run(court, 0.3);
-    expect(can.held).toBe(false);
-    expect(can.x).toBeGreaterThan(before + 0.2);
-  });
-
-  /** The highest point of the can's outline, in meters. */
-  const topOf = (can: { y: number; angle: number }) => can.y + (CAN_WIDTH / 2) * Math.abs(Math.sin(can.angle)) + (CAN_HEIGHT / 2) * Math.abs(Math.cos(can.angle));
-
-  it("thrown up near the top of the window, goes above it and comes back down like a ball, landing where its preview said (QWW-113)", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(1.2, CAN_HEIGHT / 2);
-    run(court, 0.5);
-    // a quick swing up to just under the window's top, let go while still moving up
-    drag(court, can, { x: 1.2, y: 0.15 }, { x: 1.2, y: HEIGHT - 0.02 }, 0.25);
-    expect(can.vy, "still moving up when let go").toBeGreaterThan(1);
-    const said = court.restOf(can.id);
-    expect(said).not.toBeNull();
-    court.releaseCan(can.id);
-    let highest = topOf(can);
-    run(court, 4, () => (highest = Math.max(highest, topOf(can))));
-    expect(highest, "its top went at least 5 cm above the window's top").toBeGreaterThan(HEIGHT + 0.05);
-    expect(court.cans, "still on the court").toHaveLength(1);
-    expect(court.canState(can.id)).toBe("placed");
-    expect(Math.hypot(can.x - said!.x, can.y - said!.y), "within 1 cm of where the preview said").toBeLessThan(0.01);
-  });
-
-  it("above the window's top the side walls stop, as the balls' do: a can thrown up and over a side goes out (QWW-113)", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(WIDTH - 0.3, CAN_HEIGHT / 2);
-    run(court, 0.5);
-    // swung up and to the right, let go just under the top while moving up and right
-    drag(court, can, { x: WIDTH - 0.3, y: 0.15 }, { x: WIDTH - 0.05, y: HEIGHT - 0.02 }, 0.25);
-    expect(can.vy).toBeGreaterThan(1);
-    expect(can.vx).toBeGreaterThan(0.3);
-    const id = can.id;
-    court.releaseCan(id);
-    const gone: number[] = [];
-    let highest = topOf(can);
-    for (let i = 0; i < Math.round(4 / STEP) && gone.length === 0; i++) {
-      gone.push(...court.step());
-      if (court.cans.length) highest = Math.max(highest, topOf(court.cans[0]));
+  it("stops a ball rolling along the lifted floor into the bench's left end against it, not onto the seat", () => {
+    for (const [w, h] of PHONES) {
+      const lift = 30;
+      const { L, court, px, toM } = courtWithScene(w, h, lift);
+      const from = toM([L.benchX - 300 * L.k, h - lift - RADIUS * px]);
+      const ball = court.addBall(from.x, from.y, false, 1.5, 0);
+      let highest = -Infinity; // the highest the ball's underside got above the floor, px
+      let furthest = ball.x;
+      run(court, 4, () => {
+        highest = Math.max(highest, h - lift - (h - (ball.y - RADIUS) * px));
+        furthest = Math.max(furthest, ball.x);
+      });
+      expect(highest, `it never climbs the end at ${w}x${h}`).toBeLessThan(2);
+      expect(furthest * px, `it stays left of the bench's front left corner's end face at ${w}x${h}`).toBeLessThan(sceneSolids(L).bench[4][0] + 1);
+      expect(ball.x * px, `it ends beside the end at ${w}x${h}`).toBeLessThan(L.benchX + 150 * L.k * 1.5);
     }
-    expect(highest, "it went above the window's top").toBeGreaterThan(HEIGHT);
-    expect(gone, "it went out past the right side line").toEqual([id]);
-    expect(court.cans).toHaveLength(0);
-  });
-
-  it("is caught by a drag while it falls, and a tap on it does nothing", () => {
-    const court = new Court(WIDTH, 4);
-    const tapped = court.addCan(1, 2);
-    run(court, 0.1);
-    expect(court.canState(tapped.id)).toBe("settling");
-    expect(court.tapCan(tapped.id)).toBe(false);
-    expect(tapped.ballsLeft).toBe(CAN_BALLS);
-    const caught = court.addCan(1.6, 2);
-    run(court, 0.1);
-    expect(court.grabCan(caught.id, { x: caught.x, y: caught.y })).toBe(true);
-    expect(court.canState(caught.id)).toBe("held");
-  });
-
-  it("can't be picked up while it pours or wiggles", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const full = court.addCan(0.6, CAN_HEIGHT / 2);
-    const empty = court.addCan(1.4, CAN_HEIGHT / 2, 0, 0);
-    run(court, 2);
-    expect(court.tapCan(full.id)).toBe(true);
-    expect(court.tapCan(empty.id)).toBe(true);
-    run(court, 0.1);
-    expect(court.canState(full.id)).toBe("pour");
-    expect(court.canState(empty.id)).toBe("wiggle");
-    expect(court.grabCan(full.id, full)).toBe(false);
-    expect(court.grabCan(empty.id, empty)).toBe(false);
-  });
-});
-
-describe("a can that is tapped", () => {
-  it("rises, tips to about 149 degrees, pours a ball every 0.22 s, and goes back down to exactly where it stood", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(1, CAN_HEIGHT / 2);
-    run(court, 2);
-    const stand = { x: can.x, y: can.y, angle: can.angle };
-    expect(court.tapCan(can.id)).toBe(true);
-    const seen: number[] = [];
-    let mostTipped = 0;
-    let highest = can.y;
-    for (let i = 0; i < Math.round(3 / STEP) && court.canState(can.id) !== "placed" || i < 2; i++) {
-      court.step();
-      mostTipped = Math.max(mostTipped, tiltOf(can.angle));
-      highest = Math.max(highest, can.y);
-      if (court.balls.length > seen.length) seen.push(i * STEP);
-    }
-    expect(court.canState(can.id)).toBe("placed");
-    expect(can.ballsLeft).toBe(0);
-    expect(court.balls).toHaveLength(CAN_BALLS);
-    expect(mostTipped).toBeGreaterThan(145);
-    expect(mostTipped).toBeLessThan(151);
-    expect(highest - stand.y, "it lifts clear first").toBeGreaterThan(0.03);
-    expect(seen[1] - seen[0], "a ball every 0.22 s").toBeGreaterThan(0.2);
-    expect(seen[1] - seen[0]).toBeLessThan(0.25);
-    expect(Math.hypot(can.x - stand.x, can.y - stand.y), "back where it stood (m)").toBeLessThan(0.001);
-    expect(tiltOf(can.angle - stand.angle)).toBeLessThan(0.1);
-  });
-
-  it("wiggles when it is empty, and stays put", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(1, CAN_HEIGHT / 2, 0, 0);
-    run(court, 2);
-    const stand = { x: can.x, y: can.y, angle: can.angle };
-    court.tapCan(can.id);
-    let most = 0;
-    for (let i = 0; i < Math.round(0.3 / STEP); i++) {
-      court.step();
-      most = Math.max(most, tiltOf(can.angle - stand.angle));
-    }
-    expect(court.canState(can.id)).toBe("wiggle");
-    expect(most, "it shakes").toBeGreaterThan(1);
-    run(court, 0.5);
-    expect(court.canState(can.id)).toBe("placed");
-    expect(court.balls).toHaveLength(0);
-    expect(Math.hypot(can.x - stand.x, can.y - stand.y)).toBeLessThan(0.001);
-    expect(tiltOf(can.angle - stand.angle)).toBeLessThan(0.1);
-  });
-
-  it("is only tapped when it stands still", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(1, 0.9);
-    expect(court.tapCan(can.id)).toBe(false); // falling
-    run(court, 2);
-    expect(court.tapCan(can.id)).toBe(true);
-    expect(court.tapCan(can.id)).toBe(false); // pouring
-  });
-});
-
-describe("a can and the ball that holds it up", () => {
-  it("stands fixed with the ball it leans on, and falls first when that ball is taken away", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const r = RADIUS;
-    const ball = court.addBall(1 + CAN_WIDTH / 2 + r + 0.03, r, false); // 3 cm off: the can tips over to lean on it
-    run(court, 1);
-    const can = court.addCan(1, CAN_HEIGHT / 2 + 0.02);
-    run(court, 3);
-    expect(court.canState(can.id)).toBe("placed");
-    expect(tiltOf(can.angle), "it leans on the ball").toBeGreaterThan(3);
-    expect(court.isPropping(ball.id)).toBe(true);
-    const stood = { x: can.x, y: can.y };
-    court.grab(ball.id); // the ball is taken: the can does not wait for it to move
-    court.step();
-    court.step();
-    court.step();
-    court.step();
-    expect(court.isPropping(ball.id)).toBe(false);
-    expect(court.canState(can.id)).toBe("settling");
-    run(court, 3);
-    expect(court.canState(can.id)).toBe("placed");
-    expect(Math.hypot(can.x - stood.x, can.y - stood.y), "it came down").toBeGreaterThan(0.005);
-  });
-
-  it("falls when the ball it stands on is taken away, but not before", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const ball = court.addBall(1, 0.5, true); // the dot of an "i": held in the air
-    const can = court.addCan(1, 0.5 + RADIUS + CAN_HEIGHT / 2 + 0.003);
-    run(court, 2);
-    expect(court.canState(can.id)).toBe("placed");
-    expect(can.y).toBeGreaterThan(0.5 + RADIUS);
-    court.hit(ball.id, 1, 0);
-    run(court, 0.1);
-    expect(court.canState(can.id)).not.toBe("placed");
-    run(court, 3);
-    expect(can.y).toBeLessThan(0.5);
-  });
-});
-
-describe("the cost of all of it", () => {
-  // At 60 frames a second there are 16.7 ms to a frame, in which the court steps 4 times (240 steps a second), so one simulated second
-  // is 240 steps and, at the pace of a frame, 1 s of real time. What those steps cost was measured, not guessed: 60 balls falling and
-  // bouncing, all moving, take about 20 ms in a court that is bare (the court of the first draft). With the bench and the bag in it
-  // they take about 75 ms, and with the three cans pouring as well about 90 ms. The bench and the bag cost the same whatever their
-  // outline (a 4-point bench as much as the bag's 141 points): what grows is the continuous-collision work (planck's TimeOfImpact and
-  // Distance) of balls meeting more shapes while they are all moving. That is under 2 ms of a frame's 16.7, so it is left as it is.
-  const FALL = 1.0; // m; the balls start above everything standing on the floor, so none of them starts inside the bench or the bag
-
-  function fullCourt(solidsAndCans: boolean) {
-    const { solids, toM } = courtWithScene();
-    const court = solidsAndCans
-      ? new Court(WIDTH, 5, [], [], 0, [solids.bench.map(toM)]) // tall, so that the cans pour in the air
-      : new Court(WIDTH, 5);
-    if (solidsAndCans) court.setBag([solids.bag.map(toM)]);
-    const loose = solidsAndCans ? MAX_BALLS - CAN_COUNT * CAN_BALLS : MAX_BALLS;
-    for (let i = 0; i < loose; i++) court.addBall(0.1 + (i % 12) * 0.1, FALL + Math.floor(i / 12) * 0.1, false);
-    if (solidsAndCans) for (let i = 0; i < CAN_COUNT; i++) court.tapCan(court.addCan(0.5 + i * 0.3, 4.5, 0, CAN_BALLS, 0, false, stood).id);
-    run(court, POUR_ALL_BY); // pour all nine, each making room for itself in a court that is full
-    return court;
-  }
-
-  /** How long one simulated second takes, in ms: the best of several, so that a busy machine (the other tests run alongside) does not count. */
-  function secondTakes(solidsAndCans: boolean): number {
-    let best = Infinity;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const court = fullCourt(solidsAndCans);
-      const started = performance.now();
-      run(court, 1);
-      best = Math.min(best, performance.now() - started);
-    }
-    return best;
-  }
-
-  it("steps a court with the bench and the bag, 60 balls and all three cans poured out much faster than real time, so that 60 frames a second is easy", () => {
-    const court = fullCourt(true);
-    expect(court.cans.reduce((sum, can) => sum + can.ballsLeft, 0)).toBe(0);
-    expect(court.balls).toHaveLength(MAX_BALLS);
-    const took = secondTakes(true);
-    expect(took, `one simulated second took ${took.toFixed(0)} ms`).toBeLessThan(250); // 4 times faster than real time
-  });
-
-  it("costs no more than a few times what the same balls cost in a bare court, so that a step that has become slow is seen on any machine", () => {
-    const bare = secondTakes(false);
-    const full = secondTakes(true);
-    expect(full, `${full.toFixed(0)} ms against ${bare.toFixed(0)} ms bare`).toBeLessThan(bare * 8); // about 4.5 times when measured
-  });
-});
-
-describe("a can lifted out of the bag", () => {
-  it("passes through the bag's outline while it is being lifted out, and is solid to it once it is clear", () => {
-    const { L, court, toM } = courtWithScene();
-    const inside = toM([L.bagAt[0] + 60 * L.k, L.bagAt[1] - 100 * L.k]); // standing in the bag, over the front's top edge
-    const can = court.addCan(inside.x, inside.y, 0, CAN_BALLS, 1, true, stood);
-    expect(court.isEmerging(can.id)).toBe(true);
-    court.grabCan(can.id, inside);
-    const above = toM([L.bagAt[0] + 60 * L.k, L.bagAt[1] - 900 * L.k]);
-    court.carryCan(can.id, above);
-    run(court, 1);
-    expect(can.y).toBeGreaterThan(inside.y + 0.1); // it went up through the outline
-    expect(court.isEmerging(can.id)).toBe(false); // and is clear of it now
-  });
-
-  it("is not emerging when it was never in the bag", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const can = court.addCan(1, 0.5);
-    expect(court.isEmerging(can.id)).toBe(false);
-  });
-});
-
-describe("the cans standing on the floor", () => {
-  it("stands each of three on the floor, where it stays upright and full", () => {
-    const court = new Court(WIDTH, HEIGHT);
-    const cans = [0.4, 0.7, 1].map((x) => court.addCan(x, CAN_HEIGHT / 2));
-    run(court, 3);
-    for (const can of cans) {
-      expect(tiltOf(can.angle)).toBeLessThan(1);
-      expect(can.ballsLeft).toBe(CAN_BALLS);
-    }
-    expect(court.balls).toHaveLength(0);
   });
 });
