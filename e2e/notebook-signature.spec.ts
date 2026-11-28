@@ -68,7 +68,7 @@ async function lastSpread(page: Page) {
     };
     const doodle = dialog.querySelector<SVGGElement>(".v6-nb-doodle")!;
     const visible = getComputedStyle(doodle).display !== "none";
-    const lastLine = lines.reduce((a, b) => (b.y0 > a.y0 + 1 || (Math.abs(b.y0 - a.y0) <= 1 && b.x0 > a.x0) ? b : a));
+    const lastLine = lines[lines.length - 1]; // the text nodes and their lines are in reading order
     return {
       visibleLines: lines.filter(shown),
       lastLine,

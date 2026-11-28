@@ -95,6 +95,8 @@ interface Geo {
 const DESIGN: Geo = { PW: 308, PH: 437, GUTTER: 24, SIDE: 7, OVER: 6, UNDER: 14, FS: 15, RULE_GAP: 19, TEXT_TOP: 34 };
 /** The smallest type, px, that the spread is shrunk to before it is given a shape of its own, and that the phone shape sets. */
 const PHONE_TYPE = 14;
+/** How wide "- Quinn Wai" is, in ems of the words' type (Caveat 500), measured with a little to spare. */
+const SIGN_EM = 4.6;
 /** The air round the spread in the phone shape, px (the design shape's is MARGIN). */
 const PHONE_MARGIN = 8;
 /** A window shorter than this, px, cannot hold the words on one spread at PHONE_TYPE: there they run over two spreads, turned by a chip. */
@@ -373,9 +375,15 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
   function lineBoxes() {
     const outer = text.getBoundingClientRect();
     const k = outer.width / text.offsetWidth || 1;
+    // (only the text nodes: the marker that holds the scroll's width open is no line of words)
     const range = document.createRange();
-    range.selectNodeContents(text);
-    return Array.from(range.getClientRects())
+    const rects: DOMRect[] = [];
+    const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      range.selectNodeContents(n);
+      rects.push(...Array.from(range.getClientRects()));
+    }
+    return rects
       .filter((r) => r.width > 0.5)
       .map((r) => ({ x0: (r.left - outer.left) / k, x1: (r.right - outer.left) / k, y0: (r.top - outer.top) / k, y1: (r.bottom - outer.top) / k }));
   }
@@ -410,6 +418,16 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
 
   /** Set the words at the largest size that fits, then draw the ball under them if the page they end on has room. */
   function measure(): void {
+    // The words may fill fewer than the four pages (the last one empty), but the second spread is still turned to, where the ball is: the
+    // browser only turns as far as the text's overflow reaches, so a 1 px marker holds the width of four columns open.
+    if (PAGED && !text.querySelector(".v6-nb-end")) {
+      const end = document.createElement("span");
+      end.className = "v6-nb-end";
+      end.setAttribute("aria-hidden", "true");
+      Object.assign(end.style, { position: "absolute", top: "0", width: "1px", height: "1px", visibility: "hidden" });
+      text.append(end);
+    }
+    if (PAGED) text.querySelector<HTMLElement>(".v6-nb-end")!.style.left = `${3 * (RP - LP) + TEXT_W - 1}px`;
     for (const px of SIZES) {
       setFont(px);
       fitsNow = textFits();
@@ -433,9 +451,12 @@ export function mountNotebook(opts: { onClosed(): void; onOpened?(): void; reduc
     const sit = Math.min(line + 3, RULES.length - 1);
     const r = Math.min(16, (ruleY(sit) - ruleY(line) - 8) / 2);
     ballShown = fitsNow && onRight && r >= 11;
+    // The sign-off ends at the page's right margin; on a narrow page the ball moves left so that it stays clear of the sign-off's start.
+    const signStart = RP + PW - 18 - SIGN_EM * fontPx;
+    const ballX = Math.min(RP + 150, signStart - 6 - r);
     ballSpread = Math.floor(col / 2);
     doodleBox.innerHTML = ballShown
-      ? `<g transform="translate(${RP + 150} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` +
+      ? `<g transform="translate(${f(ballX)} ${f(ruleY(sit) - r - 1)}) scale(${(r / 22).toFixed(3)})">${doodle(0, 0)}</g>` +
         // the sign-off, in the same pen, on the ball's line and flush with the page's right margin
         `<text class="v6-nb-sign" x="${f(RP + PW - 18)}" y="${f(ruleY(sit) - 3)}" text-anchor="end" font-family="Caveat, cursive" font-weight="500" font-size="${fontPx}" fill="${C.navy}">- Quinn Wai</text>`
       : "";
