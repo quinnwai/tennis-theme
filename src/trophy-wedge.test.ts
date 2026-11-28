@@ -11,7 +11,7 @@ import { floorLiftFor } from "./controls";
 import type { Vec } from "./input";
 import { params } from "./params";
 import { Court, STEP } from "./physics";
-import { TROPHY, TROPHY_BOX, TROPHY_HULL, trophyFit } from "./trophy";
+import { TROPHY, TROPHY_ART, TROPHY_BOX, TROPHY_HULL, trophyFit } from "./trophy";
 import { layoutName } from "./wordmark";
 import { WORDMARKS } from "./wordmark.data";
 
@@ -24,7 +24,7 @@ function run(court: Court, seconds: number): void {
 }
 
 /** The court a phone held sideways has, with the trophy let go over x = `over` px, and `pegs` solid discs at the corners. */
-function court(pegCount: number, over: number): { court: Court; px: number; trophyLeft: number; trophyRight: number } {
+function court(pegCount: number, over: number): { court: Court; px: number; art: { w: number; h: number }; foot: Vec } {
   const layout = layoutName(W, H, WORDMARKS[Object.keys(WORDMARKS)[0]], params.ballScale);
   const px = layout.ballPx / params.ballDiameter;
   const toMeters = (p: Vec) => ({ x: p.x / px, y: (H - p.y) / px });
@@ -43,13 +43,13 @@ function court(pegCount: number, over: number): { court: Court; px: number; trop
   c.setTrophy(
     TROPHY_HULL.map(([x, y]) => ({ x: x * s, y: y * s })),
     { x: TROPHY.rimX * s, y: TROPHY.rim * s, half: TROPHY.open * s },
-    toMeters({ x: over, y: H - floorLiftFor(true) - TROPHY_BOX.hh * 2 * s * px }),
+    toMeters({ x: over, y: H - floorLiftFor(true) - 0.6 * TROPHY_ART.h * s * px }),
     { cx: TROPHY_BOX.cx * s, cy: TROPHY_BOX.cy * s, hw: TROPHY_BOX.hw * s, hh: TROPHY_BOX.hh * s },
   );
   c.freeTrophy(true);
   run(c, 3);
-  const hull = c.trophyHull();
-  return { court: c, px, trophyLeft: Math.min(...hull.map((p) => p.x)), trophyRight: Math.max(...hull.map((p) => p.x)) };
+  const foot = c.trophyAnchor()!;
+  return { court: c, px, art: { w: TROPHY_ART.w * s * px, h: TROPHY_ART.h * s * px }, foot: { x: foot.x * px, y: H - foot.y * px } };
 }
 
 describe("balls dropped around a trophy set down near x = 150 on a 750 x 280 window", () => {
@@ -57,13 +57,12 @@ describe("balls dropped around a trophy set down near x = 150 on a 750 x 280 win
     it(`all fall asleep, with ${pegCount} peg${pegCount === 1 ? "" : "s"} on the court (QWW-120)`, () => {
       const stuck: string[] = [];
       for (const seed0 of [7, 23]) {
-        const { court: c, px, trophyLeft, trophyRight } = court(pegCount, 150);
+        const { court: c, px, art, foot } = court(pegCount, 150);
         let seed = seed0;
         const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-        const width = trophyRight - trophyLeft;
-        const top = c.trophyMouth()!.y;
+        // as the browser test does: just over the trophy's sides and its cup, 20 to 80 px over its top
         for (let i = 0; i < 20; i++) {
-          c.addBall(trophyLeft - width * 0.1 + rand() * width * 1.2, top + (20 + rand() * 60) / px, false);
+          c.addBall((foot.x - art.w * 0.6 + rand() * art.w * 1.2) / px, (H - (foot.y - art.h - 20 - rand() * 60)) / px, false);
           run(c, 0.15);
         }
         run(c, 12);

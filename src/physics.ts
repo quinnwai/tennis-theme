@@ -221,15 +221,17 @@ const WIGGLE = 0.45;
 /** The most a carried can leans into a sideways move, radians: about 17 degrees. */
 const MAX_LEAN = 0.3;
 /**
- * A ball is still when, for half a second, it has not gone further than a third of its diameter (`STILL_MOVE`) from where it began to be still and is nowhere near fast
- * (`STILL_SPEED`, engine units a second: 5 cm a second). Its speed alone says too little: a ball jammed between strokes shivers back and
- * forth at up to a few cm a second without going anywhere, which kept it, and every ball resting on it, awake (QWW-107). That was 1 mm
- * at first, too little for a ball wedged beside the set-down trophy: the engine's push to get it out of the overlap throws it between two
- * or three places up to a fifth of its diameter apart, every step, while its speed reads nothing (QWW-120). One that really moves, even at
- * the speed limit, goes about 2.5 cm (a third of its diameter) in that half second, so the spot is no wider than that.
+ * A ball is still when, for half a second, it has not gone further than `STILL_MOVE` (a fraction of its diameter) from where it began to be
+ * still, and is never fast (`STILL_SPEED`, engine units a second: 20 cm a second). Its speed alone says too little: a ball jammed between
+ * strokes shivers back and forth without going anywhere, which kept it, and every ball resting on it, awake (QWW-107). That spot was 1 mm
+ * across and the speed limit 5 cm a second, which was too little for the balls that pile up on the q's curve beside the set-down trophy
+ * (QWW-120): the engine's push to get one out of an overlap throws it between places up to a whole diameter apart, step after step, while
+ * its speed reads nothing (or reads a steady 6 cm a second, standing still), and another in the pile rocks 0.3 px while its speed spikes
+ * now and then. None of that goes anywhere. A ball that really rolls faster than about 13 cm a second leaves a spot a diameter from where
+ * it began in half a second, and one over 20 cm a second is never still.
  */
-const STILL_MOVE = 0.35;
-const STILL_SPEED = 0.5;
+const STILL_MOVE = 1;
+const STILL_SPEED = 2;
 /** How long a ball is still before it is put to sleep: half a second, as the engine's own. */
 const STILL_STEPS = Math.round(0.5 / STEP);
 
