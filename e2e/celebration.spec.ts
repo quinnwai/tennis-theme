@@ -13,6 +13,9 @@
 // In a frozen court (QWW-95) the celebration runs on the court's clock, as the stats delay already does, so `advance` moves it.
 // Nothing here may be weakened to pass; a check that is wrong is argued on QWW-104.
 //
+// QWW-117: the win's cheer has a second layer. game().heard gains "cheer-fx" when it starts, the log gains a "cheer-fx" entry (court time),
+// and params.cheerFxVolume (0.3) is how loud it plays.
+//
 // QWW-110 (step 11 of the review fixes): the trophy comes down with the confetti, as one sequence. It starts when the confetti's leading
 // pieces (the first 1% of them) reach 85% of the window's height, no longer once half of it has passed the middle. The log's "confetti-half" is
 // renamed "confetti-front" for that moment, and the glint keeps its 1.6 s after it. Also asked of the hook:
@@ -125,16 +128,24 @@ test.describe("the first win", () => {
     expect(t.y - t.height, "its top inside the window").toBeGreaterThanOrEqual(0);
   });
 
-  test("the win plays the cheer once, at 95% volume, and only Quinn-Wai's cheer", async ({ page }) => {
+  // QWW-117: the cheer is two layers, as in the prototype: successful-event.wav at once, and success-fx.wav 0.5 s later at 0.3 (the cheer is 0.95).
+  test("the win plays the cheer once, straight away, and its second layer once, 0.5 s later at about a third of the volume (QWW-117)", async ({ page }) => {
     const requested: string[] = [];
     page.on("request", (r) => requested.push(r.url()));
     await findGame(page);
-    await win(page);
+    const log = await win(page);
     const g = await game(page);
     expect(g.heard.filter((h) => h === "cheer"), "the cheer, once").toHaveLength(1);
+    expect(g.heard.filter((h) => h === "cheer-fx"), "its second layer, once").toHaveLength(1);
+    expect(g.heard.indexOf("cheer"), "the cheer first").toBeLessThan(g.heard.indexOf("cheer-fx"));
     expect(await sandbox<number>(page, "params.cheerVolume")).toBeCloseTo(0.95, 5);
-    expect(requested.some((u) => /successful-event/.test(u)), "successful-event is the file").toBe(true);
-    expect(requested.some((u) => /success-fx/.test(u)), "the prototype's success-fx is not shipped").toBe(false);
+    expect(await sandbox<number>(page, "params.cheerFxVolume"), "about a third of the cheer's volume").toBeCloseTo(0.3, 5);
+    const won = when(log, "won")!;
+    const fx = when(log, "cheer-fx");
+    expect(fx, "the second layer started").toBeDefined();
+    expect(Math.abs(fx!.t - won.t - 0.5), "0.5 s after the win (within 50 ms)").toBeLessThan(0.05);
+    expect(requested.some((u) => /successful-event/.test(u)), "successful-event is the first layer").toBe(true);
+    expect(requested.some((u) => /success-fx/.test(u)), "success-fx is the second").toBe(true);
   });
 
   test("with the sound off, the win plays no cheer but everything else happens", async ({ page }) => {
@@ -142,6 +153,7 @@ test.describe("the first win", () => {
     await findGame(page);
     const log = await win(page);
     expect((await game(page)).heard).not.toContain("cheer");
+    expect((await game(page)).heard).not.toContain("cheer-fx");
     expect(when(log, "trophy-settled")).toBeDefined();
     expect(when(log, "glint")).toBeDefined();
   });
