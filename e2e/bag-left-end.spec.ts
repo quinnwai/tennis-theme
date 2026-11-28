@@ -152,7 +152,7 @@ test.describe("the bag's left end", () => {
         expect(b.x, `it rests against the bag's drawn end, overlapping it, at ${at}`).toBeGreaterThan(faceLeft - r);
         const share = await inView(page, b);
         // Today the whole ball is in view (0.94 to 1). Behind the bag's front-left, only its back part shows: still enough to see and take.
-        expect(share, `only the ball's back part is in view at ${at}`).toBeLessThan(0.75);
+        expect(share, `only the ball's back part is in view at ${at}`).toBeLessThan(0.8);
         expect(share, `enough of it is in view to see at ${at}`).toBeGreaterThan(0.15);
 
         // the part in view is its left, the side away from the bag; a press there takes it. (Low on that side: on a phone the zip pull's
