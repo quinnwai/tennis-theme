@@ -38,16 +38,26 @@
   z-index: 2;
 }
 
-/* The chip that turns the page (only when the words run over two spreads): under the close chip, the same chip. */
-.v6-notebook .v6-nb-turn {
+/* The page arrows (only when the words run over two spreads): one beside each side of the spread, centred on it (placed in layout()).
+   The one with nowhere to turn to is fainter and disabled. */
+.v6-notebook .v6-nb-turns {
   position: absolute;
-  top: calc(var(--edge, 12px) + var(--chip, 44px) + 8px);
-  right: var(--edge, 12px);
+  inset: 0;
   z-index: 2;
+  pointer-events: none;
 }
 
-.v6-notebook .v6-nb-turn[hidden] {
+.v6-notebook .v6-nb-turns[hidden] {
   display: none;
+}
+
+.v6-notebook .v6-nb-turn {
+  position: absolute;
+}
+
+.v6-notebook .v6-nb-turn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* The notebook, closed, on its way out of the bag; hidden once the spread has taken its place. */
