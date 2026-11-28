@@ -221,11 +221,13 @@ const WIGGLE = 0.45;
 /** The most a carried can leans into a sideways move, radians: about 17 degrees. */
 const MAX_LEAN = 0.3;
 /**
- * A ball is still when, for half a second, it has not left a spot 1 mm across (`STILL_MOVE`, a fraction of its diameter) and is nowhere
+ * A ball is still when, for half a second, it has not left a spot 7 mm across (`STILL_MOVE`, a fraction of its diameter) and is nowhere
  * near fast (`STILL_SPEED`, engine units a second: 5 cm a second). Its speed alone says too little: a ball jammed between strokes shivers
- * back and forth at up to a few cm a second without going anywhere, which kept it, and every ball resting on it, awake (QWW-107).
+ * back and forth at up to a few cm a second without going anywhere, which kept it, and every ball resting on it, awake (QWW-107). The
+ * spot was 1 mm across then, which a ball wedged beside the set-down trophy overshoots: it flips between two places about 2 mm apart,
+ * every step, and so never counted as still (QWW-120). A ball that really moves, even at 5 cm a second, goes 2.5 cm in that half second.
  */
-const STILL_MOVE = 0.015;
+const STILL_MOVE = 0.1;
 const STILL_SPEED = 0.5;
 /** How long a ball is still before it is put to sleep: half a second, as the engine's own. */
 const STILL_STEPS = Math.round(0.5 / STEP);
