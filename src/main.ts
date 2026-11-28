@@ -86,6 +86,9 @@ function main(): void {
    * The win's celebration, on the court's clock: the confetti falls; once its front nears the bottom (the first 1% at 85% of the height), the trophy comes down (the first win only)
    * and the glint is due 1.6 s on, when it would have settled; then the stats drop down. `glintDue` is 0 until the confetti's front nears the bottom.
    */
+  /** When the cheer's second layer starts (court ms), or 0 when none is due (QWW-117). */
+  let cheerFxAt = 0;
+  const CHEER_FX_DELAY_MS = 500;
   let celebration: { glintDue: number; half: boolean } | null = null;
   let shower: Confetti | null = null;
   /**
@@ -299,6 +302,7 @@ function main(): void {
     if (readSound() === "on") heard.push("cheer");
     sound.preload("cheer");
     sound.play("cheer");
+    cheerFxAt = simMs + CHEER_FX_DELAY_MS;
     shower?.remove();
     shower = reducedMotion ? null : new Confetti(renderer.width, renderer.height);
     celebration = { glintDue: 0, half: false };
@@ -629,6 +633,12 @@ function main(): void {
       tally = { thrown: 0, inCans: 0, since: simMs, wonAt: 0 };
     }
     for (let i = drops.length - 1; i >= 0; i--) if (simMs - drops[i].since >= DROP_MS) drops.splice(i, 1);
+    if (cheerFxAt > 0 && simMs >= cheerFxAt) {
+      cheerFxAt = 0;
+      logEvent("cheer-fx");
+      if (readSound() === "on") heard.push("cheer-fx");
+      sound.play("cheerFx");
+    }
     stepTrophy();
     stepCelebration();
   }
