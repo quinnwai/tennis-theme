@@ -502,7 +502,7 @@ test.describe("a phone held sideways", () => {
     await fingers.lift(1);
   });
 
-  test("with ?tune, a button tuned smaller than 44 px is still 44 px, and a ball pressed against it is stopped at that size", async ({ page }) => {
+  test("with ?tune, a button tuned smaller than 44 px is still 44 px; a ball goes through the sound button and is stopped by the ? at that size (QWW-113)", async ({ page }) => {
     await page.goto("./?tune");
     await page.waitForFunction("window.__sandbox && window.__sandbox.balls().length === 2");
     await page.getByLabel("button icon size").fill("24");
@@ -517,9 +517,8 @@ test.describe("a phone held sideways", () => {
     // The slider did take hold: the icon in the button is the 24 px that was asked for, in a button that is not the 32 px a mouse would get.
     expect(await page.getByRole("button", { name: /^Sound/ }).locator("svg").evaluate((el) => getComputedStyle(el).width)).toBe("24px");
 
-    // The button is a solid disc in the toy, as big as its box. Carry the right-hand ball up to the sound button and push it against the
-    // button with the finger ending in its middle: the ball is stopped at the button's surface, a ball's radius and the button's from its
-    // middle. (A disc of the icon's size would let it get 6 px closer.)
+    // The top-right buttons are not solid in the toy (QWW-113): carry the right-hand ball up to the sound button with the finger ending in
+    // its middle, and the ball goes all the way there, instead of being stopped at the button's surface.
     const sound = (await buttons[2].boundingBox())!;
     const middle = { x: sound.x + sound.width / 2, y: sound.y + sound.height / 2 };
     await freeze(page);
@@ -528,10 +527,17 @@ test.describe("a phone held sideways", () => {
     await fingers.press(1, d);
     await fingers.move(1, { x: middle.x, y: d.y }, 8);
     await fingers.move(1, middle, 8);
-    const contact = sound.width / 2 + d.r;
-    await until(page, async () => distance(await ball(page, d.id), middle), (gap) => gap < contact + 6, "the ball reaches the button");
+    await until(page, async () => distance(await ball(page, d.id), middle), (gap) => gap < 6, "the ball reaches the button's middle");
+    // The "?" is still a solid disc, as big as its box: carry the ball down onto it with the finger ending in its middle, and the ball is
+    // stopped at its surface, a ball's radius and the button's from its middle. (A disc of the icon's size would let it get 6 px closer.)
+    const q = (await buttons[3].boundingBox())!;
+    const qMiddle = { x: q.x + q.width / 2, y: q.y + q.height / 2 };
+    await fingers.move(1, { x: qMiddle.x, y: qMiddle.y - q.height - 2 * d.r }, 8);
+    await fingers.move(1, qMiddle, 8);
+    const contact = q.width / 2 + d.r;
+    await until(page, async () => distance(await ball(page, d.id), qMiddle), (gap) => gap < contact + 6, "the ball reaches the ?");
     await advance(page, 0.5);
-    const stopped = distance(await ball(page, d.id), middle);
+    const stopped = distance(await ball(page, d.id), qMiddle);
     expect(stopped).toBeGreaterThan(contact - 4);
     expect(stopped).toBeLessThan(contact + 6);
     await fingers.lift(1);
@@ -576,7 +582,7 @@ test.describe("a phone held sideways", () => {
     await page.getByLabel("icon share of the short side").fill("0.08");
     expect(await sandbox<number>(page, "params.iconShare")).toBe(0.08);
     await expect.poll(soundIcon).toBe(22); // 8% of 280
-    // The buttons are still 44 px, and the ball still bounces off the sound button's disc at that size.
+    // The buttons are still 44 px.
     expect((await page.getByRole("button", { name: /^Sound/ }).boundingBox())!.width).toBe(44);
   });
 
