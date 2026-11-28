@@ -2,6 +2,7 @@
    (the racquet) over it; neither takes pointer events. The buttons over the zip pull and the notebook do. */
 .v6-back,
 .v6-cover,
+.v6-bagcover,
 .v6-front,
 .v6-hit {
   position: fixed;

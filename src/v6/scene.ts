@@ -313,6 +313,11 @@ export class Scene {
   /** Over the canvas: the bench's front left corner and the towel on it, in front of a ball beside the bench's left end. */
   private cover: HTMLElement;
   private benchCoverSvg: SVGSVGElement;
+  /** Over the canvas: the bag's art (no contents) clipped to its left end, in front of a ball resting against that end. */
+  private bagCover: HTMLElement;
+  private bagCoverSvg: SVGSVGElement;
+  private bagCoverBackG: SVGGElement;
+  private bagCoverFrontG: SVGGElement;
   private towelCoverSvg: SVGSVGElement;
   private front: HTMLElement;
   private hit: HTMLElement;
@@ -340,6 +345,8 @@ export class Scene {
     this.back.className = "v6-back";
     this.cover = document.createElement("div");
     this.cover.className = "v6-cover";
+    this.bagCover = document.createElement("div");
+    this.bagCover.className = "v6-bagcover";
     this.front = document.createElement("div");
     this.front.className = "v6-front";
     this.hit = document.createElement("div");
@@ -367,6 +374,12 @@ export class Scene {
     ).join("");
     this.rises = [...this.itemsG.querySelectorAll<SVGGElement>(".v6-rise")];
     this.bagSvg.append(this.bagBackG, this.itemsG, this.bagFrontG);
+    this.bagCoverSvg = svgEl(null, "v6-art");
+    this.bagCoverSvg.setAttribute("viewBox", BAG_VB.join(" "));
+    this.bagCoverBackG = document.createElementNS(svgNS, "g");
+    this.bagCoverFrontG = document.createElementNS(svgNS, "g");
+    this.bagCoverSvg.append(this.bagCoverBackG, this.bagCoverFrontG);
+    this.bagCover.append(this.bagCoverSvg);
 
     this.back.append(this.benchSvg, this.towelSvg, this.shadowsSvg, this.bagSvg);
     this.front.append(this.racquetSvg);
@@ -382,7 +395,7 @@ export class Scene {
     this.hit.append(this.pullButton, this.notebookButton);
 
     canvas.before(this.back);
-    canvas.after(this.cover, this.front, this.hit);
+    canvas.after(this.bagCover, this.cover, this.front, this.hit);
 
     this.wirePull();
     this.notebookButton.addEventListener("click", () => this.takeNotebook());
@@ -410,6 +423,11 @@ export class Scene {
     ];
     this.cover.style.clipPath = `polygon(${corner.map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px`).join(", ")})`;
     put(this.bagSvg, BAG_VB, BAG_ANCHOR, L.bagAt, k);
+    // The balls land on the bag's outline half way back, so one resting against its left end overlaps the drawn front panel's
+    // bulging end: the cover repeats the bag over the canvas, clipped to what lies left of that outline's leftmost point.
+    put(this.bagCoverSvg, BAG_VB, BAG_ANCHOR, L.bagAt, k);
+    const bagLeft = Math.min(...bagOutline().map((p) => bagToPage(L, p)[0]));
+    this.bagCover.style.clipPath = `polygon(0px 0px, ${bagLeft.toFixed(1)}px 0px, ${bagLeft.toFixed(1)}px ${L.height}px, 0px ${L.height}px)`;
     put(this.racquetSvg, racquet().vb, [0, 0], L.racquetAt, k, RACQUET_TILT);
     this.drawShadows();
     // what stands in the open bag stops where this window lets it
@@ -554,6 +572,8 @@ export class Scene {
   private drawBag(): void {
     this.bagBackG.innerHTML = bagBack(this.zip);
     this.bagFrontG.innerHTML = bagFront(this.zip);
+    this.bagCoverBackG.innerHTML = bagBack(this.zip);
+    this.bagCoverFrontG.innerHTML = bagFront(this.zip);
   }
 
   private drawShadows(): void {
